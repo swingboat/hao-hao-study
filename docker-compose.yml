@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hao-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hao
+      POSTGRES_PASSWORD: hao_dev
+      POSTGRES_DB: hao_dev
+    ports:
+      - '5432:5432'
+    volumes:
+      - hao-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U hao -d hao_dev']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: hao-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - hao-redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  hao-pg-data:
+  hao-redis-data:

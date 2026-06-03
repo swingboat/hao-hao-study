@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "moduleDetection": "force",
+    "jsx": "preserve",
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "useUnknownInCatchVariables": true,
+
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "incremental": true,
+
+    "baseUrl": ".",
+    "paths": {
+      "@hao/db": ["packages/db/src/index.ts"],
+      "@hao/db/*": ["packages/db/src/*"],
+      "@hao/shared": ["packages/shared/src/index.ts"],
+      "@hao/shared/*": ["packages/shared/src/*"],
+      "@hao/llm": ["packages/llm/src/index.ts"],
+      "@hao/llm/*": ["packages/llm/src/*"],
+      "@hao/ui": ["packages/ui/src/index.ts"],
+      "@hao/ui/*": ["packages/ui/src/*"]
+    }
+  },
+  "exclude": ["node_modules", "dist", ".next", ".turbo"]
+}
