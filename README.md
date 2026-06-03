@@ -64,16 +64,21 @@ pnpm dev:web       # 学生端 http://localhost:3000
 本仓库设计为 **总控 / 运营端 / 学生端 3 个 Claude Code 进程并行**。详见 [`docs/Git_Worktree_Guide.md`](./docs/Git_Worktree_Guide.md)。
 
 ```bash
-# 一次性初始化 3 个 worktree
+# 一次性初始化 worktree（创建 worktrees/admin 和 worktrees/web）
 bash scripts/setup-worktrees.sh
 ```
 
 之后在不同终端启动 Claude Code：
 
 ```bash
-cd worktrees/core   && claude    # 总控（Claude A）
-cd worktrees/admin  && claude    # 运营端（Claude B）
-cd worktrees/web    && claude    # 学生端（Claude C）
+# 终端 1（总控 A，同时是合并枢纽）—— 在主目录
+cd /Users/huyin/Swingboat/github/hao-hao-study && claude
+
+# 终端 2（运营端 B）
+cd worktrees/admin && claude
+
+# 终端 3（学生端 C）
+cd worktrees/web && claude
 ```
 
 ## 文档语言

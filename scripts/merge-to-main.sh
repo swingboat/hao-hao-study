@@ -63,4 +63,4 @@ fi
 
 echo ""
 echo "✅ $FEATURE_BRANCH 已合入 main"
-echo "   下一步：通知总控（A）在 worktrees/core 执行 git rebase main"
+echo "   下一步：通知对端 worktree（B/C）执行 \`bash ../../scripts/sync-from-main.sh\` 拉取最新 main"

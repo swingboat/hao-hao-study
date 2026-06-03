@@ -24,10 +24,9 @@
 
 | Worktree | 可写 |
 |---|---|
-| `worktrees/core/`（总控） | `packages/**`、`docs/**`、`scripts/**`、根配置 |
-| `worktrees/admin/`（运营端） | `apps/admin/**` |
-| `worktrees/web/`（学生端） | `apps/web/**` |
-| 主目录（合并枢纽） | 仅执行 `merge-to-main.sh`，不做开发 |
+| 主目录（`./`，总控 + 合并枢纽，branch=main） | `packages/**`、`docs/**`、`scripts/**`、根配置；执行 merge feat → main |
+| `worktrees/admin/`（运营端，branch=feat/admin） | `apps/admin/**` |
+| `worktrees/web/`（学生端，branch=feat/web） | `apps/web/**` |
 
 ## 项目状态
 

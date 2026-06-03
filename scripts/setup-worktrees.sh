@@ -33,8 +33,8 @@ else
   echo "✅ git 仓库已存在"
 fi
 
-# ─── Step 2: 创建 3 个分支（如果尚未存在）─────────────────────
-for branch in core/main feat/admin feat/web; do
+# ─── Step 2: 创建 2 个 feat 分支（如果尚未存在）───────────────
+for branch in feat/admin feat/web; do
   if git rev-parse --verify "$branch" >/dev/null 2>&1; then
     echo "✅ 分支 $branch 已存在"
   else
@@ -58,7 +58,6 @@ create_worktree() {
   fi
 }
 
-create_worktree "core" "core/main"
 create_worktree "admin" "feat/admin"
 create_worktree "web" "feat/web"
 
@@ -75,19 +74,18 @@ copy_role() {
   echo "📄 写入 $dst"
 }
 
-copy_role "core"
 copy_role "admin"
 copy_role "web"
 
-# 主目录（main）也放一份角色文件，提醒"这是合并枢纽，不要做开发"
+# 主目录（main）= 总控 + 合并枢纽（双重身份），放对应角色文件
 if [ -f "scripts/role-templates/role-main.md" ]; then
   cp "scripts/role-templates/role-main.md" ".claude-role.md"
-  echo "📄 写入 ./.claude-role.md（主目录 = 合并枢纽角色）"
+  echo "📄 写入 ./.claude-role.md（主目录 = 总控 + 合并枢纽）"
 fi
 
 # ─── Step 5: .env symlink（如有 .env 实文件）──────────────────
 if [ -f ".env" ]; then
-  for name in core admin web; do
+  for name in admin web; do
     target="worktrees/$name/.env"
     if [ ! -e "$target" ]; then
       ln -s "../../.env" "$target"
@@ -104,7 +102,7 @@ echo "🧪 自检："
 git worktree list
 echo ""
 echo "✅ 初始化完成。下一步："
-echo "   终端 1: cd worktrees/core  && claude"
-echo "   终端 2: cd worktrees/admin && claude"
-echo "   终端 3: cd worktrees/web   && claude"
-echo "   主目录用作合并枢纽：bash scripts/merge-to-main.sh feat/admin|feat/web"
+echo "   终端 1（总控 + 合并）: cd $(basename "$REPO_ROOT") && claude"
+echo "   终端 2（运营端 B）   : cd worktrees/admin && claude"
+echo "   终端 3（学生端 C）   : cd worktrees/web   && claude"
+echo "   合并 feat → main    : bash scripts/merge-to-main.sh feat/admin|feat/web"
