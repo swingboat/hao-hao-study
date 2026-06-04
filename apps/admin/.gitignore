@@ -1,0 +1,14 @@
+# Next.js
+.next/
+out/
+
+# 环境变量（含密钥，永不入 git）
+.env
+.env.local
+.env*.local
+
+# dev-server.sh 守护脚本运行时文件
+.run/
+
+# IDE
+.DS_Store
