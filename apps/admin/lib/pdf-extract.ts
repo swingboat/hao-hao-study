@@ -17,8 +17,13 @@ export interface ExtractedPdf {
   truncated: boolean;
 }
 
-/** 最长保留多少字符送 LLM（防超 context；Webex Gemini 3.1 Pro 很宽，但保留余量）。 */
-const MAX_CHARS = 80_000;
+/** 最长保留多少字符送 LLM。
+ *
+ * Webex Gemini 3.1 Pro context 1M token，单字符 ≈ 0.5 token，
+ * 留 prompt + response 余量后，400k 字符（约 200k tokens）足够整本必修教材 270 页。
+ * 历史值 80_000 是为防超 context 设的过度保守上限，曾把整本必修一截到只剩前 3 章。
+ */
+const MAX_CHARS = 400_000;
 
 export async function extractPdfText(buf: Buffer): Promise<ExtractedPdf> {
   const parser = new PDFParse({ data: buf });
