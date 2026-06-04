@@ -218,3 +218,81 @@ describe('extractJsonBlock', () => {
     expect(extractJsonBlock('{"a":3}')).toEqual({ a: 3 });
   });
 });
+
+describe('zodToJsonSchema — stripLengthConstraints', () => {
+  // 探针证据：F4.3 KP 解析时 Gemini 因 length 约束触发 "too many states for serving" 400
+  // 修复：默认丢弃 minLength/maxLength/minItems/maxItems；二次 zod parse 兜底校验
+  it('默认丢弃 string 的 minLength/maxLength', async () => {
+    const { zodToJsonSchema } = await import('./json-schema');
+    const out = zodToJsonSchema(z.string().min(2).max(50));
+    expect(out).toEqual({ type: 'string' });
+    expect(out.minLength).toBeUndefined();
+    expect(out.maxLength).toBeUndefined();
+  });
+
+  it('默认丢弃 array 的 minItems/maxItems', async () => {
+    const { zodToJsonSchema } = await import('./json-schema');
+    const out = zodToJsonSchema(z.array(z.string()).min(1).max(200));
+    expect(out.type).toBe('array');
+    expect(out.minItems).toBeUndefined();
+    expect(out.maxItems).toBeUndefined();
+  });
+
+  it('显式 stripLengthConstraints:false 时保留 length 约束', async () => {
+    const { zodToJsonSchema } = await import('./json-schema');
+    const out = zodToJsonSchema(z.string().min(2).max(50), { stripLengthConstraints: false });
+    expect(out.minLength).toBe(2);
+    expect(out.maxLength).toBe(50);
+  });
+
+  it('嵌套 schema 默认行为也透传：KP-like batch 不含任何 length 字段', async () => {
+    const { zodToJsonSchema } = await import('./json-schema');
+    // 模拟 KnowledgePointBatchSchema 的形态（带 min/max + nullable + optional）
+    const Batch = z.object({
+      items: z
+        .array(
+          z.object({
+            name: z.string().min(2).max(50),
+            chapter_no: z.string().max(20).nullable().optional(),
+            brief: z.string().max(200).optional(),
+          }),
+        )
+        .min(1)
+        .max(200),
+    });
+    const out = JSON.stringify(zodToJsonSchema(Batch));
+    expect(out).not.toContain('minLength');
+    expect(out).not.toContain('maxLength');
+    expect(out).not.toContain('minItems');
+    expect(out).not.toContain('maxItems');
+    // 形状仍在
+    expect(out).toContain('"type":"object"');
+    expect(out).toContain('"properties"');
+    expect(out).toContain('"items"');
+  });
+
+  it('callLLM 真实路径：openai_chat 的 response_format 不含 length 约束', async () => {
+    findUnique.mockResolvedValue(OPENAI_PROVIDER);
+    mockFetchOnce(200, {
+      choices: [{ message: { content: '{"items":[{"name":"集合的并集"}]}' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+
+    const KPSchema = z.object({
+      items: z.array(z.object({ name: z.string().min(2).max(50) })).min(1).max(200),
+    });
+    const result = await callLLM({
+      providerId: 'webex-gemini-3.1-pro',
+      prompt: 'x',
+      schema: KPSchema,
+    });
+
+    const body = result.requestPayload as {
+      response_format?: { json_schema?: { schema?: object } };
+    };
+    const sentSchema = JSON.stringify(body.response_format?.json_schema?.schema ?? {});
+    expect(sentSchema).not.toContain('minLength');
+    expect(sentSchema).not.toContain('maxLength');
+    expect(sentSchema).not.toContain('maxItems');
+  });
+});
