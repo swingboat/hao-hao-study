@@ -26,6 +26,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Link href="/admin" className="font-semibold">
             好好学习 · 运营端
           </Link>
+          <Link href="/admin/settings/llm" className="opacity-70 hover:opacity-100">
+            LLM 设置
+          </Link>
         </nav>
         <form action={logoutAction} className="flex items-center gap-3">
           <span className="opacity-70">管理员 / {session.sub}</span>
