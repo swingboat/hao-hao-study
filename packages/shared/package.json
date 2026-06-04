@@ -7,6 +7,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./labels": "./src/labels/index.ts",
     "./schemas": "./src/schemas/index.ts",
     "./recommender": "./src/recommender/index.ts",
     "./session-commit": "./src/session-commit/index.ts",
@@ -22,6 +23,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/node": "^22.10.5",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"
   }

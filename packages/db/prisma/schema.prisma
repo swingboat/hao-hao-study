@@ -34,81 +34,103 @@ datasource db {
   extensions = [pgcrypto]
 }
 
-
 // ══════════════════════════════════════════════════════════════════
 //  §A  枚举
 // ══════════════════════════════════════════════════════════════════
 
 /// 学生学习会话状态
 enum LearningSessionStatus {
-  in_progress   /// 进行中：已凑题，学生答题中
-  completed     /// 已完成：学生主动提交或番茄钟到期
-  abandoned     /// 已放弃：超过 25 分钟未提交，下次进入首页时被清扫
+  in_progress /// 进行中：已凑题，学生答题中
+  completed /// 已完成：学生主动提交或番茄钟到期
+  abandoned /// 已放弃：超过 25 分钟未提交，下次进入首页时被清扫
 }
 
 /// 错题本条目状态（决议 S2 D2=a 永久 resolve，不可 reopen）
 enum MistakeStatus {
-  open          /// 未掌握：等待学生重做或在常规 Session 中召回
-  resolved      /// 已掌握：连续 2 次答对（决议 S2-N=2）
+  open /// 未掌握：等待学生重做或在常规 Session 中召回
+  resolved /// 已掌握：连续 2 次答对（决议 S2-N=2）
 }
 
 /// 题目类型（v0.1 仅支持选择/填空，决议 Q2=a）
 enum PracticeItemType {
-  choice        /// 选择题（单选/多选）
-  fill_in       /// 填空题
+  choice /// 选择题（单选/多选）
+  fill_in /// 填空题
 }
 
 /// LLM Provider 协议类型（运营端 §7）
 enum LLMProtocol {
-  openai_chat                 /// OpenAI /v1/chat/completions 协议
-  google_generate_content     /// Google /v1/models/*:generateContent 协议
+  openai_chat /// OpenAI /v1/chat/completions 协议
+  google_generate_content /// Google /v1/models/*:generateContent 协议
 }
 
 /// LLM 解析任务种类（运营端 F2.2 默认 Provider 绑定维度）
 enum ParseTaskKind {
-  practice_item   /// 题目抽取
+  practice_item /// 题目抽取
   knowledge_point /// 知识点抽取
-  goal_template   /// Goal Template 抽取（v0.2 才用，schema 先留位）
+  goal_template /// Goal Template 抽取（v0.2 才用，schema 先留位）
 }
 
 /// LLM 解析任务状态
 enum ParseJobStatus {
-  queued      /// 已排队，等待 worker 拉取
-  running     /// 运行中
-  succeeded   /// 成功
-  failed      /// 失败：5xx / 超时 / schema 校验未过
+  queued /// 已排队，等待 worker 拉取
+  running /// 运行中
+  succeeded /// 成功
+  failed /// 失败：5xx / 超时 / schema 校验未过
 }
 
 /// 上传文件类型
 enum UploadFileType {
-  exam_outline   /// 考试大纲（goal_template 用）
-  textbook       /// 教材 / 章节讲义（knowledge_point 用）
-  item_pack      /// 题集 / 习题图（practice_item 用）
+  exam_outline /// 考试大纲（goal_template 用）
+  textbook /// 教材 / 章节讲义（knowledge_point 用）
+  item_pack /// 题集 / 习题图（practice_item 用）
 }
 
 /// 上传记录的处理阶段
 enum UploadStatus {
-  uploaded     /// 已上传，未触发解析
-  parsed       /// 已触发解析
-  published    /// 该批次已审核完毕，至少一条 staging 已发布
-  discarded    /// 全部丢弃
+  uploaded /// 已上传，未触发解析
+  parsed /// 已触发解析
+  published /// 该批次已审核完毕，至少一条 staging 已发布
+  discarded /// 全部丢弃
 }
 
 /// staging 行的人工审核状态
 enum ReviewStatus {
-  pending      /// 等待审核
-  accepted     /// 已接受并发布到正式表
-  rejected     /// 已丢弃
-  edited       /// 草稿（运营修改了一些字段但尚未发布）
+  pending /// 等待审核
+  accepted /// 已接受并发布到正式表
+  rejected /// 已丢弃
+  edited /// 草稿（运营修改了一些字段但尚未发布）
 }
 
 /// LearningSession 中题目分配的来源池（用于事后分析；学生端不展示）
 enum SessionPoolSource {
-  error_review        /// 池 A：错题重做
-  spaced_repetition   /// 池 B：Layer 3 间隔复习
-  new_knowledge       /// 池 C：新题
+  error_review /// 池 A：错题重做
+  spaced_repetition /// 池 B：Layer 3 间隔复习
+  new_knowledge /// 池 C：新题
 }
 
+/// 学段（K-12 全谱系；v0.1 仅 senior，primary/junior 预留 v0.2+）
+enum Stage {
+  primary /// 小学（grade g1-g6）
+  junior /// 初中（grade g7-g9）
+  senior /// 高中（grade g10-g12）
+}
+
+/// 年级（绝对学龄序号 1-12，跨学段可排序；展示中文标签由 packages/shared/labels/grade 映射）
+/// v0.1 学生注册仅允许 g10/g11/g12（高一/高二/高三）；其他取值为 v0.2+ 预留
+enum Grade {
+  g1 /// 一年级
+  g2 /// 二年级
+  g3 /// 三年级
+  g4 /// 四年级
+  g5 /// 五年级
+  g6 /// 六年级
+  g7 /// 初一（七年级）
+  g8 /// 初二（八年级）
+  g9 /// 初三（九年级）
+  g10 /// 高一
+  g11 /// 高二
+  g12 /// 高三
+}
 
 // ══════════════════════════════════════════════════════════════════
 //  §B  主域 — 学生 / 学科 / 知识点 / 题目
@@ -116,15 +138,17 @@ enum SessionPoolSource {
 
 /// 学科（v0.1 仅 1 条："math" 高中数学），由运营 SQL 硬塞
 model subject {
-  /// 主键，人类可读字符串。约定使用学科英文标识，如 "math"、"physics"
-  id                String   @id
+  /// 主键，人类可读字符串。约定使用学科英文标识 + 学段后缀，如 "math_senior"、"math_junior"
+  id    String @id
   /// 学科中文名，展示给学生看，如"高中数学"
-  name              String
+  name  String
+  /// 学段（v0.1 仅 senior）
+  stage Stage
 
   // 反向关系
-  knowledge_points       knowledge_point[]
+  knowledge_points          knowledge_point[]
   knowledge_point_masteries knowledge_point_mastery[]
-  students_primary       student[]                 @relation("student_primary_subject")
+  students_primary          student[]                 @relation("student_primary_subject")
 
   @@map("subject")
 }
@@ -132,40 +156,42 @@ model subject {
 /// 学生 — 系统所有学习数据的归属者
 model student {
   /// 主键 UUID（系统生成）
-  id                  String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// 登录用户名，全局唯一，由运营开户时下发（运营端 F5.2）
-  username            String     @unique
+  username           String    @unique
   /// argon2 哈希后的密码，明文永不入库
-  password_hash       String
+  password_hash      String
   /// 学生真实姓名
-  name                String
-  /// 学习阶段，取值 "高一" / "高二" / "高三"
-  grade               String
+  name               String
+  /// 学段（v0.1 仅 senior）。冗余存储 = grade 派生（g1-g6→primary / g7-g9→junior / g10-g12→senior），便于范围查询；应用层须保证 stage 与 grade 一致
+  stage              Stage
+  /// 年级（v0.1 学生注册仅允许 g10/g11/g12 = 高一/高二/高三）；展示用中文标签由 packages/shared/labels/grade 映射
+  grade              Grade
   /// 主修学科外键（MVP 仅 math）
-  primary_subject_id  String
-  primary_subject     subject    @relation("student_primary_subject", fields: [primary_subject_id], references: [id])
+  primary_subject_id String
+  primary_subject    subject   @relation("student_primary_subject", fields: [primary_subject_id], references: [id])
   /// 目标考试文本标签，如"高考数学 2027"。MVP 仅展示
-  target_exam         String
+  target_exam        String
   /// 监护人同意时间。NULL = 学生端 G1.3 尚未确认
   /// 强约束：NULL 时禁止访问任何学习功能（学生端 T2）
-  parent_consent_at   DateTime?  @db.Timestamptz()
+  parent_consent_at  DateTime? @db.Timestamptz()
   /// 冷启动期标记。MVP 仅展示，不影响推荐
-  cold_start_mode     Boolean    @default(true)
+  cold_start_mode    Boolean   @default(true)
   /// 已解锁知识点 ID 数组（决议 S2-A）
   /// 推荐器三池统一加过滤 kp_id ∈ unlocked_kp_ids（学生端 T3 / T9）
-  unlocked_kp_ids     String[]   @db.Uuid
+  unlocked_kp_ids    String[]  @db.Uuid
   /// 创建时间（开户时间）
-  created_at          DateTime   @default(now()) @db.Timestamptz()
+  created_at         DateTime  @default(now()) @db.Timestamptz()
   /// 软删时间。非 NULL 表示已注销（学生端 G5.3 / 运营端 F5.4）
   /// 注销时本表软删，关联 5 张派生表硬删
-  soft_deleted_at     DateTime?  @db.Timestamptz()
+  soft_deleted_at    DateTime? @db.Timestamptz()
 
   // 反向关系
-  learning_sessions          learning_session[]
-  practice_attempts          practice_attempt[]
-  knowledge_point_masteries  knowledge_point_mastery[]
-  mistake_entries            mistake_book_entry[]
-  spaced_reviews             spaced_review[]
+  learning_sessions         learning_session[]
+  practice_attempts         practice_attempt[]
+  knowledge_point_masteries knowledge_point_mastery[]
+  mistake_entries           mistake_book_entry[]
+  spaced_reviews            spaced_review[]
 
   @@index([username])
   @@index([soft_deleted_at])
@@ -175,16 +201,16 @@ model student {
 /// 知识点 — 课程标准最小颗粒度（决议 C1）
 model knowledge_point {
   /// 主键 UUID
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// 知识点中文名，如"函数的单调性"
-  name         String
+  name       String
   /// 所属学科外键
-  subject_id   String
-  subject      subject  @relation(fields: [subject_id], references: [id])
+  subject_id String
+  subject    subject  @relation(fields: [subject_id], references: [id])
   /// 章节编号文本（v0.1 简化字段，不外键 chapter 实体）
-  chapter_no   String?
+  chapter_no String?
   /// 创建时间
-  created_at   DateTime @default(now()) @db.Timestamptz()
+  created_at DateTime @default(now()) @db.Timestamptz()
 
   // 反向关系
   knowledge_point_masteries knowledge_point_mastery[]
@@ -198,24 +224,24 @@ model knowledge_point {
 /// 题目（v0.1 仅 choice / fill_in）
 model practice_item {
   /// 主键 UUID
-  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// 题干（题目正文）
-  content         String
+  content       String
   /// 标准答案
-  answer          String
+  answer        String
   /// 题目解析全文（学生端 G3.4 展示）
-  solution_text   String
+  solution_text String
   /// 关联的所有知识点 ID 数组（决议 C1：N:M 通过数组）
   /// 必须包含 primary_kp_id
-  kp_ids          String[]         @db.Uuid
+  kp_ids        String[]         @db.Uuid
   /// 主知识点 ID（决议 S2-D5：仅主 KP 入错题本）
-  primary_kp_id   String           @db.Uuid
+  primary_kp_id String           @db.Uuid
   /// 难度档：1=最易 ... 5=最难
-  difficulty      Int
+  difficulty    Int
   /// 题型枚举（决议 Q2=a 不收 essay）
-  item_type       PracticeItemType
+  item_type     PracticeItemType
   /// 创建时间
-  created_at      DateTime         @default(now()) @db.Timestamptz()
+  created_at    DateTime         @default(now()) @db.Timestamptz()
 
   // 反向关系
   practice_attempts practice_attempt[]
@@ -226,7 +252,6 @@ model practice_item {
   @@map("practice_item")
 }
 
-
 // ══════════════════════════════════════════════════════════════════
 //  §C  学习行为域 — Session / Attempt
 // ══════════════════════════════════════════════════════════════════
@@ -234,21 +259,21 @@ model practice_item {
 /// 学习会话（学生端 G3.1）
 model learning_session {
   /// 主键 UUID
-  id            String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id           String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// 学生外键
-  student_id    String                @db.Uuid
-  student       student               @relation(fields: [student_id], references: [id])
+  student_id   String                @db.Uuid
+  student      student               @relation(fields: [student_id], references: [id])
   /// 开始时间
-  started_at    DateTime              @default(now()) @db.Timestamptz()
+  started_at   DateTime              @default(now()) @db.Timestamptz()
   /// 结束时间
-  ended_at      DateTime?             @db.Timestamptz()
+  ended_at     DateTime?             @db.Timestamptz()
   /// 状态枚举
-  status        LearningSessionStatus @default(in_progress)
+  status       LearningSessionStatus @default(in_progress)
   /// 本次会话分配的题目 ID 顺序数组（决议 S2-衍生2 去重后）
   /// 长度约束：8 ≤ length ≤ 15
-  item_ids      String[]              @db.Uuid
+  item_ids     String[]              @db.Uuid
   /// 每道题来自哪个池的标记，与 item_ids 一一对应
-  pool_sources  SessionPoolSource[]
+  pool_sources SessionPoolSource[]
 
   // 反向关系
   practice_attempts practice_attempt[]
@@ -283,7 +308,6 @@ model practice_attempt {
   @@map("practice_attempt")
 }
 
-
 // ══════════════════════════════════════════════════════════════════
 //  §D  学习状态域 — Mastery / MistakeBookEntry / SpacedReview
 // ══════════════════════════════════════════════════════════════════
@@ -291,21 +315,21 @@ model practice_attempt {
 /// 知识点掌握度（决议 S1：持有者为 (Student × KP)）
 model knowledge_point_mastery {
   /// 学生外键（复合主键 part 1）
-  student_id          String          @db.Uuid
-  student             student         @relation(fields: [student_id], references: [id])
+  student_id         String          @db.Uuid
+  student            student         @relation(fields: [student_id], references: [id])
   /// 学科外键（冗余但便于按学科聚合）
-  subject_id          String
-  subject             subject         @relation(fields: [subject_id], references: [id])
+  subject_id         String
+  subject            subject         @relation(fields: [subject_id], references: [id])
   /// 知识点外键（复合主键 part 2）
-  kp_id               String          @db.Uuid
-  knowledge_point     knowledge_point @relation(fields: [kp_id], references: [id])
+  kp_id              String          @db.Uuid
+  knowledge_point    knowledge_point @relation(fields: [kp_id], references: [id])
   /// 当前掌握度 [0, 1]
-  mastery_score       Float
+  mastery_score      Float
   /// 历史最高掌握度（决议 Q1=c "曾掌握后回落" UI 文案派生）
   /// mastery_score < 0.2 且 peak_mastery_score >= 0.5 → "需要加强（曾掌握后回落）"
-  peak_mastery_score  Float           @default(0)
+  peak_mastery_score Float           @default(0)
   /// 最近一次答题时间
-  last_attempted_at   DateTime?       @db.Timestamptz()
+  last_attempted_at  DateTime?       @db.Timestamptz()
 
   @@id([student_id, kp_id])
   @@index([student_id, mastery_score])
@@ -316,24 +340,24 @@ model knowledge_point_mastery {
 /// MVP 简化：不分根因类型，N=2 自动 resolve
 model mistake_book_entry {
   /// 主键 UUID
-  id                          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id                        String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// 学生外键
-  student_id                  String         @db.Uuid
-  student                     student        @relation(fields: [student_id], references: [id])
+  student_id                String        @db.Uuid
+  student                   student       @relation(fields: [student_id], references: [id])
   /// 题目外键
-  item_id                     String         @db.Uuid
-  item                        practice_item  @relation(fields: [item_id], references: [id])
+  item_id                   String        @db.Uuid
+  item                      practice_item @relation(fields: [item_id], references: [id])
   /// 状态枚举（决议 D2=a 永久 resolve）
-  status                      MistakeStatus  @default(open)
+  status                    MistakeStatus @default(open)
   /// 累计答错次数
-  error_count                 Int            @default(1)
+  error_count               Int           @default(1)
   /// 连续答对次数（决议 S2-N=2：达 2 即转 resolved）
   /// 答错时归零；对其他题的答题不影响
-  consecutive_correct_count   Int            @default(0)
+  consecutive_correct_count Int           @default(0)
   /// 创建时间（首次答错该题）
-  created_at                  DateTime       @default(now()) @db.Timestamptz()
+  created_at                DateTime      @default(now()) @db.Timestamptz()
   /// 解决时间。非 NULL 时 status 必为 resolved
-  resolved_at                 DateTime?      @db.Timestamptz()
+  resolved_at               DateTime?     @db.Timestamptz()
 
   @@unique([student_id, item_id])
   @@index([student_id, status])
@@ -364,7 +388,6 @@ model spaced_review {
   @@map("spaced_review")
 }
 
-
 // ══════════════════════════════════════════════════════════════════
 //  §E  审计 / 合规域
 // ══════════════════════════════════════════════════════════════════
@@ -372,11 +395,11 @@ model spaced_review {
 /// 通用审计日志（合规相关动作必落痕）
 model audit_log {
   /// 主键 UUID
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// 操作发起者 ID
   /// 学生注销 = 学生 UUID 字符串；运营操作 = 管理员 username 字符串
   /// 双角色统一存 text 而非 uuid
-  actor_id     String
+  actor_id    String
   /// 受控集合：
   ///   consent_confirmed     — 学生端 G1.3 监护人同意确认
   ///   export_data_self      — 学生端 G5.2 自助导出
@@ -384,21 +407,20 @@ model audit_log {
   ///   delete_self           — 学生端 G5.3 自助注销
   ///   delete_student        — 运营端 F5.4 代注销
   ///   consent_withdraw      — 监护人同意撤回（v0.2+）
-  action       String
+  action      String
   /// 目标对象类型（如 "student" / "practice_item"）
-  target_type  String
+  target_type String
   /// 目标对象 ID
-  target_id    String
+  target_id   String
   /// 附加信息（如 IP、User-Agent、删除前快照摘要）
-  payload      Json?
+  payload     Json?
   /// 创建时间
-  created_at   DateTime @default(now()) @db.Timestamptz()
+  created_at  DateTime @default(now()) @db.Timestamptz()
 
   @@index([actor_id, created_at])
   @@index([action, created_at])
   @@map("audit_log")
 }
-
 
 // ══════════════════════════════════════════════════════════════════
 //  §F  运营 LLM 解析子系统
@@ -408,23 +430,23 @@ model audit_log {
 /// MVP 通过 seed 写入：webex-gemini-3.1-pro / webex-gemini-3-pro-image
 model llm_provider {
   /// 主键，运营自定义 slug
-  id              String       @id
+  id             String      @id
   /// 协议类型（决定 callLLM 适配器走哪条分支）
-  protocol        LLMProtocol
+  protocol       LLMProtocol
   /// HTTPS 端点完整 URL
-  endpoint        String
+  endpoint       String
   /// 真实模型名（透传到 body.model 或 URL path）
-  model           String
+  model          String
   /// 能力位图：{ text, vision, pdf, structured_output }
-  capabilities    Json
+  capabilities   Json
   /// 鉴权 token 来源 env 变量名（仅记录变量名，禁止存值！）
-  auth_env_var    String
+  auth_env_var   String
   /// 默认调用参数 { temperature?, max_tokens?, top_p? ... }
-  default_params  Json         @default("{}")
+  default_params Json        @default("{}")
   /// 是否启用
-  enabled         Boolean      @default(true)
+  enabled        Boolean     @default(true)
   /// 创建时间
-  created_at      DateTime     @default(now()) @db.Timestamptz()
+  created_at     DateTime    @default(now()) @db.Timestamptz()
 
   // 反向关系
   llm_parse_jobs llm_parse_job[]
@@ -508,31 +530,31 @@ model llm_parse_job {
 /// 每抽出一个候选实体（一题 / 一 KP）写一行
 model llm_parse_staging {
   /// 主键 UUID
-  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// 触发本条产出的解析任务
-  parse_job_id    String         @db.Uuid
-  parse_job       llm_parse_job  @relation(fields: [parse_job_id], references: [id])
+  parse_job_id   String         @db.Uuid
+  parse_job      llm_parse_job  @relation(fields: [parse_job_id], references: [id])
   /// 冗余 upload_id 便于按上传批次列表
-  upload_id       String         @db.Uuid
-  upload          content_upload @relation(fields: [upload_id], references: [id])
+  upload_id      String         @db.Uuid
+  upload         content_upload @relation(fields: [upload_id], references: [id])
   /// 实体种类
-  entity_kind     ParseTaskKind
+  entity_kind    ParseTaskKind
   /// LLM 原始抽取字段（只读不改）
-  llm_payload     Json
+  llm_payload    Json
   /// 审核状态
-  review_status   ReviewStatus   @default(pending)
+  review_status  ReviewStatus   @default(pending)
   /// 运营修改后的最终值
   /// pending 时 NULL；edited 时存草稿；accepted 时存最终值
-  review_payload  Json?
+  review_payload Json?
   /// 审核者（管理员 username）
-  reviewed_by     String?
+  reviewed_by    String?
   /// 审核时间
-  reviewed_at     DateTime?      @db.Timestamptz()
+  reviewed_at    DateTime?      @db.Timestamptz()
   /// accepted 后指向正式表的 ID（practice_item.id 或 knowledge_point.id）
   /// 多态外键，应用层校验一致性；强约束：accepted ⇒ NOT NULL
-  published_id    String?        @db.Uuid
+  published_id   String?        @db.Uuid
   /// 创建时间
-  created_at      DateTime       @default(now()) @db.Timestamptz()
+  created_at     DateTime       @default(now()) @db.Timestamptz()
 
   @@index([upload_id, review_status])
   @@index([parse_job_id])
