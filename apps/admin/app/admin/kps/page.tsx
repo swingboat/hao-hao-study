@@ -106,6 +106,12 @@ export default async function KpsPage({ searchParams }: PageProps) {
         >
           + 新建 KP
         </Link>
+        <Link
+          href="/admin/kps/import"
+          className="ml-2 px-3 py-1.5 rounded border text-sm hover:bg-black/5 dark:hover:bg-white/10"
+        >
+          ↑ 上传教材解析（F4.3）
+        </Link>
       </header>
 
       {/* 学科过滤 — 用纯 GET form，无需 client component */}
