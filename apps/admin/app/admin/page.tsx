@@ -19,13 +19,17 @@ export default function AdminHomePage() {
           </Link>
           <p className="text-xs opacity-60 mt-1">查看 / 启停 Provider，查看默认绑定。</p>
         </li>
-        <li className="border rounded-lg p-4 opacity-60">
-          <span className="font-medium">题库导入（F3，待实现）</span>
-          <p className="text-xs mt-1">M7 阶段交付。</p>
+        <li className="border rounded-lg p-4">
+          <Link href="/admin/kps" className="font-medium underline">
+            知识点维护（F4）
+          </Link>
+          <p className="text-xs opacity-60 mt-1">
+            列出 / 新建 / 编辑 KP；F3 解析将复用其作为词典。
+          </p>
         </li>
         <li className="border rounded-lg p-4 opacity-60">
-          <span className="font-medium">知识点维护（F4，待实现）</span>
-          <p className="text-xs mt-1">M7 后期交付。</p>
+          <span className="font-medium">题库导入(F3，待实现)</span>
+          <p className="text-xs mt-1">M7 阶段交付。</p>
         </li>
         <li className="border rounded-lg p-4 opacity-60">
           <span className="font-medium">学生开户（F5，待实现）</span>
