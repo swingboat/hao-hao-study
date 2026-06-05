@@ -7,15 +7,30 @@
  * Response: { candidates: [{ content: { parts: [{text}] } }], usageMetadata: { promptTokenCount, candidatesTokenCount } }
  */
 import { zodToJsonSchema } from '../json-schema';
+import { applyNormalizers } from './openai-chat';
 import type { BuildRequestArgs, BuildRequestResult, ParsedResponse, ProviderAdapter } from './types';
+
+interface Quirks {
+  supports_temperature?: boolean;
+}
 
 function buildRequest(args: BuildRequestArgs): BuildRequestResult {
   // Google 协议把 temperature / max_tokens 塞 generationConfig；这里把 default_params
   // 的 OpenAI 风味字段映射过来，让运营在 llm_provider.default_params 里继续用同套术语
   const dp = args.defaultParams;
+  const quirks = (args.quirks ?? {}) as Quirks;
   const generationConfig: Record<string, unknown> = {};
-  if (typeof dp.temperature === 'number') generationConfig.temperature = dp.temperature;
-  if (typeof dp.max_tokens === 'number') generationConfig.maxOutputTokens = dp.max_tokens;
+  if (quirks.supports_temperature !== false && typeof dp.temperature === 'number') {
+    generationConfig.temperature = dp.temperature;
+  }
+  // 优先用 provider.max_output_tokens 实测真值（vs 文档值）
+  const limit =
+    typeof args.maxOutputTokens === 'number'
+      ? args.maxOutputTokens
+      : typeof dp.max_tokens === 'number'
+        ? (dp.max_tokens as number)
+        : undefined;
+  if (typeof limit === 'number') generationConfig.maxOutputTokens = limit;
   if (typeof dp.top_p === 'number') generationConfig.topP = dp.top_p;
 
   if (args.schema) {
@@ -59,4 +74,8 @@ function parseResponse(json: unknown): ParsedResponse {
   return { rawText, tokenUsage };
 }
 
-export const googleGenerateContentAdapter: ProviderAdapter = { buildRequest, parseResponse };
+export const googleGenerateContentAdapter: ProviderAdapter = {
+  buildRequest,
+  parseResponse,
+  postProcess: (rawText, normalizers) => applyNormalizers(rawText, normalizers),
+};

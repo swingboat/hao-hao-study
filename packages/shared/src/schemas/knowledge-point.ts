@@ -27,12 +27,13 @@ export type KnowledgePointParsed = z.infer<typeof KnowledgePointParsedSchema>;
 
 /**
  * LLM 一次解析的批量输出。
- * 上限 200：单次解析教材一章节 KP 数量经验上 < 50；200 留 4× 安全余量，超过即视为提示词写崩了。
+ * 上限 500：人教 A 版必修一探针实测 GPT-5.4 v3 prompt 全本可产 ~234 条；
+ * 500 = 1.2× 安全余量，超过即视为提示词写崩了 / 重复抽取。
  */
 export const KnowledgePointBatchSchema = z.object({
   items: z
     .array(KnowledgePointParsedSchema)
     .min(1, '至少应抽出 1 个 KP')
-    .max(200, '单次解析超过 200 个 KP，疑似提示词失控'),
+    .max(500, '单次解析超过 500 个 KP，疑似提示词失控'),
 });
 export type KnowledgePointBatch = z.infer<typeof KnowledgePointBatchSchema>;

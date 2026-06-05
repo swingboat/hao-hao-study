@@ -56,6 +56,9 @@ const OPENAI_PROVIDER = {
   capabilities: {},
   auth_env_var: 'WEBEX_LLM_TOKEN',
   default_params: { temperature: 0.2, max_tokens: 8192 },
+  max_output_tokens: null,
+  quirks: {},
+  output_normalizers: [],
   enabled: true,
 };
 
@@ -67,6 +70,9 @@ const GOOGLE_PROVIDER = {
   capabilities: {},
   auth_env_var: 'WEBEX_LLM_TOKEN',
   default_params: { temperature: 0.7, max_tokens: 1024 },
+  max_output_tokens: null,
+  quirks: {},
+  output_normalizers: [],
   enabled: true,
 };
 

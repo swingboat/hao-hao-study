@@ -125,6 +125,9 @@ export async function callLLM<T = unknown>(opts: CallLLMOptions): Promise<CallLL
 
   const adapter = pickAdapter(provider.protocol);
   const defaultParams = (provider.default_params ?? {}) as Record<string, unknown>;
+  const quirks = (provider.quirks ?? {}) as Record<string, unknown>;
+  const outputNormalizers = (provider.output_normalizers ?? []) as string[];
+  const maxOutputTokens = provider.max_output_tokens ?? null;
 
   let attempt = 0;
   let lastErr: unknown;
@@ -138,6 +141,9 @@ export async function callLLM<T = unknown>(opts: CallLLMOptions): Promise<CallLL
       prompt: promptForAttempt,
       schema: opts.schema,
       defaultParams,
+      maxOutputTokens,
+      quirks,
+      outputNormalizers,
     });
 
     const t0 = performance.now();
@@ -162,7 +168,12 @@ export async function callLLM<T = unknown>(opts: CallLLMOptions): Promise<CallLL
     }
 
     const json = await res.json();
-    const { rawText, tokenUsage } = adapter.parseResponse(json);
+    const parsed0 = adapter.parseResponse(json);
+    const rawText =
+      adapter.postProcess && outputNormalizers.length > 0
+        ? adapter.postProcess(parsed0.rawText, outputNormalizers)
+        : parsed0.rawText;
+    const tokenUsage = parsed0.tokenUsage;
 
     if (!opts.schema) {
       return {
