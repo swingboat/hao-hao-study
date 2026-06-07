@@ -61,6 +61,7 @@ enum PracticeItemType {
 enum LLMProtocol {
   openai_chat /// OpenAI /v1/chat/completions 协议
   google_generate_content /// Google /v1/models/*:generateContent 协议
+  bedrock_converse /// AWS Bedrock Converse 协议（Webex proxy 上 Claude Opus 4.7 走此路径，原生支持 PDF document part）
 }
 
 /// LLM 解析任务种类（运营端 F2.2 默认 Provider 绑定维度）

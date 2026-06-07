@@ -2,9 +2,10 @@
  * 种子数据 — v0.1 MVP 启动时的最小冷启动数据。
  *
  * 已实现：
- *   - llm_provider × 5（Webex 代理上的 Gemini 3.1 Pro / Gemini 3.5 Flash /
- *     Claude Opus 4.7 / GPT-5.4 / Gemini 3 Pro Image）
- *     来源：docs/PRD/Operator_Console_MVP_PRD.md §7 + 2026-06-05 KP 探针实测结果
+ *   - llm_provider × 6（Webex 代理上的 Gemini 3.1 Pro / Gemini 3.5 Flash /
+ *     Claude Opus 4.7 / GPT-5.4 / Gemini 3 Pro Image / Claude Opus 4.7 Converse）
+ *     来源：docs/PRD/Operator_Console_MVP_PRD.md §7 + 2026-06-05 KP 探针实测结果 +
+ *     2026-06-07 PDF Converse 接入
  *
  * 模型族行为差异（quirks / max_output_tokens / output_normalizers）由 adapter 按字段值
  * 处理，业务层调用方仍然只用 callLLM(providerId, prompt, schema?)，看不到 Gemini /
@@ -24,6 +25,7 @@ const prisma = new PrismaClient();
  */
 const WEBEX_HOST = 'https://llm-proxy.us-east-2.int.infra.intelligence.webex.com';
 const WEBEX_OPENAI_CHAT = `${WEBEX_HOST}/openai/v1/chat/completions`;
+const WEBEX_BEDROCK_CONVERSE = (model: string) => `${WEBEX_HOST}/bedrock/v1/model/${model}/converse`;
 
 type ProviderSeed = Omit<Prisma.llm_providerCreateInput, 'created_at'>;
 
@@ -115,6 +117,27 @@ const PROVIDERS: ProviderSeed[] = [
     default_params: { temperature: 0.7, max_tokens: 1024 },
     max_output_tokens: null,
     quirks: {},
+    output_normalizers: [],
+    enabled: true,
+  },
+
+  // ── Claude Opus 4.7 Converse：原生 PDF 解析路径（packages/llm analyzePdf）─────
+  // 与 webex-claude-opus-4.7（openai_chat 协议、纯文本 KP 抽取）并存：KP 文本路径走老 provider，
+  // 教材 / 讲义 / 试卷 PDF 整本分析走本 provider。Converse body 形态：
+  //   {messages:[{role,content:[{text}, {document:{format:'pdf',name,source:{bytes:base64}}}]}],
+  //    inferenceConfig:{maxTokens, temperature?}}
+  // 复用 supports_temperature=false quirk（Claude 4.7 拒收 temperature）；schema 走 prompt
+  // 注入路径（Converse 没有原生 response_format）。
+  {
+    id: 'webex-claude-opus-4.7-converse',
+    protocol: 'bedrock_converse',
+    endpoint: WEBEX_BEDROCK_CONVERSE('anthropic.claude-opus-4-7'),
+    model: 'anthropic.claude-opus-4-7',
+    capabilities: { text: true, vision: true, pdf: true, structured_output: true },
+    auth_env_var: 'WEBEX_LLM_TOKEN',
+    default_params: { max_tokens: 16384 },
+    max_output_tokens: null,
+    quirks: { supports_temperature: false },
     output_normalizers: [],
     enabled: true,
   },
