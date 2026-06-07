@@ -26,11 +26,13 @@ vi.mock('@hao/db', () => ({
 const { callLLM, LLMHttpError, LLMSchemaError } = await import('./callLLM');
 
 // ─── fetch mock 帮手 ──────────────────────────────────────
-function mockFetchOnce(status: number, body: unknown) {
+function mockFetchOnce(status: number, body: unknown, headers: Record<string, string> = {}) {
   const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+  const headerMap = new Map(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
   fetchMock.mockResolvedValueOnce({
     ok: status >= 200 && status < 300,
     status,
+    headers: { get: (k: string) => headerMap.get(k.toLowerCase()) ?? null },
     json: async () => body,
     text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
   });
@@ -185,6 +187,56 @@ describe('callLLM — retry 行为', () => {
     await expect(
       callLLM({ providerId: 'webex-gemini-3.1-pro', prompt: 'x', schema: Schema }),
     ).rejects.toBeInstanceOf(LLMSchemaError);
+  });
+});
+
+describe('callLLM — 429 Retry-After', () => {
+  // 这些测试用 fake timer 防止真睡 N 秒；同时验证 sleep 时长正确（headers vs body.detail 两路）
+  it('429 + Retry-After header → sleep N 秒后重试，retries=1', async () => {
+    vi.useFakeTimers();
+    findUnique.mockResolvedValue(OPENAI_PROVIDER);
+    mockFetchOnce(429, { detail: 'rate limited' }, { 'Retry-After': '5' });
+    mockFetchOnce(200, {
+      choices: [{ message: { content: '{"items":[{"name":"after-429"}]}' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+
+    const promise = callLLM({
+      providerId: 'webex-gemini-3.1-pro',
+      prompt: 'x',
+      schema: Schema,
+    });
+    // 关键：用 advanceTimersByTimeAsync 把 5s 推完，第二次 fetch 才会被发出
+    await vi.advanceTimersByTimeAsync(5000);
+    const result = await promise;
+    expect(result.retries).toBe(1);
+    expect(result.data).toEqual({ items: [{ name: 'after-429' }] });
+    vi.useRealTimers();
+  });
+
+  it('429 无 Retry-After header 但 body.detail 含 "retry after 7 seconds" → sleep 7s', async () => {
+    vi.useFakeTimers();
+    findUnique.mockResolvedValue(OPENAI_PROVIDER);
+    mockFetchOnce(429, { detail: 'please retry after 7 seconds, traffic is high' });
+    mockFetchOnce(200, {
+      choices: [{ message: { content: '{"items":[{"name":"recovered"}]}' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+
+    const promise = callLLM({
+      providerId: 'webex-gemini-3.1-pro',
+      prompt: 'x',
+      schema: Schema,
+    });
+    // 推 6.9s 不够 → 第二次 fetch 还没发；推够 7s → 完成
+    await vi.advanceTimersByTimeAsync(6900);
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock.mock.calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(200);
+    const result = await promise;
+    expect(result.retries).toBe(1);
+    expect(fetchMock.mock.calls).toHaveLength(2);
+    vi.useRealTimers();
   });
 });
 
