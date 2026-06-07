@@ -1,9 +1,14 @@
 /**
  * F4.3 — PDF 文本抽取（pdf-parse v2 API）。
  *
- * 当前 packages/llm 的 OpenAI 适配器仅支持 `messages: [{role, content: string}]`
- * 形态（注释明确写"v0.1 仅支持纯文本 prompt"），因此 admin 侧需先把 PDF 抽成
- * 纯文本再送给 callLLM。等总控扩展适配器为多模态后再切到原生 PDF 输入。
+ * ⚠️ v0.1 状态：actions.ts 默认走 analyzePdf（bedrock_converse 原生 PDF）路径；
+ * 本模块仅在 provider.protocol !== 'bedrock_converse' 时作为兜底/对照基线使用
+ * （例如临时切回 webex-claude-opus-4.7 / Gemini 纯文本路径做 A/B）。
+ * F5.x 全量切原生 PDF 后整个文件可删除。
+ *
+ * 历史背景：上一版 packages/llm 的 OpenAI 适配器仅支持纯文本 messages，admin
+ * 侧必须先把 PDF 抽成字符串再送 callLLM；现在 bedrock_converse 适配器已支持
+ * attachments={kind:'pdf'} 直接吃 base64 PDF。
  *
  * pdf-parse v2 暴露 PDFParse 类（取代 v1 的默认函数导出）；
  * Node runtime（依赖 Buffer / fs），server action 是 Node OK；
