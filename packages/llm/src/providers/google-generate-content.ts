@@ -8,13 +8,26 @@
  */
 import { zodToJsonSchema } from '../json-schema';
 import { applyNormalizers } from './openai-chat';
-import type { BuildRequestArgs, BuildRequestResult, ParsedResponse, ProviderAdapter } from './types';
+import type {
+  BuildRequestArgs,
+  BuildRequestResult,
+  ParsedResponse,
+  ProviderAdapter,
+} from './types';
 
 interface Quirks {
   supports_temperature?: boolean;
 }
 
 function buildRequest(args: BuildRequestArgs): BuildRequestResult {
+  // google_generate_content 协议在 Webex proxy 上 v0.1 也仅走纯文本；遇到 PDF 附件
+  // 直接拒绝，避免静默丢失（caller 应改用 bedrock_converse provider）。
+  if (args.attachments && args.attachments.length > 0) {
+    throw new Error(
+      'attachments not supported by protocol google_generate_content; use a bedrock_converse provider for PDF',
+    );
+  }
+
   // Google 协议把 temperature / max_tokens 塞 generationConfig；这里把 default_params
   // 的 OpenAI 风味字段映射过来，让运营在 llm_provider.default_params 里继续用同套术语
   const dp = args.defaultParams;

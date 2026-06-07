@@ -17,7 +17,12 @@
  * 输出文本规范化由 postProcess 按 normalizers 顺序执行，已知 key 见 schema 注释。
  */
 import { zodToJsonSchema } from '../json-schema';
-import type { BuildRequestArgs, BuildRequestResult, ParsedResponse, ProviderAdapter } from './types';
+import type {
+  BuildRequestArgs,
+  BuildRequestResult,
+  ParsedResponse,
+  ProviderAdapter,
+} from './types';
 
 interface Quirks {
   supports_temperature?: boolean;
@@ -26,6 +31,14 @@ interface Quirks {
 }
 
 function buildRequest(args: BuildRequestArgs): BuildRequestResult {
+  // openai_chat 协议在 Webex proxy 上仅支持纯文本 prompt；遇到 PDF 等附件直接拒绝，
+  // 避免静默丢失（caller 应改用 bedrock_converse provider）。
+  if (args.attachments && args.attachments.length > 0) {
+    throw new Error(
+      'attachments not supported by protocol openai_chat; use a bedrock_converse provider for PDF',
+    );
+  }
+
   const quirks = (args.quirks ?? {}) as Quirks;
   const dp = args.defaultParams as Record<string, unknown>;
 
