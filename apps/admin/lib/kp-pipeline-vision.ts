@@ -134,10 +134,13 @@ export interface KpAnalysisResult {
   totalLatencyMs: number;
 }
 
-const DEFAULT_PAGES_PER_CALL = 3;
+const DEFAULT_PAGES_PER_CALL = 2;
 const DEFAULT_DPI = 150;
 const DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS = 8;
-const DEFAULT_MAX_CHUNK_TOKENS = 4000;
+// webex-gemini-3.1-pro 在 Webex proxy 上实测输出 cap ~2000 token（seed.ts 已据此
+// 标 max_output_tokens=2000）。pagesPerCall=2 时单片 KP 数 ≤ ~12，对应输出 ~1500 token，
+// 安全地避开 cap。本字段是给 callLLM 的"期望上限"，真上限以 provider 的 max_output_tokens 为准。
+const DEFAULT_MAX_CHUNK_TOKENS = 2000;
 const DEFAULT_MAX_RETRIES = 2;
 
 /** cache key 前缀；防止读到旧 converse 跑出来的 chunksCache 误命中。 */

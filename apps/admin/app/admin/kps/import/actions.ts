@@ -212,9 +212,13 @@ async function loadCacheForUpload(uploadId: string): Promise<KpAnalysisCache> {
     // v3 chunksCache（最权威）
     if (raw?.chunksCache) {
       for (const [k, v] of Object.entries(raw.chunksCache)) {
-        if (v && typeof v === 'object' && typeof v.text === 'string' && v.text.length > 0) {
-          byRange[k] = v;
-        }
+        if (!v || typeof v !== 'object' || typeof v.text !== 'string' || v.text.length === 0)
+          continue;
+        // 跳过不可解析片：itemCount=null 表示当时 chunk text 不是合法 `{items:[...]}` JSON
+        // （多见于触发 max_output_tokens 上限被截断）。复用这种 cache 等于永久卡死那一片，
+        // 永远修不好。重发 LLM 才有机会拿到完整输出。
+        if (v.itemCount === null || v.itemCount === undefined) continue;
+        byRange[k] = v;
       }
     }
     // v2 succeeded chunks 兜底（只在 chunksCache 没覆盖到的 range 用）
@@ -229,6 +233,8 @@ async function loadCacheForUpload(uploadId: string): Promise<KpAnalysisCache> {
           continue;
         const k = `${c.startPage}-${c.endPage}`;
         if (byRange[k]) continue;
+        const itemCount = countChunkItems(c.text);
+        if (itemCount === null) continue; // 同上：不可解析 chunk 不入 cache
         byRange[k] = {
           chunkIndex: typeof c.chunkIndex === 'number' ? c.chunkIndex : 0,
           totalChunks: 0, // unknown，runKpAnalysis 里会被本轮 totalChunks 覆盖
@@ -239,7 +245,7 @@ async function loadCacheForUpload(uploadId: string): Promise<KpAnalysisCache> {
           latencyMs: typeof c.latencyMs === 'number' ? c.latencyMs : 0,
           retries: typeof c.retries === 'number' ? c.retries : 0,
           reused: false,
-          itemCount: countChunkItems(c.text),
+          itemCount,
           capturedAt: new Date(0).toISOString(), // 旧 job 没记时间；标 epoch
           sourceJobId: j.id,
         };
