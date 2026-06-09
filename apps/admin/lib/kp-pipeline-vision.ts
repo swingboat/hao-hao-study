@@ -26,11 +26,31 @@
  *   - chunk 阶段任意失败立即 throw，但已落盘的 chunk 不丢
  */
 import type { subject } from '@hao/db';
-import { analyzeImageBatch, extractJsonBlock, rasterizePdf } from '@hao/llm';
+import { LLMHttpError, LLMSchemaError, analyzeImageBatch, extractJsonBlock, rasterizePdf } from '@hao/llm';
 import type { KnowledgePointBatch } from '@hao/shared/schemas';
 import { KnowledgePointBatchSchema } from '@hao/shared/schemas';
 import { z } from 'zod';
 import { buildKpVisionChunkPrompt } from './prompts';
+
+/**
+ * 跨模块安全的错误类型识别。
+ *
+ * 为什么不用 `err instanceof LLMHttpError`：Next.js dev HMR 会把 @hao/llm 编译成
+ * 多份独立模块（callLLM 内部 throw 的实例 vs 本文件 import 的 class 不是同一份），
+ * 导致 instanceof 误返 false → split fallback 被跳过 → HTTP 500 chunk 直接失败而不
+ * 重试。LLMHttpError / LLMSchemaError 都在构造里设了 `override readonly name`，按
+ * 名字识别更稳。生产 build 不存在重复模块也能命中。
+ *
+ * 实测：job 0ec05f32 chunk 18 (pages 35-36) 撞到本 bug — 三次 500 后 callLLM 抛
+ * LLMHttpError，但 `err instanceof LLMHttpError` 返 false，被当成不可恢复错误，
+ * 没走 split fallback。
+ */
+function isLLMHttpError(err: unknown): err is LLMHttpError {
+  return err instanceof Error && err.name === 'LLMHttpError';
+}
+function isLLMSchemaError(err: unknown): err is LLMSchemaError {
+  return err instanceof Error && err.name === 'LLMSchemaError';
+}
 
 /**
  * Chunk 级 schema —— 喂给 analyzeImageBatch / callLLM 触发"JSON 解析失败 → 重试"路径。
@@ -516,25 +536,115 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
         });
       }
 
-      const result = await analyzeImageBatch({
-        providerId: opts.providerId,
-        images,
-        prompt: buildKpVisionChunkPrompt(opts.subject, {
-          chunkIndex,
-          totalChunks: ranges.length,
-          startPage: range.start,
-          endPage: range.end,
-          pageImageCount: images.length,
-        }),
-        // schema 触发 callLLM 内部"JSON 残缺 → 自动重试 + 严格 JSON 提示"路径。
-        // 修复 Webex Gemini SSE 流截断（实测 13% chunk text 中途被切，结果是
-        // {"items":[{...}, {"name":"...", "chapter_no":"6.2 ← 半截字符串导致整片
-        // 不可解析、KP 全部丢失）；之前 analyzeImageBatch 没传 schema，callLLM 收到
-        // 200 OK 就当成功 →    不重试 → 残缺文本进 cache → 全本约 14% KP 永久丢失。
-        schema: ChunkKpItemsSchema,
-        maxOutputTokens: maxChunkTokens,
-        maxRetries,
-      });
+      // 整片调一次；如果是 schema 失败（大概率是 Webex Gemini 输出 cap ~2000 token
+      // 撞到上限被截断 → JSON 不完整），且 range>1 页，回退到"每页单独抽"逐页跑，
+      // 把各页 items 合并成一个合成 text 顶替整片。
+      // 单页输出量 ≤ ~1500 token，几乎不会再撞 cap。
+      let result: Awaited<ReturnType<typeof analyzeImageBatch>>;
+      let synthesizedFromSplit = false;
+      let totalRetries = 0;
+      try {
+        result = await analyzeImageBatch({
+          providerId: opts.providerId,
+          images,
+          prompt: buildKpVisionChunkPrompt(opts.subject, {
+            chunkIndex,
+            totalChunks: ranges.length,
+            startPage: range.start,
+            endPage: range.end,
+            pageImageCount: images.length,
+          }),
+          // schema 触发 callLLM 内部"JSON 残缺 → 自动重试 + 严格 JSON 提示"路径。
+          // 修复 Webex Gemini SSE 流截断（实测 13% chunk text 中途被切，结果是
+          // {"items":[{...}, {"name":"...", "chapter_no":"6.2 ← 半截字符串导致整片
+          // 不可解析、KP 全部丢失）；之前 analyzeImageBatch 没传 schema，callLLM 收到
+          // 200 OK 就当成功 →    不重试 → 残缺文本进 cache → 全本约 14% KP 永久丢失。
+          schema: ChunkKpItemsSchema,
+          maxOutputTokens: maxChunkTokens,
+          maxRetries,
+        });
+      } catch (err) {
+        const isRecoverable = isLLMSchemaError(err) || isLLMHttpError(err);
+        if (!isRecoverable || images.length <= 1) throw err;
+
+        // 拆页兜底：逐页跑一遍，items 合并 → 合成 chunk text。
+        // 触发场景：
+        //   - LLMSchemaError：Webex Gemini 输出 cap ~2000 token 撞顶 → JSON 截断
+        //   - LLMHttpError：Webex proxy 偶发 5xx（双页 prompt 大、proxy 负载敏感）
+        // 单页跑时输出量 ≤ ~1500 token 且 prompt 更短，两种错误命中率都明显降。
+        //
+        // 单页失败不连累其它页：单 page 自己 try/catch 把 reason 记下，successful
+        // 子页的 items 仍然合入合成 text。原行为是一页 fail 整片丢，太脆。
+        console.warn(
+          `[kp-pipeline-vision] chunk ${chunkIndex} (pages ${range.start}-${range.end}) ${isLLMSchemaError(err) ? 'schema' : 'http'} fail, splitting into ${images.length} per-page calls`,
+        );
+        const subResults: Array<Awaited<ReturnType<typeof analyzeImageBatch>>> = [];
+        const subFailures: Array<{ page: number; reason: string }> = [];
+        for (let pi = 0; pi < images.length; pi += 1) {
+          const img = images[pi]!;
+          const page = range.start + pi;
+          try {
+            const r = await analyzeImageBatch({
+              providerId: opts.providerId,
+              images: [img],
+              prompt: buildKpVisionChunkPrompt(opts.subject, {
+                chunkIndex,
+                totalChunks: ranges.length,
+                startPage: page,
+                endPage: page,
+                pageImageCount: 1,
+              }),
+              schema: ChunkKpItemsSchema,
+              maxOutputTokens: maxChunkTokens,
+              maxRetries,
+            });
+            subResults.push(r);
+          } catch (subErr) {
+            const reason = subErr instanceof Error ? subErr.message : String(subErr);
+            subFailures.push({ page, reason });
+            console.warn(
+              `[kp-pipeline-vision] chunk ${chunkIndex} sub-page ${page} also failed: ${reason.slice(0, 200)}`,
+            );
+          }
+        }
+
+        // 全员阵亡 → 没救，把第一个失败原因抛出去，进 chunkFailures
+        if (subResults.length === 0) {
+          const firstReason = subFailures[0]?.reason ?? '<unknown>';
+          throw new Error(`split fallback 全部失败: ${firstReason}`);
+        }
+
+        // 合成 text：解析每个子结果的 items 数组拼起来再 stringify
+        const mergedItems: unknown[] = [];
+        for (const r of subResults) {
+          try {
+            const obj = extractJsonBlock(r.text) as { items?: unknown };
+            if (Array.isArray(obj.items)) mergedItems.push(...obj.items);
+          } catch {
+            /* 解析不出来就跳过；其它页的 KP 不受影响 */
+          }
+        }
+        const combinedText = JSON.stringify({ items: mergedItems });
+        const totalIn = subResults.reduce((s, r) => s + (r.tokenUsage?.input ?? 0), 0);
+        const totalOut = subResults.reduce((s, r) => s + (r.tokenUsage?.output ?? 0), 0);
+        const totalLatency = subResults.reduce((s, r) => s + r.latencyMs, 0);
+        totalRetries = subResults.reduce((s, r) => s + r.retries, 0);
+        if (subFailures.length > 0) {
+          console.warn(
+            `[kp-pipeline-vision] chunk ${chunkIndex} partial recovery: ${subResults.length}/${images.length} pages OK, ${subFailures.length} dropped (${mergedItems.length} items merged)`,
+          );
+        }
+        result = {
+          text: combinedText,
+          tokenUsage: totalIn || totalOut ? { input: totalIn, output: totalOut } : null,
+          latencyMs: totalLatency,
+          retries: totalRetries,
+          requestPayload: subResults[0]?.requestPayload ?? {},
+          // analyzeImageBatch 返回里有 data 字段；合成 chunk 不再做 schema 校验，data 留空对象
+          data: undefined as unknown as never,
+        } as Awaited<ReturnType<typeof analyzeImageBatch>>;
+        synthesizedFromSplit = true;
+      }
 
       if (!result.text.trim()) {
         throw new Error(
@@ -550,7 +660,7 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
         text: result.text,
         tokenUsage: result.tokenUsage,
         latencyMs: result.latencyMs,
-        retries: result.retries,
+        retries: synthesizedFromSplit ? totalRetries : result.retries,
         reused: false,
         itemCount: countChunkItems(result.text),
         capturedAt: new Date().toISOString(),
@@ -623,6 +733,44 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
   };
 
   await Promise.all(Array.from({ length: Math.min(concurrency, ranges.length) }, () => worker()));
+
+  // ── 末段重试 ────────────────────────────────────────────
+  // Webex Gemini 偶发 500 / proxy 抖动多是瞬时的；并发风暴结束后再试一遍命中率明显升。
+  // 串行单线程跑、且每次失败前先 sleep 2s 让 proxy 恢复，比加大 maxRetries 更经济
+  // （maxRetries 是每次调用内部连发，对持续 500 没救）。仍失败的 chunk 保留在 chunkFailures，
+  // UI 还是会显示 warning，用户点重新解析仍是兜底。
+  if (chunkFailures.length > 0 && chunkFailures.length < ranges.length) {
+    const toRetry = chunkFailures.splice(0); // 清空原数组，重试后只回填仍失败的
+    for (const failure of toRetry) {
+      const i = failure.chunkIndex - 1;
+      const range = ranges[i];
+      if (!range) {
+        chunkFailures.push(failure);
+        continue;
+      }
+      await sleep(2000);
+      try {
+        // runOne 内部已发 chunk_start/chunk_done；这里不再重复
+        await runOne(i);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        chunkFailures.push({
+          chunkIndex: failure.chunkIndex,
+          startPage: range.start,
+          endPage: range.end,
+          reason,
+        });
+        onProgress({
+          type: 'chunk_failed',
+          chunkIndex: failure.chunkIndex,
+          totalChunks: ranges.length,
+          startPage: range.start,
+          endPage: range.end,
+          reason,
+        });
+      }
+    }
+  }
 
   // 全军覆没才整 job 失败 —— 一般只在 provider 完全挂了或 prompt 触发安全审查时出现。
   if (chunkFailures.length === ranges.length && ranges.length > 0) {

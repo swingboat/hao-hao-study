@@ -469,6 +469,9 @@ async function runParse(
       }
       rawResponse = {
         merge: result.merge,
+        // 持久化每片失败的具体 reason，方便排查（之前 merge.chunksFailed 只有计数，
+        // reason 只在 dev.log 里能 grep 到，prod 一旦丢日志就盲了）
+        chunkFailures: result.chunkFailures,
         chunks: result.chunks.map((c) => ({
           chunkIndex: c.chunkIndex,
           startPage: c.startPage,
