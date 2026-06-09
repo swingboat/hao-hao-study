@@ -29,7 +29,34 @@ import type { subject } from '@hao/db';
 import { analyzeImageBatch, extractJsonBlock, rasterizePdf } from '@hao/llm';
 import type { KnowledgePointBatch } from '@hao/shared/schemas';
 import { KnowledgePointBatchSchema } from '@hao/shared/schemas';
+import { z } from 'zod';
 import { buildKpVisionChunkPrompt } from './prompts';
+
+/**
+ * Chunk 级 schema —— 喂给 analyzeImageBatch / callLLM 触发"JSON 解析失败 → 重试"路径。
+ *
+ * 不复用 packages/shared 的 KnowledgePointParsedSchema：
+ *   1. 上层 KnowledgePointBatchSchema 强制 `items.min(1)`，但 vision 管线里教材
+ *      封面/目录/空白页/整页插图等返回 `{ "items": [] }` 是合法的，套 min(1) 会让
+ *      callLLM 把这些正常空响应当成 schema 不通过去无谓重试 N 次。
+ *   2. 我们要在 chunk 级新增 `chapter_title`（vision-v3）—— 这字段不入 knowledge_point
+ *      正式表，只挂 staging.llm_payload 给 UI 显示用，所以放在 admin worktree 这边定义。
+ *
+ * 真正想拦的是 Webex Gemini 偶发的"流截断 → JSON 残缺"（实测 13%）和章节标题缺失：schema
+ * 触发 extractJsonBlock 抛错 → callLLM 自动重试，命中率 1-13%^3 ≈ 99.8%；callLLM 实在
+ * 跑满 maxRetries 才抛 LLMSchemaError，runOne 捕获后整片 chunk 失败 —— 不会把残缺文本
+ * 写进 cache（cache 持久化在 runOne 后段，永远在 callLLM throw 之后才执行）。
+ */
+const ChunkKpItemSchema = z.object({
+  name: z.string().min(2).max(50),
+  chapter_no: z.string().max(20).nullable().optional(),
+  /** 章节文字标题（不含编号本身），如 "平面向量及其应用"；读不到就 null */
+  chapter_title: z.string().max(80).nullable().optional(),
+  brief: z.string().max(200).optional(),
+});
+const ChunkKpItemsSchema = z.object({
+  items: z.array(ChunkKpItemSchema).max(500),
+});
 
 export type TokenUsage = { input: number; output: number } | null;
 
@@ -90,6 +117,20 @@ export type KpProgressEvent =
       itemCount: number | null;
     }
   | { type: 'sleep'; seconds: number; reason: 'between_requests' }
+  | {
+      /**
+       * 单片永久失败（schema retry / HTTP 500 / 网络错误等都耗尽 callLLM 自带 maxRetries 后）。
+       * pipeline 会**继续跑**剩余 chunk —— 这是 fail-soft，不是终态；
+       * 终态由 `merge_done`/`error{stage:'plan'|'merge'}` 表达。
+       * UI 把它作为可恢复 warning（"N 片永久失败，点重新解析会自动补"）展示。
+       */
+      type: 'chunk_failed';
+      chunkIndex: number;
+      totalChunks: number;
+      startPage: number;
+      endPage: number;
+      reason: string;
+    }
   | { type: 'merge_start' }
   | {
       type: 'merge_done';
@@ -97,6 +138,7 @@ export type KpProgressEvent =
       droppedDuplicates: number;
       droppedInvalid: number;
       chunksUnparseable: number;
+      chunksFailed: number;
     }
   | { type: 'error'; stage: 'plan' | 'chunk' | 'merge'; chunkIndex?: number; error: unknown };
 
@@ -130,7 +172,29 @@ export interface KpAnalysisResult {
     droppedDuplicates: number;
     droppedInvalid: number;
     chunksUnparseable: number;
+    /**
+     * 永久失败的 chunk 数（callLLM 自带重试耗尽后仍 throw 的）。
+     * 不进 cache，下次 reparse 会自动重抽。详见 `chunkFailures`。
+     */
+    chunksFailed: number;
   };
+  /**
+   * 失败 chunk 详情。`reason` 是错误 message 摘要，给 UI 展示用。
+   * 长度 = `merge.chunksFailed`。空数组表示全部成功。
+   */
+  chunkFailures: Array<{
+    chunkIndex: number;
+    startPage: number;
+    endPage: number;
+    reason: string;
+  }>;
+  /**
+   * vision-v3：chapter_no → chapter_title 映射（merge 时跨分片择优出来的）。
+   * caller（actions.ts）应把对应 title 写到每条 staging 的 llm_payload.chapter_title，
+   * 这样 admin/kps 列表页能把"第 6 章"显示成"第 6 章 平面向量及其应用"。
+   * 缺少 title 的 chapter（LLM 全分片都没识别出标题）不在此 map 内；UI 兜底到光数字。
+   */
+  chapterTitles: Map<string, string>;
   representativeRequestPayload: object | null;
   totalTokenUsage: TokenUsage;
   totalLatencyMs: number;
@@ -163,6 +227,8 @@ function sleep(ms: number): Promise<void> {
 interface LooseKp {
   name?: unknown;
   chapter_no?: unknown;
+  /** vision-v3 新增；merge 时按 chapter_no 聚合最高频值，不进 KP 主体 */
+  chapter_title?: unknown;
   brief?: unknown;
 }
 
@@ -235,15 +301,25 @@ export function countChunkItems(text: string): number | null {
   }
 }
 
-/** 与 kp-pipeline.ts::mergeChunkItems 行为一致；vision 输出 shape 完全相同。 */
+/**
+ * 与 kp-pipeline.ts::mergeChunkItems 行为一致；vision 输出 shape 完全相同。
+ *
+ * v3 新增：跨 chunk 收集 chapter_no → chapter_title 的最高频映射。同一 chapter_no
+ * 在不同 chunk 里 LLM 可能给出略有差异的标题（如 "平面向量" vs "平面向量及其应用"）；
+ * 取出现次数最多的；并列时取首次见到的（隐式按 chunk 顺序）。
+ */
 function mergeChunkItems(chunks: KpChunkOutcome[]): {
   items: KnowledgePointBatch['items'];
   droppedDuplicates: number;
   droppedInvalid: number;
   chunksUnparseable: number;
   rawCount: number;
+  /** chapter_no → chapter_title（多分片择优 / 缺失为 null） */
+  chapterTitles: Map<string, string>;
 } {
   const seen = new Map<string, { name: string; chapter_no: string | null; brief: string }>();
+  // chapter_no → 标题计数器；title=null 不计数（缺失片不影响有数据片的择优）
+  const titleCounts = new Map<string, Map<string, number>>();
   let droppedDuplicates = 0;
   let droppedInvalid = 0;
   let chunksUnparseable = 0;
@@ -275,6 +351,20 @@ function mergeChunkItems(chunks: KpChunkOutcome[]): {
           : null;
       const brief = typeof raw.brief === 'string' ? raw.brief.trim() : '';
 
+      // chapter_title 计数：仅当 chapter_no 与 title 都给且非空时累加
+      const chapter_title =
+        typeof raw.chapter_title === 'string' && raw.chapter_title.trim() !== ''
+          ? raw.chapter_title.trim()
+          : null;
+      if (chapter_no && chapter_title) {
+        let counts = titleCounts.get(chapter_no);
+        if (!counts) {
+          counts = new Map();
+          titleCounts.set(chapter_no, counts);
+        }
+        counts.set(chapter_title, (counts.get(chapter_title) ?? 0) + 1);
+      }
+
       const key = name.replace(/\s+/g, '').toLowerCase();
       const existing = seen.get(key);
       if (!existing) {
@@ -287,6 +377,21 @@ function mergeChunkItems(chunks: KpChunkOutcome[]): {
     }
   }
 
+  // 把 titleCounts 化简成 chapter_no → 最高频 title（并列取首个见到的，
+  // Map 迭代顺序就是插入顺序，正好匹配 chunk 顺序）
+  const chapterTitles = new Map<string, string>();
+  for (const [chap, counts] of titleCounts) {
+    let bestTitle: string | undefined;
+    let bestCount = -1;
+    for (const [t, n] of counts) {
+      if (n > bestCount) {
+        bestCount = n;
+        bestTitle = t;
+      }
+    }
+    if (bestTitle) chapterTitles.set(chap, bestTitle);
+  }
+
   return {
     items: [...seen.values()].map((kp) => ({
       name: kp.name,
@@ -297,6 +402,7 @@ function mergeChunkItems(chunks: KpChunkOutcome[]): {
     droppedInvalid,
     chunksUnparseable,
     rawCount,
+    chapterTitles,
   };
 }
 
@@ -316,7 +422,15 @@ function buildVisionRanges(
 
 /**
  * 主入口：rasterize → 按 pagesPerCall 切 → 每组 analyzeImageBatch 或读 cache →
- * 手工合并 → schema 校验。任意 chunk 永久失败抛错。
+ * 手工合并 → schema 校验。
+ *
+ * Fail-soft 语义（v3）：
+ *   - **plan / merge** 阶段失败 = 整 job 失败（rasterize 不出来或合并 schema 不通过都没救）
+ *   - **chunk** 阶段失败 = 单片失败但 pipeline 继续跑剩余 chunk；该片不写 cache → 下次
+ *     reparse 会自动重抽。result.chunkFailures 列出失败片，UI 当 warning 展示。
+ *   - 仅当**所有 chunk 都失败**才整 job throw（一般是 provider 完全挂了）
+ *
+ * 之前是"任一 chunk 失败立即 throw" → Webex Gemini 偶发 500 会让一片拖垮全本 141 片任务。
  */
 export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAnalysisResult> {
   const pagesPerCall = opts.pagesPerCall ?? DEFAULT_PAGES_PER_CALL;
@@ -354,11 +468,15 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
   let totalTokens: TokenUsage = null;
 
   // ── 并发 worker 池 ─────────────────────────────────────
-  // 任一 worker 抛错 → 标 abort，其他 worker 跑完手头那片就退出（避免半死状态）。
-  // 第一个错原样上抛；其后的错吞掉避免淹没真正的 root cause。
+  // 单片错误 fail-soft：记进 chunkFailures，不写 cache，pipeline 继续跑余下 chunk。
+  // 这样 Webex Gemini 偶发 500（实测每跑全本 141 片就有 1-2 片中招）不会一票否决整个 job。
   let nextIdx = 0;
-  let firstError: unknown = null;
-  let aborted = false;
+  const chunkFailures: Array<{
+    chunkIndex: number;
+    startPage: number;
+    endPage: number;
+    reason: string;
+  }> = [];
 
   const runOne = async (i: number): Promise<void> => {
     const range = ranges[i];
@@ -408,6 +526,12 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
           endPage: range.end,
           pageImageCount: images.length,
         }),
+        // schema 触发 callLLM 内部"JSON 残缺 → 自动重试 + 严格 JSON 提示"路径。
+        // 修复 Webex Gemini SSE 流截断（实测 13% chunk text 中途被切，结果是
+        // {"items":[{...}, {"name":"...", "chapter_no":"6.2 ← 半截字符串导致整片
+        // 不可解析、KP 全部丢失）；之前 analyzeImageBatch 没传 schema，callLLM 收到
+        // 200 OK 就当成功 →    不重试 → 残缺文本进 cache → 全本约 14% KP 永久丢失。
+        schema: ChunkKpItemsSchema,
         maxOutputTokens: maxChunkTokens,
         maxRetries,
       });
@@ -468,27 +592,46 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
   };
 
   const worker = async (): Promise<void> => {
-    while (!aborted) {
+    while (true) {
       const i = nextIdx++;
       if (i >= ranges.length) return;
+      const range = ranges[i];
+      if (!range) return; // TS narrow，不会发生
       try {
         await runOne(i);
       } catch (err) {
-        if (!aborted) {
-          firstError = err;
-          aborted = true;
-          onProgress({ type: 'error', stage: 'chunk', chunkIndex: i + 1, error: err });
-        }
-        return;
+        // Fail-soft：单片错误不停整个 pipeline。runOne 在出错前不会走到 onChunkPersist，
+        // 所以失败片不会写 cache —— 下次 reparse 自动重抽。
+        const reason = err instanceof Error ? err.message : String(err);
+        chunkFailures.push({
+          chunkIndex: i + 1,
+          startPage: range.start,
+          endPage: range.end,
+          reason,
+        });
+        onProgress({
+          type: 'chunk_failed',
+          chunkIndex: i + 1,
+          totalChunks: ranges.length,
+          startPage: range.start,
+          endPage: range.end,
+          reason,
+        });
+        // 同 worker 继续抓下一片，不 return
       }
     }
   };
 
   await Promise.all(Array.from({ length: Math.min(concurrency, ranges.length) }, () => worker()));
-  if (firstError) throw firstError;
 
-  // 走到这说明所有 chunk 都成功，chunks 数组无 null。
-  const finalChunks = chunks as KpChunkOutcome[];
+  // 全军覆没才整 job 失败 —— 一般只在 provider 完全挂了或 prompt 触发安全审查时出现。
+  if (chunkFailures.length === ranges.length && ranges.length > 0) {
+    const firstReason = chunkFailures[0]?.reason ?? '<unknown>';
+    throw new Error(`所有 ${ranges.length} 片 chunk 均失败（首个原因：${firstReason}）`);
+  }
+
+  // 失败的 chunk 在 chunks[i] 留下 null 槽位，过滤掉再交给 merge。
+  const finalChunks = chunks.filter((c): c is KpChunkOutcome => c !== null);
 
   // ── 手工合并 ──────────────────────────────────────────
   onProgress({ type: 'merge_start' });
@@ -514,6 +657,7 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
     droppedDuplicates: merged.droppedDuplicates,
     droppedInvalid: merged.droppedInvalid,
     chunksUnparseable: merged.chunksUnparseable,
+    chunksFailed: chunkFailures.length,
   });
 
   return {
@@ -526,7 +670,10 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
       droppedDuplicates: merged.droppedDuplicates,
       droppedInvalid: merged.droppedInvalid,
       chunksUnparseable: merged.chunksUnparseable,
+      chunksFailed: chunkFailures.length,
     },
+    chunkFailures,
+    chapterTitles: merged.chapterTitles,
     representativeRequestPayload: lastRequestPayload,
     totalTokenUsage: totalTokens,
     totalLatencyMs: Date.now() - wallStart,

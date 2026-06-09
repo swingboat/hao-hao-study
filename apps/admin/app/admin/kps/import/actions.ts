@@ -83,6 +83,11 @@ export interface ProgressSnapshot {
   chunksDone: number;
   /** 跨 job 复用的 chunk 数（cache 命中） */
   chunksReused?: number;
+  /**
+   * 永久失败的 chunk 数（callLLM 自带重试耗尽后仍 throw）。fail-soft 行为：pipeline 不停，
+   * 这些片不写 cache → 用户点重新解析会自动补抽。0 表示全部成功或正在跑。
+   */
+  chunksFailed?: number;
   /** 当前正在跑的 chunk（chunking 阶段有值；sleep/merge/done 阶段为 null） */
   currentChunk?: { index: number; startPage: number; endPage: number; startedAt: string } | null;
   /** 已累计 token（不含当前 in-flight 这一片；reused 片不计入） */
@@ -308,6 +313,9 @@ async function runParse(
     let tokenUsage: TokenUsage;
     let latencyMs: number;
     let warning: string | null = null;
+    // chapter_no → chapter_title。仅 vision 管线（v3+）会填，其他路径留空 Map。
+    // 在写 staging.llm_payload 时按 KP 的 chapter_no 查这张表，给 KP 注入 chapter_title。
+    let chapterTitles: Map<string, string> = new Map();
 
     if (useChunkedPipeline) {
       // ── 分片 + chunk 缓存 + 手工合并 ────────────────────────
@@ -406,11 +414,27 @@ async function runParse(
                     lastEvent: 'merging chunks (TS dedup, no LLM)',
                   });
                   break;
+                case 'chunk_failed': {
+                  // Fail-soft：单片永久失败不停 pipeline；这里只累计计数，UI 通过 warning 看到。
+                  const cur = await prisma.llm_parse_job.findUnique({
+                    where: { id: jobId },
+                    select: { raw_response: true },
+                  });
+                  const prevFailed =
+                    (cur?.raw_response as { progress?: ProgressSnapshot } | null)?.progress
+                      ?.chunksFailed ?? 0;
+                  await patchProgress(jobId, {
+                    chunksFailed: prevFailed + 1,
+                    lastEvent: `chunk #${ev.chunkIndex} permanently failed (pages ${ev.startPage}-${ev.endPage}): ${ev.reason.slice(0, 120)}`,
+                  });
+                  break;
+                }
                 case 'merge_done':
                   await patchProgress(jobId, {
                     phase: 'done',
                     tokenUsageSoFar: acc,
-                    lastEvent: `merge done: ${ev.itemCount} items (-${ev.droppedDuplicates} dup, -${ev.droppedInvalid} invalid${ev.chunksUnparseable > 0 ? `, ${ev.chunksUnparseable} chunks unparseable` : ''})`,
+                    chunksFailed: ev.chunksFailed,
+                    lastEvent: `merge done: ${ev.itemCount} items (-${ev.droppedDuplicates} dup, -${ev.droppedInvalid} invalid${ev.chunksUnparseable > 0 ? `, ${ev.chunksUnparseable} chunks unparseable` : ''}${ev.chunksFailed > 0 ? `, ${ev.chunksFailed} chunks failed` : ''})`,
                   });
                   break;
                 case 'error':
@@ -428,6 +452,7 @@ async function runParse(
       });
       latencyMs = result.totalLatencyMs;
       items = result.items;
+      chapterTitles = result.chapterTitles;
 
       tokenUsage = result.totalTokenUsage;
       requestPayload = result.representativeRequestPayload
@@ -461,9 +486,19 @@ async function runParse(
         chunksCache: cacheForStore,
       };
       parsedOutput = { items };
-      // merge 阶段产出 warning：chunk 解析失败 / 完全无数据时上抛给 staging 页
-      if (result.merge.chunksUnparseable > 0) {
-        warning = `${result.merge.chunksUnparseable} 片 chunk JSON 不可解析（已跳过；可在 raw_response.chunks 里查 text）`;
+      // merge 阶段产出 warning：chunk 解析失败 / HTTP 永久失败时上抛给 staging 页。
+      // 两类 chunk 都没入库，但 cache 行为不同：
+      //   - chunksUnparseable：text 已写 cache 但 itemCount=null，loadCacheForUpload 会跳过
+      //   - chunksFailed：runOne throw 时还没走到 onChunkPersist，根本没进 cache
+      // 不论哪种，下一次 reparse 都会自动重抽 → 用户重点击就能补全。
+      const missing = result.merge.chunksUnparseable + result.merge.chunksFailed;
+      if (missing > 0) {
+        const parts: string[] = [];
+        if (result.merge.chunksUnparseable > 0)
+          parts.push(`${result.merge.chunksUnparseable} 片 JSON 不可解析`);
+        if (result.merge.chunksFailed > 0)
+          parts.push(`${result.merge.chunksFailed} 片 HTTP/网络永久失败`);
+        warning = `${missing} 片 chunk 未入库（${parts.join('；')}）；点"重新解析"会自动补抽这些片，已成功的片走 cache 秒级复用`;
       }
     } else {
       // ── 老纯文本路径 ────────────────────────────────────────
@@ -496,7 +531,15 @@ async function runParse(
           parse_job_id: jobId,
           upload_id: uploadId,
           entity_kind: 'knowledge_point' as const,
-          llm_payload: { ...kp, _subject_id: subjectId } as Prisma.InputJsonValue,
+          // chapter_title 从 merge 阶段算出的 (chapter_no → title) 表查；
+          // 没匹配（LLM 没识别出标题 / 该 KP 无 chapter_no）就 null。
+          // 字段名不带 `_` 前缀（与 _subject_id 区分）—— 它是 LLM 实际产物的延伸，
+          // 不是 admin 注入的元数据；UI 直接 SELECT llm_payload->>'chapter_title' 即可。
+          llm_payload: {
+            ...kp,
+            chapter_title: kp.chapter_no ? (chapterTitles.get(kp.chapter_no) ?? null) : null,
+            _subject_id: subjectId,
+          } as Prisma.InputJsonValue,
         })),
       }),
       prisma.llm_parse_job.update({

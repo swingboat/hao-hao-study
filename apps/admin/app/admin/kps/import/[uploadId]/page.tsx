@@ -10,6 +10,9 @@
  */
 import { prisma } from '@hao/db';
 import Link from 'next/link';
+import { reparseUploadAction } from '../actions';
+import { DevBulkBar } from './dev-bulk-bar';
+import { JobProgressPoller } from './job-progress-poller';
 import { StagingRow } from './staging-row';
 
 export const dynamic = 'force-dynamic';
@@ -65,7 +68,56 @@ export default async function StagingReviewPage({ params, searchParams }: PagePr
 
       {parseError ? (
         <section className="border border-red-500 rounded-lg p-3 text-sm text-red-700 bg-red-50 dark:bg-red-950/30">
-          解析失败：{parseError}
+          上传失败：{parseError}
+        </section>
+      ) : null}
+
+      {lastJob && (lastJob.status === 'queued' || lastJob.status === 'running') ? (
+        <JobProgressPoller jobId={lastJob.id} initialStatus={lastJob.status} />
+      ) : null}
+
+      {lastJob && lastJob.status === 'failed' ? (
+        <section className="border-2 border-red-500 rounded-lg p-4 bg-red-50/50 dark:bg-red-950/30 space-y-3">
+          <p className="font-medium text-sm text-red-700 dark:text-red-300">❌ 上次解析失败</p>
+          {lastJob.error_message ? (
+            <p className="text-xs font-mono text-red-700 dark:text-red-300 break-all">
+              {lastJob.error_message}
+            </p>
+          ) : null}
+          <form
+            action={async (formData: FormData) => {
+              'use server';
+              await reparseUploadAction({ error: null }, formData);
+            }}
+            className="flex flex-wrap items-end gap-3 pt-1"
+          >
+            <input type="hidden" name="upload_id" value={upload.id} />
+            <input type="hidden" name="provider_id" value={lastJob.provider_id} />
+            <div>
+              <label className="block text-xs opacity-70 mb-1" htmlFor="reparse_subject_id">
+                学科
+              </label>
+              <select
+                id="reparse_subject_id"
+                name="subject_id"
+                required
+                defaultValue={subjects[0]?.id ?? ''}
+                className="px-3 py-2 border rounded text-sm bg-transparent"
+              >
+                {subjects.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}（{s.id}）
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="submit"
+              className="px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-medium shadow-sm transition-colors hover:bg-blue-700 active:bg-blue-800 cursor-pointer"
+            >
+              重新解析（{lastJob.provider_id}）
+            </button>
+          </form>
         </section>
       ) : null}
 
@@ -119,6 +171,11 @@ export default async function StagingReviewPage({ params, searchParams }: PagePr
             <span className="opacity-50 text-sm font-normal"> — 已全部处理</span>
           ) : null}
         </h2>
+        {process.env.NODE_ENV !== 'production' && pending.length > 0 ? (
+          <div className="mb-3">
+            <DevBulkBar uploadId={upload.id} pendingCount={pending.length} />
+          </div>
+        ) : null}
         {pending.length === 0 ? null : (
           <div className="space-y-2">
             {pending.map((s) => {

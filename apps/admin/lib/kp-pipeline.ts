@@ -105,6 +105,16 @@ export type KpProgressEvent =
       itemCount: number | null;
     }
   | { type: 'sleep'; seconds: number; reason: 'between_requests' }
+  | {
+      // 仅类型定义对齐 vision 路径的 fail-soft 事件；converse 路径（已软弃用）仍是
+      // fail-fast，运行时不会真的 emit 此事件。等 converse 完全删除后这块也清掉。
+      type: 'chunk_failed';
+      chunkIndex: number;
+      totalChunks: number;
+      startPage: number;
+      endPage: number;
+      reason: string;
+    }
   | { type: 'merge_start' }
   | {
       type: 'merge_done';
@@ -112,6 +122,8 @@ export type KpProgressEvent =
       droppedDuplicates: number;
       droppedInvalid: number;
       chunksUnparseable: number;
+      /** converse 是 fail-fast，永远是 0；只为对齐 vision 类型存在 */
+      chunksFailed: number;
     }
   | { type: 'error'; stage: 'plan' | 'chunk' | 'merge'; chunkIndex?: number; error: unknown };
 
@@ -142,7 +154,18 @@ export interface KpAnalysisResult {
     droppedDuplicates: number;
     droppedInvalid: number;
     chunksUnparseable: number;
+    /** converse 是 fail-fast，永远 0；只为对齐 vision 类型存在 */
+    chunksFailed: number;
   };
+  /** converse 路径永远空；只为对齐 vision 类型存在 */
+  chunkFailures: Array<{
+    chunkIndex: number;
+    startPage: number;
+    endPage: number;
+    reason: string;
+  }>;
+  /** converse 路径永远空 Map；只为对齐 vision-v3 类型存在（converse 不抽 chapter_title） */
+  chapterTitles: Map<string, string>;
   /** chunk 阶段最后一次实发 LLM 的 body（caller 仍需 redactAuthHeaders 后入库） */
   representativeRequestPayload: object | null;
   totalTokenUsage: TokenUsage;
@@ -429,6 +452,7 @@ export async function runKpAnalysis(opts: KpAnalysisOptions): Promise<KpAnalysis
       droppedDuplicates: merged.droppedDuplicates,
       droppedInvalid: merged.droppedInvalid,
       chunksUnparseable: merged.chunksUnparseable,
+      chunksFailed: 0, // converse 是 fail-fast；类型对齐 vision 路径
     });
 
     return {
@@ -441,7 +465,10 @@ export async function runKpAnalysis(opts: KpAnalysisOptions): Promise<KpAnalysis
         droppedDuplicates: merged.droppedDuplicates,
         droppedInvalid: merged.droppedInvalid,
         chunksUnparseable: merged.chunksUnparseable,
+        chunksFailed: 0,
       },
+      chunkFailures: [],
+      chapterTitles: new Map(),
       representativeRequestPayload: lastRequestPayload,
       totalTokenUsage: totalTokens,
       totalLatencyMs: Date.now() - wallStart,

@@ -1,7 +1,7 @@
 /**
  * F4.3 上传 + 解析入口页 — /admin/kps/import
  *
- *   - 表单：subject 下拉 / Provider 下拉 / 文件输入（仅 PDF，≤20MB）
+ *   - 表单：subject 下拉 / Provider 下拉 / 文件输入（仅 PDF，≤500MB；analyzePdf 内部按页切片）
  *   - 提交 → uploadAndParseAction（同步等 LLM 返回，可能 30–60s）
  *   - 成功跳到 /admin/kps/import/<uploadId> 看 staging
  *   - 历史上传列表：最近 10 条 content_upload(purpose=knowledge_point)
@@ -43,7 +43,14 @@ export default async function KpImportPage() {
     return caps?.pdf === true;
   });
 
-  const defaultProvider = process.env[TASK_KIND_DEFAULT_ENV] ?? pdfProviders[0]?.id ?? '';
+  // env 值必须在 pdfProviders 名单内；否则 select.defaultValue 不匹配任何 option →
+  // React 把 selectedIndex 置 -1 → required 校验静默失败 → 用户点提交无反应。
+  // 兜底用 pdfProviders[0].id，永远确保 defaultProvider 在 options 里。
+  const envDefault = process.env[TASK_KIND_DEFAULT_ENV];
+  const defaultProvider =
+    envDefault && pdfProviders.some((p) => p.id === envDefault)
+      ? envDefault
+      : (pdfProviders[0]?.id ?? '');
 
   return (
     <main className="p-8 max-w-4xl mx-auto space-y-8">
