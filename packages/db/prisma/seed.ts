@@ -6,13 +6,15 @@
  *     Claude Opus 4.7 / GPT-5.4 / Gemini 3 Pro Image / Claude Opus 4.7 Converse）
  *     来源：docs/PRD/Operator_Console_MVP_PRD.md §7 + 2026-06-05 KP 探针实测结果 +
  *     2026-06-07 PDF Converse 接入
+ *   - subject × 3（math_primary / math_junior / math_senior）—— v0.1 学生注册仅 senior，
+ *     另外两条预留 v0.2+；命名遵循 "<discipline>_<stage>" 约定，与 packages/shared/labels
+ *     的 STAGE_LABEL 字典对齐
  *
  * 模型族行为差异（quirks / max_output_tokens / output_normalizers）由 adapter 按字段值
  * 处理，业务层调用方仍然只用 callLLM(providerId, prompt, schema?)，看不到 Gemini /
  * Claude / GPT 的差别。
  *
  * 待补：
- *   - subject（math_senior 等）— 与 schema 学段后缀约定确定后由本 seed 写入
  *   - knowledge_point 冷启动包 — 待运营端 F4 真实教材解析后注入
  */
 import { PrismaClient, type Prisma } from '@prisma/client';
@@ -166,9 +168,29 @@ async function seedLLMProviders() {
   console.log(`🌱 llm_provider seeded: ${PROVIDERS.map((p) => p.id).join(' / ')}`);
 }
 
+async function seedSubjects() {
+  // 命名约定：<discipline>_<stage>。stage 与 packages/shared/labels/grade 的 STAGE_LABEL
+  // 字典对齐（primary=小学 / junior=初中 / senior=高中）。v0.1 学生注册仅允许 senior，
+  // 另外两条预留 v0.2+ 扩展；提前 seed 让 knowledge_point.subject_id 外键不卡。
+  const SUBJECTS = [
+    { id: 'math_senior', name: '高中数学', stage: 'senior' as const },
+    { id: 'math_junior', name: '初中数学', stage: 'junior' as const },
+    { id: 'math_primary', name: '小学数学', stage: 'primary' as const },
+  ];
+  for (const s of SUBJECTS) {
+    await prisma.subject.upsert({
+      where: { id: s.id },
+      update: { name: s.name, stage: s.stage },
+      create: s,
+    });
+  }
+  console.log(`🌱 subject seeded: ${SUBJECTS.map((s) => s.id).join(' / ')}`);
+}
+
 async function main() {
+  await seedSubjects();
   await seedLLMProviders();
-  // TODO: subject / knowledge_point 冷启动包待运营端 F4 上线后由真实数据填充
+  // TODO: knowledge_point 冷启动包待运营端 F4 上线后由真实数据填充
 }
 
 main()

@@ -4,6 +4,7 @@
  * 子模块（按主 PRD 切分）：
  *   - labels/          年级 / 学段中文展示标签字典（packages/shared/labels）
  *   - schemas/         zod schemas（API 请求/响应、LLM 输出契约）
+ *   - prompts/         LLM prompt 模板（跨端复用部分）
  *   - recommender/     三池凑题（主 PRD §G3.1）
  *   - session-commit/  G3.3 提交事务（6 步原子）
  *   - mastery/         Mastery 增减规则（主 PRD §10.2）

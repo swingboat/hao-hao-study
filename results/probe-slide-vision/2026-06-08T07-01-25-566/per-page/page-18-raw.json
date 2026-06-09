@@ -1,0 +1,9 @@
+{
+  "rawText": "{\n  \"items\": [],\n  \"resources\": []\n}",
+  "tokenUsage": {
+    "input": 1718,
+    "output": 15
+  },
+  "retries": 0,
+  "latencyMs": 5998
+}

@@ -1,4 +1,16 @@
 /**
+ * @deprecated **bedrock_converse 路径在 Webex proxy 上 429 触发率过高**（实测一本
+ * 60 页教材必须 60s/请求 sleep 才能跑完 ≈5 分钟），运营场景顶不住，整条 Converse
+ * 管线（含本函数 + `bedrockConverseAdapter` + Claude Opus 4.7 (bedrock_converse)
+ * provider seed）已**软弃用**。新业务 PDF 解析一律走 `analyzePdfWithVision`
+ * （pdftoppm → vision LLM）。
+ *
+ * 代码与测试保留，理由：(1) 算法本身没问题、是唯一保留 PDF 原生字节的路径；
+ * (2) 留作"高精度抽公式" baseline 备选；(3) provider seed 不删，DB 行禁用即可。
+ *
+ * 即：本函数仍能跑，但**不要在新代码里调它**。
+ *
+ * ────────────────────────────────────────────────────────────────────────────
  * analyzePdf — 把整本 PDF 切成 N 页一段，逐段送 LLM（Bedrock Converse 协议带原生
  * PDF document part），最后再做一次终审整合。
  *
@@ -162,6 +174,8 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * @deprecated 见文件头说明：bedrock_converse 路径 429 频发已软弃用。
+ *
  * 分片解析整本 PDF。失败会发 error 事件后 throw；caller 必须 catch 并把 llm_parse_job
  * 状态置 failed。
  */
