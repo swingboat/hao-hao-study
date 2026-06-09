@@ -32,11 +32,11 @@ export const KP_PROMPT_VERSION = 'kp/2026-06-05-v3';
 export const KP_CONVERSE_PROMPT_VERSION = 'kp/2026-06-08-converse-v2';
 
 /**
- * vision-v1：视觉路径（admin/lib/kp-pipeline-vision.ts）。
- * pdftoppm → 每 N 张图喂 webex-gemini-3.1-pro vision，颗粒度规范与 v3 / converse-v2
- * 完全一致；区别仅在「附件是 PDF 切片」改为「附件是教材第 X-Y 页图像」。
+ * vision-v2：chapter_no 改用「纯数字点分隔」（6 / 6.1 / 6.1.1），不带「第」「章」「节」「§」。
+ * v1 实测让 LLM 按页面表层文字写 chapter_no，结果一本必修第二册出来 5 种风格混用
+ * （第六章 / 6.1.1 / null / 等），运营排序困难。v2 prompt 强约束 + admin 端 normalize 兜底。
  */
-export const KP_VISION_PROMPT_VERSION = 'kp/2026-06-09-vision-v1';
+export const KP_VISION_PROMPT_VERSION = 'kp/2026-06-09-vision-v2';
 
 /** v3 颗粒度规范，chunk / 终审两阶段公用，避免说两遍漂走。 */
 const KP_GRANULARITY_RULES = `# 颗粒度（最重要）
@@ -152,6 +152,22 @@ export function buildKpVisionChunkPrompt(
 请把这几页里出现的**知识点（KP）候选**逐条抽出来。
 
 ${KP_GRANULARITY_RULES}
+
+# chapter_no 输出规范（v2，强约束）
+
+chapter_no 必须是「纯数字 + 点」的层级编号，**不要**带「第」「章」「节」「§」「、」等任何文字或符号。
+
+✓ 正确：
+  - "6.2.1"   ← 能识别到子节
+  - "6.2"     ← 只能识别到节
+  - "6"       ← 只能识别到章
+  - null      ← 完全无法判断
+
+✗ 禁止：
+  - "第六章"  ← 改写成 "6"
+  - "§6.1"    ← 去掉 § 改写成 "6.1"
+  - "6.2 平面向量的运算"  ← 标题文字去掉，改写成 "6.2"
+  - ""        ← 用 null，不要空字符串
 
 # 输出格式（仅 chunk 阶段）
 

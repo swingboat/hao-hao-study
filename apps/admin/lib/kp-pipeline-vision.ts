@@ -111,10 +111,12 @@ export interface KpAnalysisOptions {
   pagesPerCall?: number;
   /** pdftoppm 渲染 DPI，默认 150 */
   dpi?: number;
-  /** chunk 之间 sleep 秒数；默认 8（vision 路径实测不撞 429） */
+  /** chunk 之间 sleep 秒数；默认 0（vision + 4 路并发实测不撞 429） */
   delayBetweenRequestsSeconds?: number;
   maxChunkTokens?: number;
   maxRetries?: number;
+  /** 并发 worker 数；默认 4。设 1 即退化为串行。 */
+  concurrency?: number;
   jobId: string;
 }
 
@@ -136,12 +138,17 @@ export interface KpAnalysisResult {
 
 const DEFAULT_PAGES_PER_CALL = 2;
 const DEFAULT_DPI = 150;
-const DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS = 8;
+// 实测 94 片 vision 串行跑 0 retry / 0 429（对应 Webex Gemini 3.1 Pro），
+// 8s sleep 是从 converse 时代继承的过度保守值。改 0 + concurrency 一起调度。
+const DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS = 0;
 // webex-gemini-3.1-pro 在 Webex proxy 上实测输出 cap ~2000 token（seed.ts 已据此
 // 标 max_output_tokens=2000）。pagesPerCall=2 时单片 KP 数 ≤ ~12，对应输出 ~1500 token，
 // 安全地避开 cap。本字段是给 callLLM 的"期望上限"，真上限以 provider 的 max_output_tokens 为准。
 const DEFAULT_MAX_CHUNK_TOKENS = 2000;
 const DEFAULT_MAX_RETRIES = 2;
+// 4 路并发：实测 vision 单片 ~19s LLM；94 片串行 1824s → 4 路 ~460s。Webex Gemini 路径
+// 4 路并发实测不触 429；提到 8 路时偶发 429 由 callLLM 的 Retry-After 退避兜底。
+const DEFAULT_CONCURRENCY = 4;
 
 /** cache key 前缀；防止读到旧 converse 跑出来的 chunksCache 误命中。 */
 const VISION_CACHE_PREFIX = 'vision/';
@@ -157,6 +164,65 @@ interface LooseKp {
   name?: unknown;
   chapter_no?: unknown;
   brief?: unknown;
+}
+
+/**
+ * chapter_no 归一：把 LLM 输出统一成「数字 + 点」格式（6 / 6.1 / 6.1.1）。
+ *  - 「第六章」→ "6"；「第十二章」→ "12"
+ *  - "§6.1" / "§6"  → "6.1" / "6"
+ *  - "6.2 平面向量的运算" → "6.2"（取首段数字串）
+ *  - 整段无法识别 → null
+ *
+ * v2 prompt 已要求 LLM 直接输出该格式；此函数兜底处理 v1 旧 cache 数据 + 偶发不服从。
+ */
+const CHINESE_NUM: Record<string, string> = {
+  零: '0',
+  一: '1',
+  二: '2',
+  三: '3',
+  四: '4',
+  五: '5',
+  六: '6',
+  七: '7',
+  八: '8',
+  九: '9',
+  十: '10',
+};
+/** 解析「十、十二、二十、二十一、三十」等汉字基数词到整数；上界 99 够用（章号场景）。 */
+function chineseNumToInt(cn: string): number | null {
+  if (!cn) return null;
+  if (cn === '十') return 10;
+  const idx = cn.indexOf('十');
+  if (idx === -1) {
+    // 纯个位（一/二/.../九/零）
+    if (cn.length === 1 && CHINESE_NUM[cn]) return Number(CHINESE_NUM[cn]);
+    return null;
+  }
+  // 含「十」：[tens]十[ones]?，tens 缺省=1，ones 缺省=0
+  const tensStr = cn.slice(0, idx);
+  const onesStr = cn.slice(idx + 1);
+  const tensRaw = tensStr === '' ? '1' : CHINESE_NUM[tensStr];
+  const onesRaw = onesStr === '' ? '0' : CHINESE_NUM[onesStr];
+  if (!tensRaw || !onesRaw || tensRaw === '10' || onesRaw === '10') return null;
+  return Number(tensRaw) * 10 + Number(onesRaw);
+}
+
+export function normalizeChapterNo(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let s = raw.trim();
+  if (!s) return null;
+
+  // 「第X章」/「第XX章」：先把汉字数字段抓出来转阿拉伯
+  const cnMatch = s.match(/^第([零一二三四五六七八九十百千]+)章/);
+  if (cnMatch) {
+    const n = chineseNumToInt(cnMatch[1] ?? '');
+    if (n !== null) s = String(n) + s.slice(cnMatch[0].length);
+    else return null;
+  }
+
+  // 取首段「数字(.数字)*」
+  const m = s.match(/(\d+(?:\.\d+)*)/);
+  return m?.[1] ?? null;
 }
 
 export function countChunkItems(text: string): number | null {
@@ -205,7 +271,7 @@ function mergeChunkItems(chunks: KpChunkOutcome[]): {
       }
       const chapter_no =
         typeof raw.chapter_no === 'string' && raw.chapter_no.trim() !== ''
-          ? raw.chapter_no.trim()
+          ? normalizeChapterNo(raw.chapter_no)
           : null;
       const brief = typeof raw.brief === 'string' ? raw.brief.trim() : '';
 
@@ -258,6 +324,7 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
   const delaySeconds = opts.delayBetweenRequestsSeconds ?? DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS;
   const maxChunkTokens = opts.maxChunkTokens ?? DEFAULT_MAX_CHUNK_TOKENS;
   const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
+  const concurrency = Math.max(1, opts.concurrency ?? DEFAULT_CONCURRENCY);
   const onProgress = opts.onProgress ?? (() => {});
   const cache = opts.cache?.byRange ?? {};
 
@@ -277,15 +344,25 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
   const pageCount = pages.length;
   onProgress({ type: 'plan', pageCount, ranges });
 
-  // pages 按 page 排序后是 1-based 连续，按下标 page-1 即可取。
   const pageByNum = new Map<number, (typeof pages)[number]>();
   for (const p of pages) pageByNum.set(p.page, p);
 
-  const chunks: KpChunkOutcome[] = [];
+  // chunks 预分配，按 index 写入 → 即使并发完成顺序乱，最终数组仍按 chunkIndex 升序，
+  // 后续 mergeChunkItems 行为与串行版完全一致（"先到优先"=低 index 先存)。
+  const chunks: Array<KpChunkOutcome | null> = new Array(ranges.length).fill(null);
   let lastRequestPayload: object | null = null;
   let totalTokens: TokenUsage = null;
 
-  for (const [i, range] of ranges.entries()) {
+  // ── 并发 worker 池 ─────────────────────────────────────
+  // 任一 worker 抛错 → 标 abort，其他 worker 跑完手头那片就退出（避免半死状态）。
+  // 第一个错原样上抛；其后的错吞掉避免淹没真正的 root cause。
+  let nextIdx = 0;
+  let firstError: unknown = null;
+  let aborted = false;
+
+  const runOne = async (i: number): Promise<void> => {
+    const range = ranges[i];
+    if (!range) return; // 不会发生：i 由 nextIdx 守门 < ranges.length；写出来给 TS 收编
     const chunkIndex = i + 1;
     const rangeKey = visionRangeKey(range.start, range.end);
     const cachedHit = cache[rangeKey];
@@ -310,60 +387,55 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
         latencyMs: 0,
       };
     } else {
-      try {
-        const images: Parameters<typeof analyzeImageBatch>[0]['images'] = [];
-        for (let p = range.start; p <= range.end; p += 1) {
-          const pg = pageByNum.get(p);
-          if (!pg) throw new Error(`rasterize 缺第 ${p} 页（共 ${pageCount} 页）`);
-          images.push({
-            bytes: pg.png,
-            format: 'png',
-            name: `page-${String(p).padStart(3, '0')}`,
-          });
-        }
-
-        const result = await analyzeImageBatch({
-          providerId: opts.providerId,
-          images,
-          prompt: buildKpVisionChunkPrompt(opts.subject, {
-            chunkIndex,
-            totalChunks: ranges.length,
-            startPage: range.start,
-            endPage: range.end,
-            pageImageCount: images.length,
-          }),
-          maxOutputTokens: maxChunkTokens,
-          maxRetries,
+      const images: Parameters<typeof analyzeImageBatch>[0]['images'] = [];
+      for (let p = range.start; p <= range.end; p += 1) {
+        const pg = pageByNum.get(p);
+        if (!pg) throw new Error(`rasterize 缺第 ${p} 页（共 ${pageCount} 页）`);
+        images.push({
+          bytes: pg.png,
+          format: 'png',
+          name: `page-${String(p).padStart(3, '0')}`,
         });
+      }
 
-        if (!result.text.trim()) {
-          throw new Error(
-            `Chunk ${chunkIndex} (pages ${range.start}-${range.end}) returned empty text from LLM`,
-          );
-        }
-
-        outcome = {
+      const result = await analyzeImageBatch({
+        providerId: opts.providerId,
+        images,
+        prompt: buildKpVisionChunkPrompt(opts.subject, {
           chunkIndex,
           totalChunks: ranges.length,
           startPage: range.start,
           endPage: range.end,
-          text: result.text,
-          tokenUsage: result.tokenUsage,
-          latencyMs: result.latencyMs,
-          retries: result.retries,
-          reused: false,
-          itemCount: countChunkItems(result.text),
-          capturedAt: new Date().toISOString(),
-          sourceJobId: opts.jobId,
-        };
-        lastRequestPayload = result.requestPayload;
-      } catch (err) {
-        onProgress({ type: 'error', stage: 'chunk', chunkIndex, error: err });
-        throw err;
+          pageImageCount: images.length,
+        }),
+        maxOutputTokens: maxChunkTokens,
+        maxRetries,
+      });
+
+      if (!result.text.trim()) {
+        throw new Error(
+          `Chunk ${chunkIndex} (pages ${range.start}-${range.end}) returned empty text from LLM`,
+        );
       }
+
+      outcome = {
+        chunkIndex,
+        totalChunks: ranges.length,
+        startPage: range.start,
+        endPage: range.end,
+        text: result.text,
+        tokenUsage: result.tokenUsage,
+        latencyMs: result.latencyMs,
+        retries: result.retries,
+        reused: false,
+        itemCount: countChunkItems(result.text),
+        capturedAt: new Date().toISOString(),
+        sourceJobId: opts.jobId,
+      };
+      lastRequestPayload = result.requestPayload;
     }
 
-    chunks.push(outcome);
+    chunks[i] = outcome;
     if (!outcome.reused) {
       totalTokens = addTokenUsage(totalTokens, outcome.tokenUsage);
       try {
@@ -389,20 +461,40 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
       itemCount: outcome.itemCount,
     });
 
-    const moreNonReusedAhead = ranges
-      .slice(i + 1)
-      .some((r) => !cache[visionRangeKey(r.start, r.end)]);
-    if (delaySeconds > 0 && !outcome.reused && moreNonReusedAhead) {
+    if (delaySeconds > 0 && !outcome.reused) {
       onProgress({ type: 'sleep', seconds: delaySeconds, reason: 'between_requests' });
       await sleep(delaySeconds * 1000);
     }
-  }
+  };
+
+  const worker = async (): Promise<void> => {
+    while (!aborted) {
+      const i = nextIdx++;
+      if (i >= ranges.length) return;
+      try {
+        await runOne(i);
+      } catch (err) {
+        if (!aborted) {
+          firstError = err;
+          aborted = true;
+          onProgress({ type: 'error', stage: 'chunk', chunkIndex: i + 1, error: err });
+        }
+        return;
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, ranges.length) }, () => worker()));
+  if (firstError) throw firstError;
+
+  // 走到这说明所有 chunk 都成功，chunks 数组无 null。
+  const finalChunks = chunks as KpChunkOutcome[];
 
   // ── 手工合并 ──────────────────────────────────────────
   onProgress({ type: 'merge_start' });
   let merged: ReturnType<typeof mergeChunkItems>;
   try {
-    merged = mergeChunkItems(chunks);
+    merged = mergeChunkItems(finalChunks);
   } catch (err) {
     onProgress({ type: 'error', stage: 'merge', error: err });
     throw err;
@@ -427,7 +519,7 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
   return {
     pageCount,
     chunkPages: pagesPerCall,
-    chunks,
+    chunks: finalChunks,
     items: safe.data.items,
     merge: {
       rawCount: merged.rawCount,
