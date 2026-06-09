@@ -31,12 +31,19 @@ interface Quirks {
 }
 
 function buildRequest(args: BuildRequestArgs): BuildRequestResult {
-  // openai_chat 协议在 Webex proxy 上仅支持纯文本 prompt；遇到 PDF 等附件直接拒绝，
-  // 避免静默丢失（caller 应改用 bedrock_converse provider）。
+  // openai_chat 协议在 Webex proxy 上支持 image 多模态（OpenAI vision API 兼容格式），
+  // 但不支持 PDF 附件（Webex proxy 给 Gemini 不收 PDF doc part；PDF 走 bedrock_converse）。
+  const imageAttachments: Array<{ format: string; base64: string }> = [];
   if (args.attachments && args.attachments.length > 0) {
-    throw new Error(
-      'attachments not supported by protocol openai_chat; use a bedrock_converse provider for PDF',
-    );
+    for (const a of args.attachments) {
+      if (a.kind === 'image') {
+        imageAttachments.push({ format: a.format, base64: a.base64 });
+      } else {
+        throw new Error(
+          `attachment kind '${a.kind}' not supported by protocol openai_chat; use a bedrock_converse provider for PDF`,
+        );
+      }
+    }
   }
 
   const quirks = (args.quirks ?? {}) as Quirks;
@@ -50,9 +57,27 @@ function buildRequest(args: BuildRequestArgs): BuildRequestResult {
     promptText = `${args.prompt}\n\n严格按以下 JSON Schema 输出（不要任何 markdown 包裹、不要解释、不要前后缀）：\n${jsonShape}`;
   }
 
+  // 2) message content：纯文本 string 形式 vs 多模态 array 形式
+  //    带图时必须 array；OpenAI 与 Webex proxy 都向前兼容
+  type ContentPart =
+    | { type: 'text'; text: string }
+    | { type: 'image_url'; image_url: { url: string } };
+  const content: string | ContentPart[] =
+    imageAttachments.length === 0
+      ? promptText
+      : [
+          { type: 'text', text: promptText } as ContentPart,
+          ...imageAttachments.map(
+            (img): ContentPart => ({
+              type: 'image_url',
+              image_url: { url: `data:image/${img.format};base64,${img.base64}` },
+            }),
+          ),
+        ];
+
   const body: Record<string, unknown> = {
     model: args.model,
-    messages: [{ role: 'user', content: promptText }],
+    messages: [{ role: 'user', content }],
   };
 
   // 2) max_tokens 字段名翻译（GPT-5 系 / o-系：max_completion_tokens）

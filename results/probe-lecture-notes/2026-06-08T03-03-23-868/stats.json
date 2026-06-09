@@ -1,0 +1,37 @@
+{
+  "pdf_path": "/Users/huyin/Downloads/【A11打印版PPT】《排列组合五大底层策略&最全题型方法》.pdf",
+  "page_count": 18,
+  "chunk_count": 2,
+  "total_seconds": 605.4,
+  "chunk_token_usage": [
+    {
+      "input": 48924,
+      "output": 11831
+    },
+    {
+      "input": 39366,
+      "output": 2946
+    }
+  ],
+  "final_token_usage": {
+    "input": 15150,
+    "output": 14757
+  },
+  "parse_success_per_chunk": [
+    {
+      "chunk": 1,
+      "ok": false,
+      "items": null,
+      "resources": null
+    },
+    {
+      "chunk": 2,
+      "ok": true,
+      "items": 2,
+      "resources": 7
+    }
+  ],
+  "final_parse_ok": true,
+  "final_items": 30,
+  "final_resources": 20
+}

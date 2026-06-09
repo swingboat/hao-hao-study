@@ -477,12 +477,17 @@ model llm_provider {
 }
 
 /// 内容上传存档（运营端 F3.1 / F4.3）
+///
+/// 与对象存储的对接（docs/File_Storage_v0.1.md）：
+///   - `sha256` 内容指纹；不 UNIQUE，多次上传 / 多用户上传产生多 row；物理上同 sha256 只存一份
+///   - `file_uri` v0.1 起约定为 storage key（如 "uploads/sha256/ab/abc...def.pdf"），不再是绝对 URL
+///     业务方通过 ObjectStore.presignedGetUrl(file_uri) 取可访问 URL
 model content_upload {
   /// 主键 UUID
   id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// 上传者（管理员 username）
   uploader_id   String
-  /// 对象存储 URI（Cloudflare R2）
+  /// Storage key（CAS 路径，例 "uploads/sha256/ab/abc...def.pdf"）
   file_uri      String
   /// 文件类型
   file_type     UploadFileType
@@ -494,6 +499,8 @@ model content_upload {
   original_name String?
   /// 文件大小（字节）
   size_bytes    Int?
+  /// 内容指纹（SHA-256 小写 hex 64 字符）；不 UNIQUE，去重仅在 storage 层做
+  sha256        String?        @db.Char(64)
   /// 创建时间
   created_at    DateTime       @default(now()) @db.Timestamptz()
 
@@ -502,6 +509,7 @@ model content_upload {
   llm_parse_stagings llm_parse_staging[]
 
   @@index([uploader_id, created_at])
+  @@index([sha256])
   @@map("content_upload")
 }
 
@@ -582,3 +590,39 @@ model llm_parse_staging {
   @@index([parse_job_id])
   @@map("llm_parse_staging")
 }
+
+/// 派生资产索引（docs/File_Storage_v0.1.md §4.2）
+///
+/// 每条记录对应 storage 里的一份派生文件（page PNG / figure 切片 / vision-extract 中间产物等）。
+/// PK (source_sha256, processor, version, asset_key) 既是索引也是天然 upsert key。
+///
+/// 用途：
+///   - GC：可按 processor/version 通配删除老算法产物
+///   - 重算：升级 processor 版本后，旧 row 保留可对比
+///   - 业务查询：practice_item.figures[].derived_key → 反查 storage_path 取裁切图
+model derived_asset {
+  /// 派生源文件的 sha256（指向 content_upload.sha256 或任意 upload 的内容指纹）
+  source_sha256 String   @db.Char(64)
+  /// 处理器名（kebab-case），如 "rasterize" / "figure-crop" / "vision-extract"
+  processor     String
+  /// 版本号（kebab-case 字母数字），如 "v1"。算法/prompt 升级时递增
+  version       String
+  /// 资产 key（在 (source,processor,version) 下唯一），如 "page-001.png" / "item-3-fig-1.png"
+  asset_key     String
+  /// Storage key（完整路径，如 "derived/abc.../rasterize-v1/page-001.png"）
+  storage_path  String
+  /// 文件大小（字节，可选）
+  size_bytes    Int?
+  /// 派生元数据 jsonb；约定见 docs/File_Storage_v0.1.md §4.2
+  ///   rasterize:      { processor:"rasterize", page, dpi }
+  ///   figure-crop:    { processor:"figure-crop", src_page, bbox:[x1,y1,x2,y2], alt }
+  ///   vision-extract: { processor:"vision-extract", provider_id, prompt_version }
+  metadata      Json?
+  /// 创建时间
+  created_at    DateTime @default(now()) @db.Timestamptz()
+
+  @@id([source_sha256, processor, version, asset_key])
+  @@index([source_sha256, processor])
+  @@map("derived_asset")
+}
+

@@ -1,4 +1,11 @@
 /**
+ * @deprecated **整条 bedrock_converse 管线已软弃用**（详见 `pdf/analyze-pdf.ts`
+ * 文件头）：Webex proxy 上 429 触发率过高，新业务 PDF 解析走 `analyzePdfWithVision`
+ * （pdftoppm → openai_chat vision）。本 adapter 代码与测试保留，DB 里
+ * Claude Opus 4.7 (bedrock_converse) provider 行禁用即可，**不要在新业务代码里
+ * 选 protocol=bedrock_converse 的 provider**。
+ *
+ * ────────────────────────────────────────────────────────────────────────────
  * AWS Bedrock Converse 协议适配器（Webex proxy 上 Claude Opus 4.7 走此路径）
  *
  * 端点：POST {endpoint}（seed 写完整路径，含 `/bedrock/v1/model/<model>/converse`）
@@ -47,6 +54,12 @@ interface Quirks {
 function buildContentParts(promptText: string, attachments?: Attachment[]) {
   const parts: Array<Record<string, unknown>> = [{ text: promptText }];
   for (const att of attachments ?? []) {
+    if (att.kind !== 'pdf') {
+      // bedrock_converse v0.1 仅消费 PDF；image 走 openai_chat 协议（Gemini vision）
+      throw new Error(
+        `attachment kind '${att.kind}' not supported by protocol bedrock_converse; image attachments should route to openai_chat provider (e.g. webex-gemini-3.1-pro)`,
+      );
+    }
     parts.push({
       document: {
         format: att.format,

@@ -1,0 +1,98 @@
+{
+  "items": [
+    {
+      "content": "有10个人围着一张圆桌坐成一圈，共有多少种不同的坐法？",
+      "item_type": "choice",
+      "options": [
+        {
+          "label": "A",
+          "text": "$A_{10}^{10}$"
+        },
+        {
+          "label": "B",
+          "text": "$A_9^9$"
+        },
+        {
+          "label": "C",
+          "text": "$A_8^8$"
+        },
+        {
+          "label": "D",
+          "text": "$A_{11}^{11}$"
+        }
+      ],
+      "answer": "B",
+      "solution_text": "",
+      "difficulty": 2,
+      "kp_hints": [
+        "圆排列"
+      ],
+      "item_no": "【基础】",
+      "figures": []
+    },
+    {
+      "content": "有5对姐妹站成一圈，要求每对姐妹相邻，有多少种不同站法？",
+      "item_type": "choice",
+      "options": [
+        {
+          "label": "A",
+          "text": "96"
+        },
+        {
+          "label": "B",
+          "text": "192"
+        },
+        {
+          "label": "C",
+          "text": "384"
+        },
+        {
+          "label": "D",
+          "text": "768"
+        }
+      ],
+      "answer": "D",
+      "solution_text": "采用捆绑法，将每对姐妹看作一个整体，5个整体进行圆排列有 $A_4^4$ 种排法；每对姐妹内部有 $A_2^2$ 种排法，共5对，故总排法数为 $A_4^4 \\times (A_2^2)^5 = 24 \\times 32 = 768$。",
+      "difficulty": 3,
+      "kp_hints": [
+        "圆排列",
+        "捆绑法"
+      ],
+      "item_no": "【中档】",
+      "figures": []
+    }
+  ],
+  "resources": [
+    {
+      "kp_hint": [
+        "圆排列",
+        "环排问题"
+      ],
+      "resource_kind": "key_point",
+      "title": "圆排问题核心",
+      "content": "n个不同元素站成一个圆圈，不同的站法有多少种？圆排问题核心：没有首位和末位之分，要消除旋转重复！例如 $a_1, a_2, a_3, \\cdots, a_n$；$a_2, a_3, \\cdots, a_n, a_1$；$\\cdots$；$a_n, a_1, \\cdots, a_{n-2}, a_{n-1}$ 在圆排列中只算1种。",
+      "figures": [
+        {
+          "figure_no": 1,
+          "alt": "圆排列旋转重复示意图",
+          "bbox": [
+            0.03,
+            0.12,
+            0.29,
+            0.48
+          ]
+        }
+      ]
+    },
+    {
+      "kp_hint": [
+        "圆排列公式",
+        "环排问题"
+      ],
+      "resource_kind": "summary",
+      "title": "n个元素圆排站法公式",
+      "content": "圆排问题，可任意选定某个元素作为开头展成单排（没有首位），然后将其它 $(n-1)$ 个元素全排列即可，即 $A_{n-1}^{n-1} = (n-1)!$。或者理解为 $n$ 个全排 $A_n^n$ 除以 $n$ 消除重复。结论：n个元素圆排站法为 $A_{n-1}^{n-1} = (n-1)!$。",
+      "figures": []
+    }
+  ]
+}

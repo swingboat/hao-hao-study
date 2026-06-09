@@ -16,20 +16,33 @@
 import type { ZodTypeAny } from 'zod';
 
 /**
- * 多模态附件 —— v0.1 仅 PDF。
- * 仅 bedrock_converse 适配器实际消费；openai_chat / google_generate_content 收到
- * 非空 attachments 会显式抛错（避免静默丢失，强迫 caller 切到正确 provider）。
+ * 多模态附件 —— v0.1 支持 pdf（bedrock_converse 原生 PDF document part）和
+ * image（openai_chat 协议的 image_url base64 content part，Gemini / Claude / GPT 通用）。
+ *
+ * 适配器责任：
+ *   - bedrock-converse：消费 pdf；不支持 image 时抛错
+ *   - openai-chat：消费 image；不支持 pdf 时抛错（Webex OpenAI proxy 给 Gemini 不收 PDF）
+ *   - google-generate-content：v0.1 都不消费（throws on non-empty）
  */
-export interface Attachment {
-  /** 附件类型；v0.1 仅 'pdf'，将来可扩 'image' / 'text' */
-  kind: 'pdf';
-  /** Bedrock Converse document.format 取值；v0.1 仅 'pdf' */
-  format: 'pdf';
-  /** 落到 Converse document.name；建议形如 "pdf-chunk-001-pages-1-15" */
-  name: string;
-  /** 文件字节的 base64 编码（无前缀） */
-  base64: string;
-}
+export type Attachment =
+  | {
+      kind: 'pdf';
+      /** Bedrock Converse document.format 取值；v0.1 仅 'pdf' */
+      format: 'pdf';
+      /** 落到 Converse document.name；建议形如 "pdf-chunk-001-pages-1-15" */
+      name: string;
+      /** 文件字节的 base64 编码（无前缀） */
+      base64: string;
+    }
+  | {
+      kind: 'image';
+      /** image MIME 子类型（决定 data: URL 的 mime） */
+      format: 'png' | 'jpeg' | 'webp';
+      /** 标识（适配器可用作日志/调试，不进协议字段） */
+      name: string;
+      /** 文件字节的 base64 编码（无前缀） */
+      base64: string;
+    };
 
 export interface BuildRequestArgs {
   endpoint: string;
