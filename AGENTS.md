@@ -13,6 +13,7 @@
    |---|---|---|---|
    | 写/读文件、生成派生资产 | `@hao/storage` 的 `ObjectStore`（`createStore()` 获取实例，路径走 `StoragePaths`） | `node:fs` 直接读写"业务文件"（上传、派生 PNG、LLM 中间产物、figure 切片） | `docs/File_Storage_v0.1.md` |
    | 访问 LLM | `@hao/llm` 的 `callLLM()` 或其高层封装（`analyzeImages` / `analyzeImagesToStorage` / `analyzePdfWithVision` / `cropFiguresToStorage` …）；provider 元数据走 `llm_provider` 表 | `fetch()` 直连 LLM 端点、硬编码 endpoint / model / token；新业务**不要**再用 `analyzePdf`（bedrock_converse 路径，已软弃用，见下） | `docs/Tech_Stack_MVP_v0.1.md` §2.3 + `packages/llm/src/callLLM.ts` |
+   | F4.3 KP 解析 | `apps/admin/lib/kp-pipeline-vision.ts`（pdftoppm + Gemini vision；webex-gemini-3.1-pro 默认） | `apps/admin/lib/kp-pipeline.ts` —— Converse 路径已 `@deprecated`，仅作回滚保底 | commit `a1f4865` + 本次 vision 切换 |
    | 文件解析（轻量场景）—— file + prompt → text | `@hao/llm` 的 `analyzeFile.{image,pdf}()` 傻瓜入口（L0） | 手动 `rasterize` + 自己写循环 | `packages/llm/src/analyze-file.ts` |
    | PDF 教材/试卷抽题（"不丢题"硬指标） | `@hao/llm` 的 `extractItemsFromPdf()`（L2，含完整性自检 + 边界重抽 + dedup + figure crop） | `analyzeFile.pdf` 或 `analyzeImagesToStorage`（这两者不解决跨页题问题） | `packages/llm/src/vision/extract-items-from-pdf.ts` |
    | PDF 抽题（无跨页要求） | `@hao/llm` 的 `analyzePdfWithVision()`（自动 rasterize → 调 LLM → bbox 裁切 → 落 storage + 汇总 derived_asset 候选） | 业务里自己拼 `rasterizePdf` + `analyzeImages` + `cropFiguresToStorage`（如要细控可用低层 API，但需在调用处注释原因） | `packages/llm/src/pdf/analyze-pdf-with-vision.ts` |
