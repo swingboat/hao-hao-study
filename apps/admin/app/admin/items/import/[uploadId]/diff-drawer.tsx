@@ -22,6 +22,7 @@ import {
   rerunStagingAction,
   searchKpsAction,
 } from './actions';
+import { MathText } from './math-text';
 
 export interface LlmItemPayload {
   content?: string;
@@ -198,16 +199,21 @@ export function DiffDrawer(props: DiffDrawerProps) {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-6">
           {/* 左栏：LLM 原始抽取 */}
           <section className="space-y-3 text-sm">
-            <h3 className="font-medium opacity-80">LLM 抽取（只读）</h3>
+            <h3 className="font-medium opacity-80">LLM 抽取（只读 · 公式已渲染）</h3>
             <Block label="content">
-              <pre className="whitespace-pre-wrap text-xs font-mono">{payload.content ?? '—'}</pre>
+              {payload.content ? (
+                <MathText block text={payload.content} className="text-sm leading-relaxed" />
+              ) : (
+                <span className="text-xs opacity-60">—</span>
+              )}
             </Block>
             <Block label={`options (${payload.options?.length ?? 0})`}>
               {payload.options && payload.options.length > 0 ? (
-                <ul className="text-xs space-y-0.5">
+                <ul className="text-sm space-y-1">
                   {payload.options.map((o) => (
-                    <li key={o.label}>
-                      <span className="font-mono">{o.label}.</span> {o.text}
+                    <li key={o.label} className="flex gap-2">
+                      <span className="font-mono opacity-70 shrink-0">{o.label}.</span>
+                      <MathText text={o.text} />
                     </li>
                   ))}
                 </ul>
@@ -216,12 +222,14 @@ export function DiffDrawer(props: DiffDrawerProps) {
               )}
             </Block>
             <Block label="answer">
-              <code className="text-xs font-mono">{payload.answer ?? '—'}</code>
+              <MathText text={payload.answer ?? '—'} className="text-sm" />
             </Block>
             <Block label="solution_text">
-              <pre className="whitespace-pre-wrap text-xs font-mono">
-                {payload.solution_text || '（空）'}
-              </pre>
+              {payload.solution_text ? (
+                <MathText block text={payload.solution_text} className="text-sm leading-relaxed" />
+              ) : (
+                <span className="text-xs opacity-60">（空）</span>
+              )}
             </Block>
             <Block label={`kp_hints (${payload.kp_hints?.length ?? 0})`}>
               {(payload.kp_hints ?? []).map((h) => (

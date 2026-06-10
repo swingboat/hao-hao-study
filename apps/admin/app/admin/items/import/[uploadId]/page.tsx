@@ -11,8 +11,10 @@
 import { prisma } from '@hao/db';
 import Link from 'next/link';
 import { reparseUploadAction } from '../actions';
+import { BulkAcceptButton } from './bulk-accept-button';
 import type { LlmItemPayload } from './diff-drawer';
 import { JobProgressPoller } from './job-progress-poller';
+import { MathText } from './math-text';
 import { StagingRow } from './staging-row';
 
 export const dynamic = 'force-dynamic';
@@ -165,10 +167,15 @@ export default async function ItemStagingReviewPage({ params }: PageProps) {
       ) : null}
 
       <section>
-        <h2 className="font-medium mb-3">
-          待审核（{pending.length}）
-          {pending.length === 0 ? (
-            <span className="opacity-50 text-sm font-normal"> — 已全部处理</span>
+        <h2 className="font-medium mb-3 flex items-center justify-between gap-3 flex-wrap">
+          <span>
+            待审核（{pending.length}）
+            {pending.length === 0 ? (
+              <span className="opacity-50 text-sm font-normal"> — 已全部处理</span>
+            ) : null}
+          </span>
+          {pending.length > 0 ? (
+            <BulkAcceptButton uploadId={upload.id} pendingCount={pending.length} />
           ) : null}
         </h2>
         {pending.length === 0 ? null : (
@@ -212,10 +219,14 @@ export default async function ItemStagingReviewPage({ params }: PageProps) {
                 <tbody>
                   {processed.map((s) => {
                     const display = (s.review_payload ?? s.llm_payload) as LlmItemPayload;
-                    const summary = (display.content ?? '').replace(/\s+/g, ' ').slice(0, 60);
+                    // 截 200 char 而非 60：MathText 渲染后视觉密度变高，留更多空间还能塞下；
+                    // 表格 max-w 仍由 td 控制不会撑爆。
+                    const summary = (display.content ?? '').replace(/\s+/g, ' ').slice(0, 200);
                     return (
                       <tr key={s.id} className="border-t">
-                        <td className="p-2 text-xs">{summary}</td>
+                        <td className="p-2 align-top max-w-[60ch]">
+                          <MathText text={summary} className="text-sm leading-snug" />
+                        </td>
                         <td className="p-2">
                           <span
                             className={

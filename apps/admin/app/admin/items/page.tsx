@@ -4,9 +4,16 @@
  * 顶部入口：上传题集 PDF（→ /admin/items/import）。
  *
  * v0.1 KP 没挂 textbook FK，列表纯按 primary_kp_id 聚合；学科过滤通过 KP→subject 反查。
+ *
+ * ⚠️ schema 缺口（v0.1）：`practice_item` 表无 `options` 列，choice 题选项只在
+ *   `llm_parse_staging.review_payload` JSONB 里（accept 时落进去）。这里靠
+ *   `published_id` 反查 staging 把 options 拼回来仅用于展示；学生端读 practice_item
+ *   暂时拿不到选项 —— 需要总控（A）给 schema 加列才能根治。
  */
 import { prisma } from '@hao/db';
 import Link from 'next/link';
+import type { LlmItemPayload } from './import/[uploadId]/diff-drawer';
+import { MathText } from './import/[uploadId]/math-text';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +53,22 @@ export default async function ItemsListPage({ searchParams }: PageProps) {
         })
       : [];
   const kpMap = new Map(kps.map((k) => [k.id, k]));
+
+  // 反查 staging 把 options 拼回来（schema 缺口的临时桥）。
+  // 一次性按 published_id IN (...) 拉，避免 N+1。
+  const itemIds = items.map((i) => i.id);
+  const stagings = itemIds.length
+    ? await prisma.llm_parse_staging.findMany({
+        where: { published_id: { in: itemIds }, entity_kind: 'practice_item' },
+        select: { published_id: true, review_payload: true },
+      })
+    : [];
+  const optionsMap = new Map<string, Array<{ label: string; text: string }>>();
+  for (const s of stagings) {
+    if (!s.published_id) continue;
+    const opts = (s.review_payload as LlmItemPayload | null)?.options;
+    if (Array.isArray(opts) && opts.length > 0) optionsMap.set(s.published_id, opts);
+  }
 
   // 按学科过滤后只保留命中 KP 的题
   const filtered = subjectFilter ? items.filter((i) => kpMap.has(i.primary_kp_id)) : items;
@@ -137,20 +160,44 @@ export default async function ItemsListPage({ searchParams }: PageProps) {
                 <span className="text-xs opacity-60">{g.items.length} 题</span>
               </header>
               <ul className="divide-y">
-                {g.items.slice(0, 10).map((it) => (
-                  <li key={it.id} className="px-4 py-2 text-xs">
-                    <div className="flex items-baseline gap-2 mb-1 opacity-60">
-                      <span className="font-mono">{it.id.slice(0, 8)}</span>
-                      <span>{it.item_type}</span>
-                      <span>难度 {it.difficulty}</span>
-                      <span className="ml-auto">{it.created_at.toLocaleDateString('zh-CN')}</span>
-                    </div>
-                    <p className="line-clamp-2">{it.content}</p>
-                    <p className="opacity-60 mt-0.5">
-                      答案 <code className="font-mono">{it.answer}</code>
-                    </p>
-                  </li>
-                ))}
+                {g.items.slice(0, 10).map((it) => {
+                  const opts = optionsMap.get(it.id);
+                  return (
+                    <li key={it.id} className="px-4 py-2 text-xs">
+                      <div className="flex items-baseline gap-2 mb-1 opacity-60">
+                        <span className="font-mono">{it.id.slice(0, 8)}</span>
+                        <span>{it.item_type}</span>
+                        <span>难度 {it.difficulty}</span>
+                        <span className="ml-auto">
+                          {it.created_at.toLocaleDateString('zh-CN')}
+                        </span>
+                      </div>
+                      <MathText
+                        block
+                        text={it.content}
+                        className="text-sm leading-snug line-clamp-3"
+                      />
+                      {it.item_type === 'choice' && opts && opts.length > 0 ? (
+                        <ul className="mt-1 ml-1 space-y-0.5 text-xs">
+                          {opts.map((o) => (
+                            <li key={o.label} className="flex gap-2">
+                              <span className="font-mono opacity-70 shrink-0">{o.label}.</span>
+                              <MathText text={o.text} />
+                            </li>
+                          ))}
+                        </ul>
+                      ) : it.item_type === 'choice' ? (
+                        <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
+                          ⚠️ 选择题但未找到 options（schema 缺 options 列；总控修后会自动恢复）
+                        </p>
+                      ) : null}
+                      <p className="opacity-60 mt-1 inline-flex items-baseline gap-1">
+                        <span>答案</span>
+                        <MathText text={it.answer} className="text-xs" />
+                      </p>
+                    </li>
+                  );
+                })}
                 {g.items.length > 10 ? (
                   <li className="px-4 py-2 text-xs opacity-60">
                     （还有 {g.items.length - 10} 题未显示）

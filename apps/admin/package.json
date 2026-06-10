@@ -23,6 +23,7 @@
     "@hao/ui": "workspace:*",
     "bcryptjs": "^3.0.3",
     "jose": "^6.2.3",
+    "katex": "^0.17.0",
     "next": "^15.1.4",
     "pdf-parse": "^2.4.5",
     "react": "^19.0.0",
@@ -31,6 +32,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",
+    "@types/katex": "^0.16.8",
     "@types/node": "^22.10.5",
     "@types/react": "^19.0.6",
     "@types/react-dom": "^19.0.3",

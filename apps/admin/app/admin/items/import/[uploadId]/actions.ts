@@ -467,6 +467,333 @@ export interface BulkActionState {
   error: string | null;
   ok?: boolean;
   rejected?: number;
+  accepted?: number;
+  skipped?: number;
+  skipReasons?: string[];
+}
+
+/**
+ * 批量接受 pending stagings（运营人员"快进"用）。
+ *
+ * 逐条处理 —— 每条复用 acceptStagingAction 的核心逻辑（事务里写 practice_item + audit_log + 更新 staging），
+ * 但 kp_ids / primary_kp_id 由 kp_hints 在同学科 knowledge_point 表里按 name 自动解析（不命中的题跳过）。
+ *
+ * 跳过条件（写进 skipReasons 返回给前端，不抛错以免一条挡所有）：
+ *   - 缺 _subject_id / content
+ *   - kp_hints 全部在该学科里搜不到（v0.1 不自动新建 KP）
+ *   - choice 题 options.length < 2
+ *   - DB 事务失败（外键 / 字段长度）
+ *
+ * 与单条 accept 一致：item_type / kp_ids.len≥1 / primary∈kp_ids；同事务写 audit_log。
+ *
+ * 关于 dev-only：bulkRejectAll 是 dev-only（reject 不可逆是数据安全考量），
+ * 但 bulkAccept 是常规运营动作，**不**加 ensureDevOnly —— 运营人员就是要在生产环境批量过题。
+ */
+export async function bulkAcceptAllAction(
+  _prev: BulkActionState,
+  formData: FormData,
+): Promise<BulkActionState> {
+  const session = await requireAdmin();
+  const upload_id = String(formData.get('upload_id') ?? '');
+  if (!upload_id) return { error: 'upload_id 缺失' };
+
+  const stagings = await prisma.llm_parse_staging.findMany({
+    where: { upload_id, review_status: 'pending', entity_kind: 'practice_item' },
+    orderBy: { created_at: 'asc' },
+  });
+
+  if (stagings.length === 0) {
+    return { error: null, ok: true, accepted: 0, skipped: 0, skipReasons: [] };
+  }
+
+  // 预取该上传涉及的所有学科 KP；下面用"双向 contains + 去后缀"做模糊匹配，避免
+  // 精确等于太严（LLM 常加 "运算/方法/性质" 等后缀，例如 hint "集合的并集运算" vs DB "集合的并集"）。
+  const subjectIds = Array.from(
+    new Set(
+      stagings
+        .map((s) => (s.llm_payload as { _subject_id?: string })?._subject_id)
+        .filter((x): x is string => !!x),
+    ),
+  );
+  const allKps = await prisma.knowledge_point.findMany({
+    where: { subject_id: { in: subjectIds } },
+    select: { id: true, name: true, subject_id: true },
+  });
+
+  // 同 DiffDrawer 用的 searchKpsAction 一致：忽略大小写 + contains。再加去常见后缀做兜底。
+  // 顺序：exact > 一方 contains 另一方 > 去后缀后 contains。命中第一个非空 bucket 即停。
+  const NOISE_SUFFIXES = ['运算', '方法', '性质', '概念', '定义', '表示', '关系', '判定'];
+  const stripNoise = (s: string) => {
+    let out = s;
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const suf of NOISE_SUFFIXES) {
+        if (out.endsWith(suf) && out.length > suf.length) {
+          out = out.slice(0, -suf.length);
+          changed = true;
+        }
+      }
+    }
+    return out;
+  };
+  const kpsBySubject = new Map<string, Array<{ id: string; name: string; norm: string }>>();
+  for (const kp of allKps) {
+    const norm = kp.name.trim().toLowerCase();
+    if (!kpsBySubject.has(kp.subject_id)) kpsBySubject.set(kp.subject_id, []);
+    kpsBySubject.get(kp.subject_id)!.push({ id: kp.id, name: kp.name, norm });
+  }
+
+  function matchKp(subjectId: string, hint: string): string | null {
+    const pool = kpsBySubject.get(subjectId);
+    if (!pool) return null;
+    const h = hint.trim().toLowerCase();
+    if (!h) return null;
+    // 1) exact
+    const exact = pool.find((k) => k.norm === h);
+    if (exact) return exact.id;
+    // 2) 双向 contains（与 searchKpsAction 一致的 ilike 语义）
+    const contains = pool.find((k) => k.norm.includes(h) || h.includes(k.norm));
+    if (contains) return contains.id;
+    // 3) 去后缀后再 contains（"集合的并集运算" → "集合的并集"）
+    const hStripped = stripNoise(h);
+    if (hStripped && hStripped !== h) {
+      const after = pool.find(
+        (k) => k.norm.includes(hStripped) || hStripped.includes(k.norm),
+      );
+      if (after) return after.id;
+    }
+    // 4) 最长公共子串：cover "并集及其运算" ↔ "集合的并集"（共享 "并集"）这类只在中间共享的情况。
+    //    阈值：LCS ≥ 3 直接采纳；LCS = 2 仅当不是"集合 / 函数 / 方程 / 命题"等通用领域词时采纳
+    //    （否则任何含"集合"的 hint 都会乱匹配上随便一条含"集合"的 KP）。
+    //    在所有 pool 里取 LCS 最长的一条。
+    let bestId: string | null = null;
+    let bestLen = 0;
+    for (const k of pool) {
+      const lcs = longestCommonSubstring(h, k.norm);
+      if (lcs < 2) continue;
+      if (lcs === 2) {
+        const sub = longestCommonSubstringText(h, k.norm);
+        if (GENERIC_2CHAR_STOPS.has(sub)) continue;
+      }
+      if (lcs > bestLen) {
+        bestLen = lcs;
+        bestId = k.id;
+      }
+    }
+    return bestId;
+  }
+
+  /** 通用 2-字领域词；hint 与 kp 仅在这些上共享时不算匹配（高假阳）。 */
+  const GENERIC_2CHAR_STOPS = new Set([
+    '集合',
+    '函数',
+    '方程',
+    '不等',
+    '命题',
+    '数列',
+    '向量',
+    '直线',
+    '平面',
+    '导数',
+    '概率',
+    '统计',
+    '复数',
+    '空间',
+    '图象',
+    '关系',
+    '运算',
+    '思想',
+    '方法',
+    '应用',
+    '问题',
+  ]);
+
+  /** 经典 DP，O(n×m)。n,m 都 ≤ 30 字，单次调用 ~1k op，可忽略。 */
+  function longestCommonSubstring(a: string, b: string): number {
+    if (!a || !b) return 0;
+    const m = a.length;
+    const n = b.length;
+    let prev: number[] = new Array<number>(n + 1).fill(0);
+    let curr: number[] = new Array<number>(n + 1).fill(0);
+    let best = 0;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (a[i - 1] === b[j - 1]) {
+          const v = (prev[j - 1] ?? 0) + 1;
+          curr[j] = v;
+          if (v > best) best = v;
+        } else {
+          curr[j] = 0;
+        }
+      }
+      const tmp = prev;
+      prev = curr;
+      curr = tmp;
+      curr.fill(0);
+    }
+    return best;
+  }
+
+  /** 同 longestCommonSubstring，但返回那个子串本身，用于做 stopword 检查。 */
+  function longestCommonSubstringText(a: string, b: string): string {
+    if (!a || !b) return '';
+    const m = a.length;
+    const n = b.length;
+    let prev: number[] = new Array<number>(n + 1).fill(0);
+    let curr: number[] = new Array<number>(n + 1).fill(0);
+    let best = 0;
+    let endI = 0;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (a[i - 1] === b[j - 1]) {
+          const v = (prev[j - 1] ?? 0) + 1;
+          curr[j] = v;
+          if (v > best) {
+            best = v;
+            endI = i;
+          }
+        } else {
+          curr[j] = 0;
+        }
+      }
+      const tmp = prev;
+      prev = curr;
+      curr = tmp;
+      curr.fill(0);
+    }
+    return a.slice(endI - best, endI);
+  }
+
+  let accepted = 0;
+  const skipReasons: string[] = [];
+
+  for (const s of stagings) {
+    const payload = s.llm_payload as {
+      content?: string;
+      item_type?: 'choice' | 'fill_in';
+      options?: Array<{ label: string; text: string }>;
+      answer?: string;
+      solution_text?: string;
+      difficulty?: number;
+      kp_hints?: string[];
+      _subject_id?: string;
+    };
+
+    const label = (payload.content ?? s.id).replace(/\s+/g, ' ').slice(0, 30);
+    const subjectId = payload._subject_id ?? '';
+    const itemType = payload.item_type ?? 'choice';
+    const content = (payload.content ?? '').trim();
+    const answer = (payload.answer ?? '').trim();
+    const options = Array.isArray(payload.options) ? payload.options : [];
+
+    if (!subjectId) {
+      skipReasons.push(`「${label}…」缺 _subject_id`);
+      continue;
+    }
+    if (content.length < 5) {
+      skipReasons.push(`「${label}…」content 过短`);
+      continue;
+    }
+    if (!answer) {
+      skipReasons.push(`「${label}…」缺 answer`);
+      continue;
+    }
+    if (itemType === 'choice' && options.length < 2) {
+      skipReasons.push(`「${label}…」choice 题 options < 2`);
+      continue;
+    }
+
+    // kp_hints → kp_ids（模糊匹配同学科 KP；见上方 matchKp）
+    const hints = (payload.kp_hints ?? [])
+      .map((h) => h.trim())
+      .filter((h) => h.length > 0);
+    const kpIds: string[] = [];
+    const seen = new Set<string>();
+    for (const hint of hints) {
+      const id = matchKp(subjectId, hint);
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        kpIds.push(id);
+      }
+    }
+    if (kpIds.length === 0) {
+      skipReasons.push(
+        `「${label}…」kp_hints (${hints.join(', ') || '空'}) 在该学科无匹配 KP，需人工处理`,
+      );
+      continue;
+    }
+    const primaryKpId = kpIds[0]!;
+    const difficulty = Math.min(5, Math.max(1, payload.difficulty ?? 3));
+    const solution = (payload.solution_text ?? '').slice(0, 3000);
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        const item = await tx.practice_item.create({
+          data: {
+            content,
+            answer,
+            solution_text: solution,
+            difficulty,
+            item_type: itemType,
+            kp_ids: kpIds,
+            primary_kp_id: primaryKpId,
+          },
+        });
+        await tx.audit_log.create({
+          data: {
+            actor_id: session.sub,
+            action: 'publish_practice_item',
+            target_type: 'practice_item',
+            target_id: item.id,
+            payload: {
+              staging_id: s.id,
+              subject_id: subjectId,
+              kp_ids: kpIds,
+              primary_kp_id: primaryKpId,
+              item_type: itemType,
+              difficulty,
+              bulk: true,
+            } as Prisma.InputJsonValue,
+          },
+        });
+        await tx.llm_parse_staging.update({
+          where: { id: s.id },
+          data: {
+            review_status: 'accepted',
+            review_payload: {
+              content,
+              item_type: itemType,
+              options,
+              answer,
+              solution_text: solution,
+              difficulty,
+              kp_ids: kpIds,
+              primary_kp_id: primaryKpId,
+              subject_id: subjectId,
+            } as Prisma.InputJsonValue,
+            reviewed_by: session.sub,
+            reviewed_at: new Date(),
+            published_id: item.id,
+          },
+        });
+      });
+      accepted += 1;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      skipReasons.push(`「${label}…」事务失败：${msg.slice(0, 100)}`);
+    }
+  }
+
+  revalidatePath(`/admin/items/import/${upload_id}`);
+  revalidatePath('/admin/items');
+  return {
+    error: null,
+    ok: true,
+    accepted,
+    skipped: skipReasons.length,
+    skipReasons: skipReasons.slice(0, 20), // 防止溢出
+  };
 }
 
 export async function bulkRejectAllAction(

@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { rejectStagingAction } from './actions';
 import { DiffDrawer, type LlmItemPayload } from './diff-drawer';
+import { MathText } from './math-text';
 
 export interface StagingRowProps {
   stagingId: string;
@@ -20,7 +21,9 @@ export interface StagingRowProps {
 export function StagingRow(props: StagingRowProps) {
   const [open, setOpen] = useState(false);
   const { payload } = props;
-  const summary = (payload.content ?? '').replace(/\s+/g, ' ').slice(0, 80);
+  const fullContent = payload.content ?? '';
+  const itemType = payload.item_type ?? 'choice';
+  const options = payload.options ?? [];
 
   return (
     <div className="border rounded-lg p-3">
@@ -33,15 +36,35 @@ export function StagingRow(props: StagingRowProps) {
         {payload.source_hint?.item_no ? <span>· {payload.source_hint.item_no}</span> : null}
       </div>
 
-      <p className="text-sm">
-        {summary}
-        {summary.length >= 80 ? '…' : ''}
-      </p>
+      <MathText
+        block
+        text={fullContent}
+        className="text-sm leading-relaxed [&_.katex]:text-[0.95em]"
+      />
 
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-        <span>
-          <span className="opacity-60">答案</span>{' '}
-          <code className="font-mono">{payload.answer ?? '—'}</code>
+      {itemType === 'choice' && options.length > 0 ? (
+        <ul className="mt-2 text-sm space-y-0.5">
+          {options.map((o) => (
+            <li key={o.label} className="flex gap-2">
+              <span className="font-mono opacity-70 shrink-0">{o.label}.</span>
+              <MathText text={o.text} />
+            </li>
+          ))}
+        </ul>
+      ) : itemType === 'choice' && options.length === 0 ? (
+        <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+          ⚠️ 选择题但未抽到选项；接受前请打开抽屉补全或丢弃。
+        </p>
+      ) : null}
+
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs items-baseline">
+        <span className="inline-flex items-baseline gap-1">
+          <span className="opacity-60">答案</span>
+          {payload.answer ? (
+            <MathText text={payload.answer} className="text-sm" />
+          ) : (
+            <span className="font-mono">—</span>
+          )}
         </span>
         <span>
           <span className="opacity-60">kp_hints</span>{' '}
