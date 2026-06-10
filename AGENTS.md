@@ -36,6 +36,24 @@
 
    **新加 LLM provider 时**：通过 `llm_provider` 表落库（`packages/db/prisma/seed.ts`），让 `callLLM(providerId)` 自动 dispatch；不要在业务代码里 import 具体 adapter。
 
+5. **`max_output_tokens` / `default_params.max_tokens` 设置规则**（thinking 模型友好）：
+
+   背景：Webex proxy 上的 Gemini 3.x（pro / flash）是 thinking 模型——每次回答前先在内部"想"一段（计入 `usage.completion_tokens_details.reasoning_tokens`），再吐 visible content。请求里的 `max_tokens` 是**两者共享的硬预算**：
+
+   ```
+   reasoning_tokens + completion_tokens(visible) ≤ max_tokens
+   ```
+
+   `reasoning_tokens` 量级依 prompt 复杂度和 schema 嵌套深度变化（F3 items 实测 3.5k–5.4k，KP 实测低很多）。设小了 → reasoning 把预算烧光 → visible 被切到一两百字符 → `finish_reason="length"` + 半截 JSON（[`results/probe-items-extract/.../2026-06-10T06-41-27-908_webex-gemini-3.1-pro_ppc2_strict/`](./results/probe-items-extract/) 实测）。
+
+   规则：
+   - **未实测过真实输出上限时**，`max_output_tokens` 留 `null`，且 `default_params.max_tokens` **也不要设**，让上游用自己的默认值。
+   - **实测过且需要切片决策时**，写实测得到的"reasoning + visible 总和"实测峰值的 ~1.5x；并在注释里说明这是 reasoning + visible 共享预算。
+   - **绝对不要**凭"visible 看起来在某个值附近停了"反推 `max_output_tokens` —— 那个停在哪里看到的是 `reasoning + visible` 的合并结果，不是 visible 的真实上限。
+   - 调用方需要切分输出时（如 F4.3 KP 分片），用业务层面的 prompt 提示和 chunk 大小控制，不要靠 `max_output_tokens`。
+
+   非 thinking 模型（Claude Opus 4.x / GPT-4.x）不受此规则影响，但同样优先 `null`，只有撞到上限或需要切片决策时再写。
+
 
 ## Worktree 协作协议（v0.1 MVP 阶段）
 

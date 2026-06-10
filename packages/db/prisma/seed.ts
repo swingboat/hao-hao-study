@@ -32,7 +32,7 @@ const WEBEX_BEDROCK_CONVERSE = (model: string) => `${WEBEX_HOST}/bedrock/v1/mode
 type ProviderSeed = Omit<Prisma.llm_providerCreateInput, 'created_at'>;
 
 const PROVIDERS: ProviderSeed[] = [
-  // ── Gemini 3.1 Pro：默认行为 + Webex proxy 实测输出 cap ─────────────────
+  // ── Gemini 3.1 Pro：thinking 模型，max_tokens 留给上游 ──────────────────
   {
     id: 'webex-gemini-3.1-pro',
     protocol: 'openai_chat',
@@ -40,16 +40,21 @@ const PROVIDERS: ProviderSeed[] = [
     model: 'google.gemini-3.1-pro-global',
     capabilities: { text: true, vision: true, pdf: true, structured_output: true },
     auth_env_var: 'WEBEX_LLM_TOKEN',
-    default_params: { temperature: 0.2, max_tokens: 8192 },
-    // 探针实测：v3 prompt 整本输入时 Gemini 输出被 proxy cap 在 ~2k token；
-    // 文档值 8192 是骗调用方的，写真值让 callLLM 能正确切片。
-    max_output_tokens: 2000,
+    // 不要写 max_tokens：详见 AGENTS.md §通用规则·5。
+    // Gemini 3.x 是 thinking 模型，max_tokens 是 reasoning_tokens + visible 共享预算；
+    // 探针 results/probe-items-extract/...mtnone/ 实测：F3 抽题 reasoning 烧 3.5k-5.4k，
+    // visible 1.8k-2.1k，总和 5.3k-7.2k；旧值 8192 已贴边，不安全。
+    default_params: { temperature: 0.2 },
+    // 旧值 2000 是历史误读：当时探针把"reasoning + visible 共享预算被烧光"
+    // 现象当作"proxy cap visible 在 2k"，导致 F3 抽题 100% finish_reason=length
+    // (rawText ~125 字符截断)。改 null 后 3/3 chunk 成功。
+    max_output_tokens: null,
     quirks: {},
     output_normalizers: [],
     enabled: true,
   },
 
-  // ── Gemini 3.5 Flash：能力不足，先 disabled，仅留 entry ────────────────
+  // ── Gemini 3.5 Flash：thinking 模型，同 3.1-pro 处理 ───────────────────
   {
     id: 'webex-gemini-3.5-flash',
     protocol: 'openai_chat',
@@ -57,8 +62,10 @@ const PROVIDERS: ProviderSeed[] = [
     model: 'google.gemini-3.5-flash-global',
     capabilities: { text: true, vision: false, pdf: false, structured_output: true },
     auth_env_var: 'WEBEX_LLM_TOKEN',
-    default_params: { temperature: 0.2, max_tokens: 4096 },
-    max_output_tokens: 2000,
+    // 同 webex-gemini-3.1-pro，不设 max_tokens（Flash 同样是 thinking 模型，
+    // 探针实测 reasoning_tokens=1920 / max_tokens=2000 → visible 被完全吞掉）
+    default_params: { temperature: 0.2 },
+    max_output_tokens: null,
     quirks: {},
     output_normalizers: [],
     enabled: false, // 探针实测只产 1 KP，不进生产；保留 entry 方便 A/B
