@@ -140,8 +140,17 @@ export async function runItemAnalysis(opts: ItemPipelineOptions): Promise<ItemPi
     providerId: opts.providerId,
     sourceSha256: opts.sourceSha256,
     store: opts.store,
-    pagesPerCall: opts.pagesPerCall ?? 3,
+    // 默认 2 页/调用：与 admin/lib/kp-pipeline-vision.ts 对齐。
+    // 实测 3 页 @ 150 DPI 时 Webex Gemini 输出被压到 100-200 字符截断（每片只能吐
+    // 一道题题干前半段就停 → 全片 0 items）；同 provider 同 DPI 跑 KP（也是 2 页）
+    // 一直稳定。L2 默认值 3 是给宽松 vision 模型设计的，对 Webex Gemini 太激进。
+    pagesPerCall: opts.pagesPerCall ?? 2,
     dpi: opts.dpi ?? 150,
+    // L2 默认 chunk 间 sleep 8s（converse 时代为防 429 设的过度保守值）。
+    // 实测 webex-gemini-3.1-pro 串行跑 0 个 429（KP 管线一样路径，profile 见
+    // .run/dev.log），8s sleep 是空转 —— 100 页 / 34 chunks 白等 ~270s。
+    // 调 0；如果以后真撞 429，callLLM 内部已有 Retry-After 退避。
+    delayBetweenRequestsSeconds: 0,
     // 自定义 chunk prompt：用 shared 里 v1.2026-06-07 的 PracticeItem 抽题模板，
     // 覆盖 extractItemsFromPdf 的默认 prompt（默认是通用 KP/题混合抽，结构与 PracticeItem
     // schema 不完全对齐 —— 比如缺了 difficulty 必填 / kp_hints 用学科术语等约束）。
@@ -193,6 +202,25 @@ export async function runItemAnalysis(opts: ItemPipelineOptions): Promise<ItemPi
           break;
         case 'chunk_error':
           chunksFailed += 1;
+          // 错误 reason 必须落 stderr 留痕：上层 patchProgress 是 fire-and-forget，
+          // 最终事务 raw_response 写入容易被尾部 'done' patch 抢先覆盖（实测 job
+          // 9020d7d2 的 chunks 数组连同 error 字段全被尾 patch 吞了，只剩 chunksFailed 计数）。
+          // 不修 race（race 在 caller 层），先保证 dev.log 能看到 reason。
+          {
+            const errAny = e.error as { rawText?: string; message?: string } | unknown;
+            const rawText =
+              typeof errAny === 'object' && errAny && 'rawText' in errAny
+                ? String((errAny as { rawText?: unknown }).rawText ?? '')
+                : '';
+            console.warn(
+              `[item-pipeline] chunk #${e.chunkIndex} (pages ${e.pages.join(',')}) failed: ${String(e.error).slice(0, 500)}`,
+            );
+            if (rawText) {
+              console.warn(
+                `[item-pipeline] chunk #${e.chunkIndex} rawText (len=${rawText.length}):\n${rawText.slice(0, 800)}`,
+              );
+            }
+          }
           emit({
             phase: 'chunking',
             lastEvent: `chunk #${e.chunkIndex} failed: ${String(e.error).slice(0, 120)}`,

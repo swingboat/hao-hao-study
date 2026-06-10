@@ -230,9 +230,10 @@ const DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS = 0;
 // 安全地避开 cap。本字段是给 callLLM 的"期望上限"，真上限以 provider 的 max_output_tokens 为准。
 const DEFAULT_MAX_CHUNK_TOKENS = 2000;
 const DEFAULT_MAX_RETRIES = 2;
-// 4 路并发：实测 vision 单片 ~19s LLM；94 片串行 1824s → 4 路 ~460s。Webex Gemini 路径
-// 4 路并发实测不触 429；提到 8 路时偶发 429 由 callLLM 的 Retry-After 退避兜底。
-const DEFAULT_CONCURRENCY = 4;
+// 8 路并发：实测 4 路对 94 片 ~460s wall-clock，长尾 12 片重试拖到 ~50min；
+// 提到 8 路理论减半 ~230s，Webex Gemini 路径 4 路时 0 个 429，8 路撞 429 由
+// callLLM 的 Retry-After 退避兜底。再大（16 路）proxy 队列会显著退化，先停在 8。
+const DEFAULT_CONCURRENCY = 8;
 
 /** cache key 前缀；防止读到旧 converse 跑出来的 chunksCache 误命中。 */
 const VISION_CACHE_PREFIX = 'vision/';
@@ -561,7 +562,12 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
           // 200 OK 就当成功 →    不重试 → 残缺文本进 cache → 全本约 14% KP 永久丢失。
           schema: ChunkKpItemsSchema,
           maxOutputTokens: maxChunkTokens,
-          maxRetries,
+          // 首调 fail-fast：实测重试 1-2 次还是 fail 的多半是稳定问题（输出 cap 撞顶 /
+          // 双页 prompt 触 5xx），同输入再试一遍只是浪费 30-60s。直接 throw → 走下面
+          // 拆页 fallback，命中率明显高（split 后单页 prompt 小、输出量更小）。每片省
+          // 60-90s × 受影响 chunk 数（~20%）就是 wall-clock 净收益。
+          // SSE 流截断这种瞬时问题让末段重试一轮兜底（pipeline 末尾的串行 retry pass）。
+          maxRetries: 0,
         });
       } catch (err) {
         const isRecoverable = isLLMSchemaError(err) || isLLMHttpError(err);

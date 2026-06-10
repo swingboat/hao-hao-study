@@ -90,12 +90,17 @@ export async function runItemParse(
 
     // 同学科已有 KP 字典 → 拼进 chunk prompt 让 LLM 优先复用字面量，省去 admin 抽屉里搜映射。
     // 见 lib/item-pipeline.ts 顶部 ItemPipelineOptions.kpDictionary 注释。
+    //
+    // ⚠️ 暂时禁用字典注入：实测 1235 条 KP（math_senior 当前规模）截到 500 条后仍然
+    // 把 prompt 撑到 ~6KB 文本 + 3 页图，Webex Gemini 反过来把输出压到 100-200 字符
+    // 截断（每片只吐一道题的题干前半段就停）—— 字典本意是辅助，结果让整管线 0 items。
+    // 等总控把 packages/llm 加上 RAG 式按页面相关性 retrieve top-K KP 字典再开。
     const existingKps = await prisma.knowledge_point.findMany({
       where: { subject_id: subjectId },
       select: { name: true },
       orderBy: [{ chapter_no: 'asc' }, { name: 'asc' }],
     });
-    const kpDictionary = existingKps.map((k) => k.name);
+    const kpDictionary: string[] = []; // existingKps.map((k) => k.name);  // 见上面注释
 
     // prompt_version 加 `+kpdict-${count}` 后缀，方便 F7.1 审计区分"是否注入了字典 / 字典多大"。
     // 重抽 / A-B 对比时一眼知道这次跑的 prompt 实际形态。
