@@ -95,6 +95,14 @@ export {
   type AnalyzeImageBatchResult,
 } from './vision/analyze-image-batch';
 export {
+  runConcurrentPool,
+  callWithSplitFallback,
+  type ConcurrentPoolOpts,
+  type PoolResult,
+  type CallWithSplitFallbackOpts,
+  type CallWithSplitFallbackResult,
+} from './pdf-vision';
+export {
   extractItemsFromPdf,
   type ExtractItemsFromPdfOptions,
   type ExtractItemsFromPdfResult,
