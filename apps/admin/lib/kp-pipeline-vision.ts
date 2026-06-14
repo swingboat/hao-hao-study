@@ -1,29 +1,15 @@
 /**
- * KP 解析流水线 v3 — vision 路径（pdftoppm → Gemini vision）。
+ * KP 解析流水线 v3 — vision 路径（pdftoppm → 多模态 LLM）。
  *
- * 与 kp-pipeline.ts（converse 路径，已 @deprecated）镜像同形：
- *   - 同样 resume cache（chunksCache by `${start}-${end}`，但 vision 路径 key
- *     带 `vision/` 前缀，避免读到旧 converse 缓存误命中）
- *   - 同样 onChunkPersist / onProgress / KpProgressEvent 事件名 → actions.ts 的
- *     switch 完全不用改
- *   - 同样 TS 手工合并（mergeChunkItems 行为复用，因为 vision 在 1M context 下
- *     不再撞 4096 输出上限，但保留手工合并：(a) 行为稳定，(b) 不消耗额外 LLM 调用做终审）
- *
- * 与 kp-pipeline.ts 的差异：
- *   - rasterizePdf 替换 extractPdfChunk（PDF → PNG 每页一张）
- *   - analyzeImageBatch 替换 callLLM(pdf attachment)（多 image_url content part）
- *   - chunkPages 默认 3（而非 15）：vision 单次喂 3 张 ≈ 1800 input + 4000 output，
- *     安全；缓解跨页 KP 表述被切
- *   - delayBetweenRequestsSeconds 默认 8（而非 60）：vision provider（webex-gemini-3.1-pro）
- *     实测 8s sleep 即可，不撞 429
- *
- * 弃用根因（converse）：Webex proxy 上 429 触发率过高，60s sleep/请求才能跑完
- * 必修教材，~25-30 分钟 wall-clock；vision 路径同等任务 ~5 分钟。
+ *   - rasterizePdf 把 PDF 渲染成 PNG 页面图像
+ *   - 按页组调用多模态 LLM 抽取 KP JSON
+ *   - chunksCache 用 `vision/${start}-${end}` 作为 key，支持跨 job resume
+ *   - TS 手工合并、去重、补 chapter_title，不再额外调用 LLM 终审
  *
  * 边界：
  *   - 不动 packages/llm（worktree 规则），只复用其 export：rasterizePdf / analyzeImageBatch / extractJsonBlock
  *   - 不写 DB（保持 lib 纯净）；caller 通过 onProgress / onChunkPersist 落 DB
- *   - chunk 阶段任意失败立即 throw，但已落盘的 chunk 不丢
+ *   - chunk 阶段 fail-soft：单片失败不写 cache，已落盘的 chunk 不丢
  */
 import type { subject } from '@hao/db';
 import {
@@ -39,19 +25,19 @@ import { z } from 'zod';
 import { buildKpVisionChunkPrompt } from './prompts';
 
 /**
- * Chunk 级 schema —— 喂给 analyzeImageBatch / callLLM 触发"JSON 解析失败 → 重试"路径。
+ * Chunk 级 schema —— 喂给多模态调用层触发"JSON 解析失败 → 重试"路径。
  *
  * 不复用 packages/shared 的 KnowledgePointParsedSchema：
  *   1. 上层 KnowledgePointBatchSchema 强制 `items.min(1)`，但 vision 管线里教材
  *      封面/目录/空白页/整页插图等返回 `{ "items": [] }` 是合法的，套 min(1) 会让
- *      callLLM 把这些正常空响应当成 schema 不通过去无谓重试 N 次。
+ *      调用层把这些正常空响应当成 schema 不通过去无谓重试 N 次。
  *   2. 我们要在 chunk 级新增 `chapter_title`（vision-v3）—— 这字段不入 knowledge_point
  *      正式表，只挂 staging.llm_payload 给 UI 显示用，所以放在 admin worktree 这边定义。
  *
  * 真正想拦的是 Webex Gemini 偶发的"流截断 → JSON 残缺"（实测 13%）和章节标题缺失：schema
- * 触发 extractJsonBlock 抛错 → callLLM 自动重试，命中率 1-13%^3 ≈ 99.8%；callLLM 实在
- * 跑满 maxRetries 才抛 LLMSchemaError，runOne 捕获后整片 chunk 失败 —— 不会把残缺文本
- * 写进 cache（cache 持久化在 runOne 后段，永远在 callLLM throw 之后才执行）。
+ * 触发 extractJsonBlock 抛错 → 调用层自动重试，命中率 1-13%^3 ≈ 99.8%；重试预算耗尽后
+ * runOne 捕获为整片 chunk 失败 —— 不会把残缺文本
+ * 写进 cache（cache 持久化在 runOne 后段，永远在调用抛错之后才执行）。
  */
 const ChunkKpItemSchema = z.object({
   name: z.string().min(2).max(50),
@@ -75,9 +61,7 @@ export function addTokenUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
 }
 
 /**
- * 单 chunk 的完整结果。shape 与 kp-pipeline.ts 的 KpChunkOutcome 完全一致 —
- * 复用 actions.ts 的 ProgressSnapshot / KpAnalysisCache 类型而无需平行声明。
- * `reused=true` 时是从 cache 回放，未真正发 LLM。
+ * 单 chunk 的完整结果。`reused=true` 时是从 cache 回放，未真正发 LLM。
  */
 export interface KpChunkOutcome {
   chunkIndex: number;
@@ -95,7 +79,7 @@ export interface KpChunkOutcome {
   sourceJobId: string | null;
 }
 
-/** 跨 job 累积的缓存；key = `vision/${start}-${end}`（带前缀，与 converse cache 隔离） */
+/** 跨 job 累积的缓存；key = `vision/${start}-${end}`。 */
 export interface KpAnalysisCache {
   byRange: Record<string, KpChunkOutcome>;
 }
@@ -125,7 +109,7 @@ export type KpProgressEvent =
   | { type: 'sleep'; seconds: number; reason: 'between_requests' }
   | {
       /**
-       * 单片永久失败（schema retry / HTTP 500 / 网络错误等都耗尽 callLLM 自带 maxRetries 后）。
+       * 单片永久失败（schema retry / HTTP 500 / 网络错误等都耗尽重试预算后）。
        * pipeline 会**继续跑**剩余 chunk —— 这是 fail-soft，不是终态；
        * 终态由 `merge_done`/`error{stage:'plan'|'merge'}` 表达。
        * UI 把它作为可恢复 warning（"N 片永久失败，点重新解析会自动补"）展示。
@@ -179,7 +163,7 @@ export interface KpAnalysisResult {
     droppedInvalid: number;
     chunksUnparseable: number;
     /**
-     * 永久失败的 chunk 数（callLLM 自带重试耗尽后仍 throw 的）。
+     * 永久失败的 chunk 数（调用层重试耗尽后仍 throw 的）。
      * 不进 cache，下次 reparse 会自动重抽。详见 `chunkFailures`。
      */
     chunksFailed: number;
@@ -198,7 +182,7 @@ export interface KpAnalysisResult {
    * vision-v3：chapter_no → chapter_title 映射（merge 时跨分片择优出来的）。
    * caller（actions.ts）应把对应 title 写到每条 staging 的 llm_payload.chapter_title，
    * 这样 admin/kps 列表页能把"第 6 章"显示成"第 6 章 平面向量及其应用"。
-   * 缺少 title 的 chapter（LLM 全分片都没识别出标题）不在此 map 内；UI 兜底到光数字。
+   * 缺少 title 的 chapter（LLM 全分片都没识别出标题）不在此 map 内；UI 显示数字。
    */
   chapterTitles: Map<string, string>;
   representativeRequestPayload: object | null;
@@ -208,20 +192,19 @@ export interface KpAnalysisResult {
 
 const DEFAULT_PAGES_PER_CALL = 2;
 const DEFAULT_DPI = 150;
-// 实测 94 片 vision 串行跑 0 retry / 0 429（对应 Webex Gemini 3.1 Pro），
-// 8s sleep 是从 converse 时代继承的过度保守值。改 0 + concurrency 一起调度。
+// 实测 vision 并发调度不需要固定间隔；限流由调用层按错误响应处理。
 const DEFAULT_DELAY_BETWEEN_REQUESTS_SECONDS = 0;
 // webex-gemini-3.1-pro 在 Webex proxy 上实测输出 cap ~2000 token（seed.ts 已据此
 // 标 max_output_tokens=2000）。pagesPerCall=2 时单片 KP 数 ≤ ~12，对应输出 ~1500 token，
-// 安全地避开 cap。本字段是给 callLLM 的"期望上限"，真上限以 provider 的 max_output_tokens 为准。
+// 安全地避开 cap。本字段是给调用层的"期望上限"，真上限以 provider 的 max_output_tokens 为准。
 const DEFAULT_MAX_CHUNK_TOKENS = 2000;
 const DEFAULT_MAX_RETRIES = 2;
 // 8 路并发：实测 4 路对 94 片 ~460s wall-clock，长尾 12 片重试拖到 ~50min；
 // 提到 8 路理论减半 ~230s，Webex Gemini 路径 4 路时 0 个 429，8 路撞 429 由
-// callLLM 的 Retry-After 退避兜底。再大（16 路）proxy 队列会显著退化，先停在 8。
+// 调用层 Retry-After 退避处理。再大（16 路）proxy 队列会显著退化，先停在 8。
 const DEFAULT_CONCURRENCY = 8;
 
-/** cache key 前缀；防止读到旧 converse 跑出来的 chunksCache 误命中。 */
+/** vision cache key 前缀。 */
 const VISION_CACHE_PREFIX = 'vision/';
 function visionRangeKey(start: number, end: number): string {
   return `${VISION_CACHE_PREFIX}${start}-${end}`;
@@ -246,7 +229,7 @@ interface LooseKp {
  *  - "6.2 平面向量的运算" → "6.2"（取首段数字串）
  *  - 整段无法识别 → null
  *
- * v2 prompt 已要求 LLM 直接输出该格式；此函数兜底处理 v1 旧 cache 数据 + 偶发不服从。
+ * prompt 已要求 LLM 直接输出该格式；此函数处理偶发不服从。
  */
 const CHINESE_NUM: Record<string, string> = {
   零: '0',
@@ -309,8 +292,6 @@ export function countChunkItems(text: string): number | null {
 }
 
 /**
- * 与 kp-pipeline.ts::mergeChunkItems 行为一致；vision 输出 shape 完全相同。
- *
  * v3 新增：跨 chunk 收集 chapter_no → chapter_title 的最高频映射。同一 chapter_no
  * 在不同 chunk 里 LLM 可能给出略有差异的标题（如 "平面向量" vs "平面向量及其应用"）；
  * 取出现次数最多的；并列时取首次见到的（隐式按 chunk 顺序）。
@@ -529,7 +510,7 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
       // 整片调一次；schema 截断 / proxy 5xx 时 callWithSplitFallback 自动拆单页重抽
       // 合并（实测 Webex Gemini 输出 cap ~2000 token 撞顶 → JSON 截断 ~13% chunk；
       // 单页输出 ≤ ~1500 token，几乎不再撞 cap）。首调 maxRetries=0 fail-fast，
-      // 同输入再试一遍是 30-60s 浪费；瞬时问题靠下面的末段串行重试一轮兜底。
+      // 同输入再试一遍是 30-60s 浪费；瞬时问题交给末段串行重试。
       const result = await callWithSplitFallback({
         providerId: opts.providerId,
         images,
@@ -549,14 +530,14 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
             endPage: page,
             pageImageCount: 1,
           }),
-        // schema 触发 callLLM 内部"JSON 残缺 → 自动重试 + 严格 JSON 提示"路径。
+        // schema 触发调用层"JSON 残缺 → 自动重试 + 严格 JSON 提示"路径。
         // 修复 Webex Gemini SSE 流截断（实测 13% chunk text 中途被切，结果是
         // {"items":[{...}, {"name":"...", "chapter_no":"6.2 ← 半截字符串导致整片
-        // 不可解析、KP 全部丢失）；之前没传 schema，callLLM 收到 200 OK 就当成功 →
+        // 不可解析、KP 全部丢失）；之前没传 schema，调用层收到 200 OK 就当成功 →
         // 不重试 → 残缺文本进 cache → 全本约 14% KP 永久丢失。
         schema: ChunkKpItemsSchema,
         maxOutputTokens: maxChunkTokens,
-        maxRetries: 0, // 首调 fail-fast；瞬时问题靠下面的末段串行重试兜底
+        maxRetries: 0, // 首调 fail-fast；瞬时问题交给末段串行重试
         perPageMaxRetries: maxRetries, // 单页跑命中率明显高，给它正常重试预算
         // KP schema 是 {items: [...]} —— 拼合各子页 items。Items 那条线 schema 不同，
         // 它接入时会传自己的 mergeText（Step 4 一起做）。
@@ -689,7 +670,7 @@ export async function runKpAnalysisVision(opts: KpAnalysisOptions): Promise<KpAn
   // Webex Gemini 偶发 500 / proxy 抖动多是瞬时的；并发风暴结束后再试一遍命中率明显升。
   // 串行单线程跑、且每次失败前先 sleep 2s 让 proxy 恢复，比加大 maxRetries 更经济
   // （maxRetries 是每次调用内部连发，对持续 500 没救）。仍失败的 chunk 保留在 chunkFailures，
-  // UI 还是会显示 warning，用户点重新解析仍是兜底。
+  // UI 还是会显示 warning，用户点重新解析会重抽失败片。
   if (failures.length > 0 && failures.length < ranges.length) {
     chunkFailures.length = 0; // 清空，下面按重试结果重填（同原 splice(0) 语义）
     for (const { index: i } of failures) {

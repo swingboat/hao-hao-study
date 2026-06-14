@@ -151,7 +151,7 @@ export async function runQuestionAnalysis(
     // 一直稳定。L2 默认值 3 是给宽松 vision 模型设计的，对 Webex Gemini 太激进。
     pagesPerCall: opts.pagesPerCall ?? 2,
     dpi: opts.dpi ?? 150,
-    // L2 默认 chunk 间 sleep 8s（converse 时代为防 429 设的过度保守值）。
+    // L2 默认 chunk 间 sleep 8s；对当前 vision provider 偏保守。
     // 实测 webex-gemini-3.1-pro 串行跑 0 个 429（KP 管线一样路径，profile 见
     // .run/dev.log），8s sleep 是空转 —— 100 页 / 34 chunks 白等 ~270s。
     // 调 0；如果以后真撞 429，callLLM 内部已有 Retry-After 退避。

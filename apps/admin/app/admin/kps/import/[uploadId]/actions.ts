@@ -289,7 +289,7 @@ export async function getJobProgressAction(jobId: string): Promise<JobProgressVi
     output?: number;
     total?: number;
   } | null;
-  const fallbackUsage = rawProgress?.tokenUsageSoFar
+  const progressUsage = rawProgress?.tokenUsageSoFar
     ? {
         input: rawProgress.tokenUsageSoFar.input,
         output: rawProgress.tokenUsageSoFar.output,
@@ -317,7 +317,7 @@ export async function getJobProgressAction(jobId: string): Promise<JobProgressVi
             output: tokenUsageField.output,
             total: tokenUsageField.total ?? tokenUsageField.input + tokenUsageField.output,
           }
-        : fallbackUsage,
+        : progressUsage,
     kpCount,
   };
 }

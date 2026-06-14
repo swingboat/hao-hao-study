@@ -1,8 +1,8 @@
 /**
  * F4.3 上传 + 解析入口页 — /admin/kps/import
  *
- *   - 表单：subject 下拉 / Provider 下拉 / 文件输入（仅 PDF，≤500MB；analyzePdf 内部按页切片）
- *   - 提交 → uploadAndParseAction（同步等 LLM 返回，可能 30–60s）
+ *   - 表单：subject 下拉 / Provider 下拉 / 文件输入（仅 PDF，≤500MB）
+ *   - 提交 → uploadAndParseAction 上传并创建后台 vision 解析任务
  *   - 成功跳到 /admin/kps/import/<uploadId> 看 staging
  *   - 历史上传列表：最近 10 条 content_upload(purpose=knowledge_point)
  */
@@ -17,7 +17,7 @@ const TASK_KIND_DEFAULT_ENV = 'DEFAULT_PROVIDER_KNOWLEDGE_POINT';
 export default async function KpImportPage() {
   const [subjects, providers, recent] = await Promise.all([
     prisma.subject.findMany({ orderBy: { id: 'asc' } }),
-    // 只列启用且支持 PDF 能力的 provider
+    // 只列启用的 provider；下面再收敛到 KP vision 管线可用的协议与能力。
     prisma.llm_provider.findMany({
       where: { enabled: true },
       orderBy: { id: 'asc' },
@@ -37,20 +37,19 @@ export default async function KpImportPage() {
     }),
   ]);
 
-  // 过滤出 capabilities.pdf=true 的（运营 PRD 写明 KP 解析需 PDF 能力）
-  const pdfProviders = providers.filter((p) => {
-    const caps = p.capabilities as { pdf?: boolean } | null;
-    return caps?.pdf === true;
+  const visionProviders = providers.filter((p) => {
+    const caps = p.capabilities as { vision?: boolean } | null;
+    return p.protocol === 'openai_chat' && caps?.vision === true;
   });
 
-  // env 值必须在 pdfProviders 名单内；否则 select.defaultValue 不匹配任何 option →
+  // env 值必须在 visionProviders 名单内；否则 select.defaultValue 不匹配任何 option →
   // React 把 selectedIndex 置 -1 → required 校验静默失败 → 用户点提交无反应。
-  // 兜底用 pdfProviders[0].id，永远确保 defaultProvider 在 options 里。
+  // 默认用 visionProviders[0].id，永远确保 defaultProvider 在 options 里。
   const envDefault = process.env[TASK_KIND_DEFAULT_ENV];
   const defaultProvider =
-    envDefault && pdfProviders.some((p) => p.id === envDefault)
+    envDefault && visionProviders.some((p) => p.id === envDefault)
       ? envDefault
-      : (pdfProviders[0]?.id ?? '');
+      : (visionProviders[0]?.id ?? '');
 
   return (
     <main className="p-8 max-w-4xl mx-auto space-y-8">
@@ -66,21 +65,22 @@ export default async function KpImportPage() {
         </Link>
       </header>
 
-      {subjects.length === 0 || pdfProviders.length === 0 ? (
+      {subjects.length === 0 || visionProviders.length === 0 ? (
         <section className="border border-amber-500 rounded-lg p-4 text-sm">
           {subjects.length === 0 ? (
             <p className="text-amber-700">subject 表为空，请总控先 seed 至少 1 条学科记录。</p>
           ) : null}
-          {pdfProviders.length === 0 ? (
+          {visionProviders.length === 0 ? (
             <p className="text-amber-700">
-              没有 capabilities.pdf=true 且启用的 LLM Provider；请去 /admin/settings/llm 检查。
+              没有 openai_chat + capabilities.vision=true 且启用的 LLM Provider；请去
+              /admin/settings/llm 检查。
             </p>
           ) : null}
         </section>
       ) : (
         <ImportForm
           subjects={subjects.map((s) => ({ id: s.id, name: s.name, stage: s.stage }))}
-          providers={pdfProviders.map((p) => ({ id: p.id, model: p.model }))}
+          providers={visionProviders.map((p) => ({ id: p.id, model: p.model }))}
           defaultProvider={defaultProvider}
         />
       )}

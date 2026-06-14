@@ -156,7 +156,7 @@ export interface KpTreeViewProps {
   subjects: Array<{ id: string; name: string }>;
   /** 当前学科过滤（非空 → 只展示一层，省掉 subject 标题） */
   filteredSubject?: string;
-  /** chapter_no → 文字标题（vision-v3+ staging 才有；老数据 / 缺标题章节走兜底显示数字） */
+  /** chapter_no → 文字标题（缺标题章节显示数字） */
   chapterTitles?: Map<string, string>;
 }
 
