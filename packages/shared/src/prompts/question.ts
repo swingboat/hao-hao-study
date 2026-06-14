@@ -1,11 +1,11 @@
 /**
- * 题目（practice_item）LLM 抽取 prompt 模板
+ * 题目（question）LLM 抽取 prompt 模板
  *
  * 用途：admin F3.1–F3.2 调 analyzePdf 时作为 chunkPromptBuilder / finalPromptBuilder 传入。
- *      callLLM 内部会把 PracticeItemBatchSchema 注入 prompt 末尾（bedrock_converse adapter
+ *      callLLM 内部会把 QuestionBatchSchema 注入 prompt 末尾（bedrock_converse adapter
  *      的 schemaInPrompt 路径），LLM 输出后端会用 zod 兜底校验。
  *
- * 版本：PRACTICE_ITEM_PROMPT_VERSION 写到 llm_parse_job.prompt_version，方便审计追溯
+ * 版本：QUESTION_PROMPT_VERSION 写到 llm_parse_job.prompt_version，方便审计追溯
  *      某次 staging 是哪个 prompt 版本产出的。改 prompt 时务必 bump 版本号。
  *
  * 与 KP 抽取 prompt（admin 自管 buildKpPrompt）的关系：
@@ -16,9 +16,9 @@
  */
 
 /** prompt 版本字符串。改 prompt 时务必同步 bump。 */
-export const PRACTICE_ITEM_PROMPT_VERSION = 'practice_item.v1.2026-06-07';
+export const QUESTION_PROMPT_VERSION = 'question.v1.2026-06-07';
 
-export interface PracticeItemChunkPromptCtx {
+export interface QuestionChunkPromptCtx {
   chunkIndex: number;
   totalChunks: number;
   startPage: number;
@@ -27,7 +27,7 @@ export interface PracticeItemChunkPromptCtx {
   subjectName: string;
 }
 
-export interface PracticeItemFinalPromptCtx {
+export interface QuestionFinalPromptCtx {
   pdfPath: string;
   pageCount: number;
   subjectName: string;
@@ -42,7 +42,7 @@ export interface PracticeItemFinalPromptCtx {
 }
 
 /**
- * 单 chunk prompt：让 LLM 从 PDF 切片里抽出本片所有题目，输出 PracticeItemBatchSchema
+ * 单 chunk prompt：让 LLM 从 PDF 切片里抽出本片所有题目，输出 QuestionBatchSchema
  * 形状。analyzePdf 会把 PDF 切片本身作为 attachment 直接附在 prompt 后。
  *
  * 关键约束写进 prompt（schema 兜底再校一次，但 prompt 引导能减少 retry）：
@@ -52,7 +52,7 @@ export interface PracticeItemFinalPromptCtx {
  *   4. answer 形态严格：choice 用大写字母拼接，fill_in 多空用分号
  *   5. solution_text 抽不到给空串，不要编
  */
-export function buildPracticeItemChunkPrompt(ctx: PracticeItemChunkPromptCtx): string {
+export function buildQuestionChunkPrompt(ctx: QuestionChunkPromptCtx): string {
   return [
     `你正在帮 ${ctx.subjectName} 教研团队从一份题集 PDF 里抽取题目入题库。`,
     `当前是第 ${ctx.chunkIndex}/${ctx.totalChunks} 个 PDF 分片（原 PDF 第 ${ctx.startPage}-${ctx.endPage} 页）。`,
@@ -69,7 +69,7 @@ export function buildPracticeItemChunkPrompt(ctx: PracticeItemChunkPromptCtx): s
     '【字段规范】',
     '- `content`：题干正文。若题目带图（几何图 / 函数图像 / 表格），在题干末尾用 `[图片描述: ...]` 标注，',
     '  描述要让没看过原图的人也能解题（坐标点 / 几何关系 / 关键标注），不要只写"如图所示"。',
-    '- `item_type`：`"choice"` 或 `"fill_in"`，必填。',
+    '- `question_type`：`"choice"` 或 `"fill_in"`，必填。',
     '- `options`：',
     '    - choice 题：按原文顺序列出，label 是大写字母 A/B/C/D...，text 是选项正文（不含 "A." 前缀）。',
     '    - fill_in 题：留空数组 `[]`。',
@@ -82,13 +82,13 @@ export function buildPracticeItemChunkPrompt(ctx: PracticeItemChunkPromptCtx): s
     `    用 ${ctx.subjectName} 领域的标准术语，2-50 字符，如"函数的单调性"、"集合的运算"、"等比数列求和"。`,
     '    不要写得太宽（如只写"函数"）也不要太窄（如"奇函数定义"），对齐教材一节的概念粒度。',
     '    至少 1 条，最多 5 条。条目之间不要重复。',
-    '- `source_hint`：可选。能从分片里识别到题号时填 `{ page, item_no }`（item_no 如 "第 3 题" / "1.2.3"），',
+    '- `source_hint`：可选。能从分片里识别到题号时填 `{ page, question_no }`（question_no 如 "第 3 题" / "1.2.3"），',
     '    便于后续运营回 PDF 校对。',
     '',
     '【输出形态】',
-    '严格按下方 JSON Schema 输出整个 PracticeItemBatchSchema（一个 `{ "items": [...] }` 对象）。',
+    '严格按下方 JSON Schema 输出整个 QuestionBatchSchema（一个 `{ "questions": [...] }` 对象）。',
     '不要任何 markdown 包裹、不要解释文字、不要前后缀。',
-    '如果本分片里一道题都没有（可能是封面 / 答案页 / 索引），返回 `{ "items": [] }` —— 上层会兜底转成空批次。',
+    '如果本分片里一道题都没有（可能是封面 / 答案页 / 索引），返回 `{ "questions": [] }` —— 上层会兜底转成空批次。',
   ].join('\n');
 }
 
@@ -97,13 +97,13 @@ export function buildPracticeItemChunkPrompt(ctx: PracticeItemChunkPromptCtx): s
  *
  * 实际行为：
  *   - chunk 阶段已经按 schema 抽好，终审主要做"跨 chunk 看是否同题重复（两个 chunk 切边附近）"
- *   - 终审输出 schema 仍是 PracticeItemBatchSchema —— admin 可以直接拿来批量入 staging
+ *   - 终审输出 schema 仍是 QuestionBatchSchema —— admin 可以直接拿来批量入 staging
  *   - 终审不带 PDF attachment，纯文本聚合
  *
  * 注意：终审是可选的。admin 也可以直接用 chunk 结果合并，跳过终审 LLM 调用以省 token。
  *      analyzePdf 当前固定有终审；后续如果加 `skipFinalSynthesis` 选项 admin 可以关掉。
  */
-export function buildPracticeItemFinalPrompt(ctx: PracticeItemFinalPromptCtx): string {
+export function buildQuestionFinalPrompt(ctx: QuestionFinalPromptCtx): string {
   const chunkBlocks = ctx.chunkSummaries
     .map((s) =>
       [`--- 分片 ${s.chunkIndex}（第 ${s.startPage}-${s.endPage} 页）---`, s.text].join('\n'),
@@ -116,9 +116,9 @@ export function buildPracticeItemFinalPrompt(ctx: PracticeItemFinalPromptCtx): s
     '请合并所有分片的题目，做下面三件事：',
     '1. 把跨分片切边附近**明显重复**的题（同 content / 同 answer）只保留一份。',
     '2. 规范化 kp_hints：同一概念的不同写法统一（如"集合运算" / "集合的运算" 统一成"集合的运算"）。',
-    '3. 按原 PDF 出现顺序排序输出（用 source_hint.page → item_no 排序，缺失的排末尾）。',
+    '3. 按原 PDF 出现顺序排序输出（用 source_hint.page → question_no 排序，缺失的排末尾）。',
     '',
-    '严格按 PracticeItemBatchSchema 输出整个 `{ "items": [...] }`，规则与各分片相同：',
+    '严格按 QuestionBatchSchema 输出整个 `{ "questions": [...] }`，规则与各分片相同：',
     '- 仅 choice / fill_in 两类',
     '- 字段规范、长度约束、答案形态与分片阶段一致',
     '- 不要任何 markdown 包裹、不要解释文字',

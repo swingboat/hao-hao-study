@@ -15,13 +15,13 @@
    | 访问 LLM | `@hao/llm` 的 `callLLM()` 或其高层封装（`analyzeImages` / `analyzeImagesToStorage` / `analyzePdfWithVision` / `cropFiguresToStorage` …）；provider 元数据走 `llm_provider` 表 | `fetch()` 直连 LLM 端点、硬编码 endpoint / model / token；新业务**不要**再用 `analyzePdf`（bedrock_converse 路径，已软弃用，见下） | `docs/Tech_Stack_MVP_v0.1.md` §2.3 + `packages/llm/src/callLLM.ts` |
    | F4.3 KP 解析 | `apps/admin/lib/kp-pipeline-vision.ts`（pdftoppm + Gemini vision；webex-gemini-3.1-pro 默认） | `apps/admin/lib/kp-pipeline.ts` —— Converse 路径已 `@deprecated`，仅作回滚保底 | commit `a1f4865` + 本次 vision 切换 |
    | 文件解析（轻量场景）—— file + prompt → text | `@hao/llm` 的 `analyzeFile.{image,pdf}()` 傻瓜入口（L0） | 手动 `rasterize` + 自己写循环 | `packages/llm/src/analyze-file.ts` |
-   | PDF 教材/试卷抽题（"不丢题"硬指标） | `@hao/llm` 的 `extractItemsFromPdf()`（L2，含完整性自检 + 边界重抽 + dedup + figure crop） | `analyzeFile.pdf` 或 `analyzeImagesToStorage`（这两者不解决跨页题问题） | `packages/llm/src/vision/extract-items-from-pdf.ts` |
+   | PDF 教材/试卷抽题（"不丢题"硬指标） | `@hao/llm` 的 `extractQuestionsFromPdf()`（L2，含完整性自检 + 边界重抽 + dedup + figure crop） | `analyzeFile.pdf` 或 `analyzeImagesToStorage`（这两者不解决跨页题问题） | `packages/llm/src/vision/extract-questions-from-pdf.ts` |
    | PDF 抽题（无跨页要求） | `@hao/llm` 的 `analyzePdfWithVision()`（自动 rasterize → 调 LLM → bbox 裁切 → 落 storage + 汇总 derived_asset 候选） | 业务里自己拼 `rasterizePdf` + `analyzeImages` + `cropFiguresToStorage`（如要细控可用低层 API，但需在调用处注释原因） | `packages/llm/src/pdf/analyze-pdf-with-vision.ts` |
 
    **`@hao/llm` 分层速查**（v0.1）：
    - **L0**（傻瓜入口）`analyzeFile.{image, pdf}` — file + prompt → `{text, perPage}`；单图问答、PDF 内容总结。**不**做 figure / storage / 跨页修复。
    - **L1**（端到端 PDF 入口）`analyzePdfWithVision` — rasterize → 抽题 + figure crop + derived_asset。**不**修跨页题。
-   - **L2**（教材抽题流水线）`extractItemsFromPdf` — chunked + 完整性自检 + 边界重抽 + dedup + figure crop。教材/试卷不丢题硬指标走这里。
+   - **L2**（教材抽题流水线）`extractQuestionsFromPdf` — chunked + 完整性自检 + 边界重抽 + dedup + figure crop。教材/试卷不丢题硬指标走这里。
    - **L2-中间**（公共子流程）`analyzeImagesToStorage` — image batch → 抽题 + figure crop；L1 内部调它，独立 image batch 抽题也可用。
    - **L3**（原语）`callLLM` / `rasterizePdf` / `analyzeImages`（每图一次）/ `analyzeImageBatch`（一次多图）/ `cropFiguresToStorage`。
 
@@ -44,7 +44,7 @@
    reasoning_tokens + completion_tokens(visible) ≤ max_tokens
    ```
 
-   `reasoning_tokens` 量级依 prompt 复杂度和 schema 嵌套深度变化（F3 items 实测 3.5k–5.4k，KP 实测低很多）。设小了 → reasoning 把预算烧光 → visible 被切到一两百字符 → `finish_reason="length"` + 半截 JSON（[`results/probe-items-extract/.../2026-06-10T06-41-27-908_webex-gemini-3.1-pro_ppc2_strict/`](./results/probe-items-extract/) 实测）。
+   `reasoning_tokens` 量级依 prompt 复杂度和 schema 嵌套深度变化（F3 questions 实测 3.5k–5.4k，KP 实测低很多）。设小了 → reasoning 把预算烧光 → visible 被切到一两百字符 → `finish_reason="length"` + 半截 JSON（`results/probe-questions-extract/.../2026-06-10T06-41-27-908_webex-gemini-3.1-pro_ppc2_strict/` 实测）。
 
    规则：
    - **未实测过真实输出上限时**，`max_output_tokens` 留 `null`，且 `default_params.max_tokens` **也不要设**，让上游用自己的默认值。
@@ -90,4 +90,3 @@
 - 常用命令（构建、测试、运行、Lint）
 - 代码架构与模块划分
 - 其他项目特定约定
-

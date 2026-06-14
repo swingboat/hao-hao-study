@@ -42,7 +42,7 @@ const PROVIDERS: ProviderSeed[] = [
     auth_env_var: 'WEBEX_LLM_TOKEN',
     // 不要写 max_tokens：详见 AGENTS.md §通用规则·5。
     // Gemini 3.x 是 thinking 模型，max_tokens 是 reasoning_tokens + visible 共享预算；
-    // 探针 results/probe-items-extract/...mtnone/ 实测：F3 抽题 reasoning 烧 3.5k-5.4k，
+    // 探针 results/probe-questions-extract/...mtnone/ 实测：F3 抽题 reasoning 烧 3.5k-5.4k，
     // visible 1.8k-2.1k，总和 5.3k-7.2k；旧值 8192 已贴边，不安全。
     default_params: { temperature: 0.2 },
     // 旧值 2000 是历史误读：当时探针把"reasoning + visible 共享预算被烧光"

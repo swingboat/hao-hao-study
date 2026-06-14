@@ -24,7 +24,7 @@
  *   - vision/analyze-image-batch.ts         L3 原语：一次 callLLM 喂 N 张图（多 image_url）
  *   - vision/analyze-images.ts              图片 batch 视觉抽题（openai_chat 路径，Gemini vision）
  *   - vision/analyze-images-to-storage.ts   analyzeImages + cropFigures + token 汇总（PDF/image 共用）
- *   - vision/extract-items-from-pdf.ts      L2 教材抽题：chunked + 完整性自检 + 边界重抽 + dedup
+ *   - vision/extract-questions-from-pdf.ts      L2 教材抽题：chunked + 完整性自检 + 边界重抽 + dedup
  *   - vision/crop-figures.ts                按 bbox 裁切 + 落 storage + derived_asset 候选
  *   - analyze-file.ts                       L0 文件解析公共层（傻瓜入口：file + prompt → text）
  *   - json-schema.ts                        极简 zod → JSON Schema（structured output 用）
@@ -72,7 +72,7 @@ export {
   type AnalyzeImagesResult,
   type AnalyzedImage,
   type AnalyzeImagesInputImage,
-  type ExtractedItem,
+  type ExtractedQuestion,
   type ExtractedResource,
   type Figure,
 } from './vision/analyze-images';
@@ -95,11 +95,19 @@ export {
   type AnalyzeImageBatchResult,
 } from './vision/analyze-image-batch';
 export {
-  extractItemsFromPdf,
-  type ExtractItemsFromPdfOptions,
-  type ExtractItemsFromPdfResult,
-  type ExtractItemsProgressEvent,
-} from './vision/extract-items-from-pdf';
+  runConcurrentPool,
+  callWithSplitFallback,
+  type ConcurrentPoolOpts,
+  type PoolResult,
+  type CallWithSplitFallbackOpts,
+  type CallWithSplitFallbackResult,
+} from './pdf-vision';
+export {
+  extractQuestionsFromPdf,
+  type ExtractQuestionsFromPdfOptions,
+  type ExtractQuestionsFromPdfResult,
+  type ExtractQuestionsProgressEvent,
+} from './vision/extract-questions-from-pdf';
 export {
   analyzeFile,
   type AnalyzeFileBaseOptions,
@@ -115,6 +123,18 @@ export {
   type AnalyzePdfWithVisionResult,
   type AnalyzePdfWithVisionEvent,
 } from './pdf/analyze-pdf-with-vision';
+export {
+  analyzeKnowledgePoints,
+  analyzeQuestions,
+  type AnalyzeKnowledgePointsOptions,
+  type AnalyzeQuestionsOptions,
+  type EducationAnalysisFile,
+  type EducationDocumentResult,
+  type EducationPageResult,
+  type EducationProgressEvent,
+  type KnowledgePointAnalysisParserResult,
+  type QuestionAnalysisParserResult,
+} from './education-analysis';
 export { redactAuthHeaders } from './redact';
 export { zodToJsonSchema } from './json-schema';
 export type { ProviderAdapter } from './providers/types';

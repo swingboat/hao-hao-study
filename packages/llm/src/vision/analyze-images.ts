@@ -1,5 +1,5 @@
 /**
- * 视觉抽题：每张图独立调一次 LLM，抽出 items + resources（含 figure bbox）。
+ * 视觉抽题：每张图独立调一次 LLM，抽出 questions + resources（含 figure bbox）。
  *
  * 适用场景：
  *   - PDF → pdftoppm 渲染成每页 PNG → 本模块
@@ -10,8 +10,8 @@
  * 也可换 Claude / GPT 多模态，只要 protocol=openai_chat 且 quirks 不挡 image。
  *
  * Prompt 约束（callee 必须遵守 buildPrompt 返回结构）：
- *   - 输出严格 JSON: { items: [...], resources: [...] }
- *   - items 含图必填 figures: [{figure_no, alt, bbox:[x1,y1,x2,y2]}]
+ *   - 输出严格 JSON: { questions: [...], resources: [...] }
+ *   - questions 含图必填 figures: [{figure_no, alt, bbox:[x1,y1,x2,y2]}]
  *     bbox 归一化 [0..1]，左上原点
  *   - 题干用 [图1]/[图2] 占位
  */
@@ -24,7 +24,7 @@ export interface AnalyzeImagesInputImage {
   format?: 'png' | 'jpeg' | 'webp';
   /** 标识，便于调试/审计；建议 "page-001" */
   name: string;
-  /** 可选源页码；落到 item/resource 的 _src_page */
+  /** 可选源页码；落到 question/resource 的 _src_page */
   page?: number;
 }
 
@@ -60,7 +60,7 @@ export type AnalyzeImagesProgressEvent =
       tokenUsage: { input: number; output: number } | null;
       retries: number;
       parseOk: boolean;
-      itemCount: number;
+      questionCount: number;
       resourceCount: number;
       figureCount: number;
     }
@@ -74,15 +74,15 @@ export interface Figure {
   bbox: [number, number, number, number];
 }
 
-export interface ExtractedItem {
+export interface ExtractedQuestion {
   content: string;
-  item_type: 'choice' | 'fill_in';
+  question_type: 'choice' | 'fill_in';
   options: Array<{ label: string; text: string }>;
   answer: string;
   solution_text: string;
   difficulty: number;
   kp_hints: string[];
-  item_no?: string;
+  question_no?: string;
   figures?: Figure[];
   /** 来源图片 name */
   _src_image: string;
@@ -112,7 +112,7 @@ export interface AnalyzedImage {
 }
 
 export interface AnalyzeImagesResult {
-  items: ExtractedItem[];
+  questions: ExtractedQuestion[];
   resources: ExtractedResource[];
   perImage: AnalyzedImage[];
 }
@@ -120,7 +120,7 @@ export interface AnalyzeImagesResult {
 const SLEEP = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function analyzeImages(opts: AnalyzeImagesOptions): Promise<AnalyzeImagesResult> {
-  const items: ExtractedItem[] = [];
+  const questions: ExtractedQuestion[] = [];
   const resources: ExtractedResource[] = [];
   const perImage: AnalyzedImage[] = [];
   const delayMs = (opts.delayBetweenRequestsSeconds ?? 0) * 1000;
@@ -154,17 +154,17 @@ export async function analyzeImages(opts: AnalyzeImagesOptions): Promise<Analyze
       });
 
       const parsed = tryParseExtraction(result.rawText);
-      if ('items' in parsed) {
-        for (const it of parsed.items) {
-          items.push({ ...it, _src_image: img.name, _src_page: img.page });
+      if ('questions' in parsed) {
+        for (const it of parsed.questions) {
+          questions.push({ ...it, _src_image: img.name, _src_page: img.page });
         }
         for (const r of parsed.resources) {
           resources.push({ ...r, _src_image: img.name, _src_page: img.page });
         }
       }
 
-      const figs = 'items' in parsed
-        ? parsed.items.reduce((s, it) => s + (it.figures?.length ?? 0), 0)
+      const figs = 'questions' in parsed
+        ? parsed.questions.reduce((s, it) => s + (it.figures?.length ?? 0), 0)
         : 0;
 
       perImage.push({
@@ -174,8 +174,8 @@ export async function analyzeImages(opts: AnalyzeImagesOptions): Promise<Analyze
         tokenUsage: result.tokenUsage,
         latencyMs: Date.now() - t0,
         retries: result.retries,
-        parseOk: 'items' in parsed,
-        parseError: 'items' in parsed ? undefined : parsed._error,
+        parseOk: 'questions' in parsed,
+        parseError: 'questions' in parsed ? undefined : parsed._error,
       });
 
       opts.onProgress?.({
@@ -185,9 +185,9 @@ export async function analyzeImages(opts: AnalyzeImagesOptions): Promise<Analyze
         latencyMs: Date.now() - t0,
         tokenUsage: result.tokenUsage,
         retries: result.retries,
-        parseOk: 'items' in parsed,
-        itemCount: 'items' in parsed ? parsed.items.length : 0,
-        resourceCount: 'items' in parsed ? parsed.resources.length : 0,
+        parseOk: 'questions' in parsed,
+        questionCount: 'questions' in parsed ? parsed.questions.length : 0,
+        resourceCount: 'questions' in parsed ? parsed.resources.length : 0,
         figureCount: figs,
       });
     } catch (err) {
@@ -210,11 +210,11 @@ export async function analyzeImages(opts: AnalyzeImagesOptions): Promise<Analyze
     }
   }
 
-  return { items, resources, perImage };
+  return { questions, resources, perImage };
 }
 
 interface ParsedExtraction {
-  items: Array<Omit<ExtractedItem, '_src_image' | '_src_page'>>;
+  questions: Array<Omit<ExtractedQuestion, '_src_image' | '_src_page'>>;
   resources: Array<Omit<ExtractedResource, '_src_image' | '_src_page'>>;
 }
 
@@ -226,8 +226,8 @@ function tryParseExtraction(text: string): ParsedExtraction | { _error: string }
     return { _error: `JSON parse failed: ${String(e).slice(0, 200)}` };
   }
   const o = obj as Partial<ParsedExtraction> | null;
-  if (!o || !Array.isArray(o.items) || !Array.isArray(o.resources)) {
-    return { _error: 'shape mismatch: expect { items:[], resources:[] }' };
+  if (!o || !Array.isArray(o.questions) || !Array.isArray(o.resources)) {
+    return { _error: 'shape mismatch: expect { questions:[], resources:[] }' };
   }
   return o as ParsedExtraction;
 }

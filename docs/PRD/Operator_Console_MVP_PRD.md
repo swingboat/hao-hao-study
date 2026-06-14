@@ -47,7 +47,7 @@
 - **界面显示** 表格列：`id / protocol / model / capabilities (text/vision/pdf/structured) / enabled`，每行末尾有"启用 / 停用"切换开关。
 
 **F2.2 默认 Provider 绑定**
-- **当** 管理员在 `/admin/settings/llm` 为某个 `task_kind`（`item` / `kp` / `goal_template`）选择默认 Provider **时**，
+- **当** 管理员在 `/admin/settings/llm` 为某个 `task_kind`（`question` / `kp` / `goal_template`）选择默认 Provider **时**，
 - **系统执行** 持久化默认绑定（每个 task_kind 仅 1 个默认 Provider），后续上传文件若不显式指定，自动使用该 Provider，
 - **界面显示** 顶部三行下拉："题目解析默认 / 知识点解析默认 / Goal Template 解析默认"，保存时 toast "已更新"。
 
@@ -58,13 +58,13 @@
 ### F3 组：题库导入（核心 — LLM 解析管线）
 
 **F3.1 文件上传**
-- **当** 管理员在 `/admin/items/import` 选择本地文件（PDF / Word / 图片，单文件 ≤ 20MB）**时**，
+- **当** 管理员在 `/admin/questions/import` 选择本地文件（PDF / Word / 图片，单文件 ≤ 20MB）**时**，
 - **系统执行** 上传到对象存储，写一条 `content_upload`（status=`uploaded`），并展示 Provider 选择器，
 - **界面显示** 上传进度条；完成后显示文件缩略图 + "解析模型 [下拉]" + "Prompt 版本 [下拉]" + "开始解析"按钮。
 
 **F3.2 触发 LLM 解析**
 - **当** 管理员点击"开始解析"**时**，
-- **系统执行** 创建 `llm_parse_job`（task_kind=`item`，provider_id=所选，status=`queued`），异步调用 LLM；调用结果按 schema 校验后写入 `llm_parse_staging`（每抽出一题一条），
+- **系统执行** 创建 `llm_parse_job`（task_kind=`question`，provider_id=所选，status=`queued`），异步调用 LLM；调用结果按 schema 校验后写入 `llm_parse_staging`（每抽出一题一条），
 - **界面显示** 解析中转圈，完成后跳转到该 upload 的"待审核题目"列表页。
 
 **F3.3 staging 题目列表**
@@ -74,7 +74,7 @@
 
 **F3.4 单题 diff 抽屉**
 - **当** 管理员点击某条 staging 题目的"查看"**时**，
-- **系统执行** 打开右侧抽屉，左栏展示 LLM 抽取原始 JSON + 原文片段截图，右栏展示可编辑表单（content / answer / solution_text / item_type / difficulty / kp_ids[] / primary_kp_id），
+- **系统执行** 打开右侧抽屉，左栏展示 LLM 抽取原始 JSON + 原文片段截图，右栏展示可编辑表单（content / answer / solution_text / question_type / difficulty / kp_ids[] / primary_kp_id），
 - **界面显示** 必填红星标注的字段：`kp_ids[]`、`primary_kp_id`、`difficulty`；下方"接受并发布 / 保存草稿 / 丢弃"三按钮。
 
 **F3.5 KP 候选名映射到正式 KP**
@@ -89,7 +89,7 @@
 
 **F3.7 接受并发布**
 - **当** 管理员在 diff 抽屉点击"接受并发布"且必填字段齐全 **时**，
-- **系统执行** 写入 `practice_item` 表（`item_type` ∈ `{choice, fill_in}`，否则拒绝）、写 `audit_log`、更新 staging.review_status=`accepted` + `published_id`，
+- **系统执行** 写入 `question` 表（`question_type` ∈ `{choice, fill_in}`，否则拒绝）、写 `audit_log`、更新 staging.review_status=`accepted` + `published_id`，
 - **界面显示** toast "已发布"，抽屉关闭，列表中该行消失。
 
 > v0.1 题型边界：仅接受 `choice` / `fill_in`；任何带有 `essay` 标记的 staging 题被强制丢弃（对应主 PRD 决议 Q2=a）。
@@ -131,7 +131,7 @@
 
 **F5.3 学生数据导出**
 - **当** 管理员在某学生详情页点击"导出数据"**时**，
-- **系统执行** 打包该学生的 student / practice_attempt / knowledge_point_mastery / mistake_book_entry / spaced_review / learning_session 为 JSON ZIP，写一条 `audit_log`（action=`export_data`），
+- **系统执行** 打包该学生的 student / question_attempt / knowledge_point_mastery / mistake_book_entry / spaced_review / learning_session 为 JSON ZIP，写一条 `audit_log`（action=`export_data`），
 - **界面显示** 浏览器下载文件 + toast "导出已记录"。
 
 **F5.4 学生账户注销**
@@ -171,7 +171,7 @@
 - ❌ 管理员账号自助注册 / 找回密码。凭据通过 env var 静态配置。
 
 ### §3.2 题库治理
-- ❌ practice_item 6 态状态机审核（`draft / pending / approved / rejected / archived / deprecated`）。v0.1 publish 即 `published`，无中间态。
+- ❌ question 6 态状态机审核（`draft / pending / approved / rejected / archived / deprecated`）。v0.1 publish 即 `published`，无中间态。
 - ❌ 题目下架与回滚事务（对应主 PRD 决议 S3 延后）。
 - ❌ 题目变体族（同根题不同变种串起来）。
 - ❌ 题目质量打分 / 学生侧反馈回流。
@@ -225,7 +225,7 @@
 1. 管理员通过 F1.1 登录后台。
 2. 在 `/admin/settings/llm` 通过 F2.1 / F2.2 确认 2 个 Webex Provider 已启用，将"题目解析默认"绑定为 `webex-gemini-3-pro-image`，"知识点解析默认"绑定为 `webex-gemini-3.1-pro`。
 3. 在 `/admin/kps` 通过 F4.2 手动建立 1 条 subject（如 `math`）和 30–50 条 KP（或走 F4.3 上传教材 PDF 解析后批量接受）。
-4. 在 `/admin/items/import` 通过 F3.1 上传题集 PDF，通过 F3.2 触发 LLM 解析。
+4. 在 `/admin/questions/import` 通过 F3.1 上传题集 PDF，通过 F3.2 触发 LLM 解析。
 5. 在 staging 列表（F3.3）逐题打开 diff 抽屉（F3.4），通过 F3.5 把 LLM 给出的 `kp_hints` 映射到第 3 步建好的正式 KP。对置信度低的题用 F3.6 换模型重跑。
 6. 通过 F3.7 逐题"接受并发布"，直到该 upload 下所有题目处理完毕（目标：每 KP ≥ 5 题）。
 7. 在 `/admin/students` 通过 F5.2 开第一个学生账户，把第 3 步的 KP 全部勾入 `unlocked_kp_ids[]`，记下生成的登录凭据告知学生。
@@ -257,9 +257,9 @@
 |---|---|---|
 | T1 | 未登录访问 `/admin/*` 任意路径必跳 `/admin/login` | E2E：清空 cookie 访问 5 个随机路径，全部 302 |
 | T2 | LLM Provider token 不出现在任何 API 响应或前端 bundle | 静态扫描：grep token 字符串 = 0 命中；E2E：抓所有 `/admin/api/*` 响应体扫描 |
-| T3 | F3.7 发布的 practice_item 必满足 `item_type ∈ {choice, fill_in}` 且 `kp_ids[].length ≥ 1` 且 `primary_kp_id ∈ kp_ids` | DB 约束 + 后端校验单元测试 |
-| T4 | F3.7 写入 practice_item 时同步写 audit_log，二者 `item_id` 一致 | 集成测试：发布 1 题后查两表 |
-| T5 | F5.4 注销学生后，该 student_id 在 student 软删，而 practice_attempt/knowledge_point_mastery/mistake_book_entry/spaced_review/learning_session 全部硬删 | 集成测试：开户→产生数据→注销→断言 6 张表状态 |
+| T3 | F3.7 发布的 question 必满足 `question_type ∈ {choice, fill_in}` 且 `kp_ids[].length ≥ 1` 且 `primary_kp_id ∈ kp_ids` | DB 约束 + 后端校验单元测试 |
+| T4 | F3.7 写入 question 时同步写 audit_log，二者 `question_id` 一致 | 集成测试：发布 1 题后查两表 |
+| T5 | F5.4 注销学生后，该 student_id 在 student 软删，而 question_attempt/knowledge_point_mastery/mistake_book_entry/spaced_review/learning_session 全部硬删 | 集成测试：开户→产生数据→注销→断言 6 张表状态 |
 | T6 | F5.3 导出的 ZIP 解压后包含 6 个 JSON 文件，且 student.json 主键与请求 student_id 一致 | E2E：调用导出接口，断言 ZIP 结构 |
 | T7 | F3.6 单条重跑后，staging 行 `llm_payload` 已更新且 `parse_job_id` 指向新 llm_parse_job | 集成测试 |
 | T8 | F2.2 修改默认 Provider 后，下一次 F3.2 触发的 llm_parse_job.provider_id 与新默认一致 | 集成测试 |
@@ -295,7 +295,7 @@
 
 - `llm_provider.auth_env_var` 仅记录 env var **名字**，不记录值；token 仅运行时从环境读取。
 - `llm_parse_job.request_payload` 写入前必须经过 `redactAuthHeaders()` 脱敏。
-- `llm_parse_staging.review_status='accepted'` 时 `published_id` 必须非空且指向正式表（practice_item / knowledge_point）。
+- `llm_parse_staging.review_status='accepted'` 时 `published_id` 必须非空且指向正式表（question / knowledge_point）。
 
 ---
 
@@ -351,7 +351,7 @@ callLLM(providerId, prompt, schema?) -> { payload, usage, raw }
 | 本文件章节 | 对应主 PRD（`SmartLearningAssistant_PRD.md`） |
 |---|---|
 | §1 一句话定位 | §1.1 / §1.2 原则 1 AI 优先 |
-| §2 F3 / F4 | §10.2 题库 + 学生入驻模块；§3.3 practice_item / KP 字段表 |
+| §2 F3 / F4 | §10.2 题库 + 学生入驻模块；§3.3 question / KP 字段表 |
 | §2 F5 | §10.2 数据合规模块；§3.3 student |
 | §2 F2 / F3.6 / F7 | 本文件新增（主 PRD 无运营端 LLM 解析章节） |
 | §3 排他边界 | §10.3 砍掉的模块清单 + §8.2 延后决议 + §9 待澄清 |

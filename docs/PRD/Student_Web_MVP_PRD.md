@@ -84,7 +84,7 @@
 **G3.3 一次性提交**
 - **当** 学生点击"提交全部"或番茄钟到 0 自动提交 **时**，
 - **系统执行** 在单一事务内完成：
-  1. 批量写入 `practice_attempt`（每题 1 行，含 `is_correct`）
+  1. 批量写入 `question_attempt`（每题 1 行，含 `is_correct`）
   2. 按主 PRD §10.2 增减规则更新 `knowledge_point_mastery.mastery_score`（clamp [0, 1]）
   3. 答错的题：`mistake_book_entry` upsert（error_count += 1，status=`open`）；连续 2 次答对该题则 status=`resolved`（决议 S2-N=2）
   4. 答错且根因非 computational 的题：`spaced_review` upsert（idx=0，next_review_at = now() + 1 day，触发器 A）
@@ -129,12 +129,12 @@
 
 **G5.1 个人中心**
 - **当** 学生进入 `/me` **时**，
-- **系统执行** 读取 `student` 基本信息 + 累计学习时长（来自 learning_session 时长求和）+ 累计答题数（practice_attempt 计数）+ 累计错题已 resolve 数，
+- **系统执行** 读取 `student` 基本信息 + 累计学习时长（来自 learning_session 时长求和）+ 累计答题数（question_attempt 计数）+ 累计错题已 resolve 数，
 - **界面显示** 卡片化展示：姓名 / 年级 / 目标考试 / 加入日期 / 学习时长 / 答题数 / 错题攻克数；下方"导出我的数据"+ "注销账户"两按钮。
 
 **G5.2 数据导出**
 - **当** 学生点击"导出我的数据"**时**，
-- **系统执行** 异步打包该学生的 student / practice_attempt / knowledge_point_mastery / mistake_book_entry / spaced_review / learning_session 6 个 JSON 文件为 ZIP，写 `audit_log`（action=`export_data_self`），
+- **系统执行** 异步打包该学生的 student / question_attempt / knowledge_point_mastery / mistake_book_entry / spaced_review / learning_session 6 个 JSON 文件为 ZIP，写 `audit_log`（action=`export_data_self`），
 - **界面显示** 提示"数据准备中，约 30 秒后自动下载"；完成后浏览器自动下载文件 + toast"导出完成"。
 
 **G5.3 账户注销自助**
@@ -221,7 +221,7 @@
 ### §3.8 数据与安全
 - ❌ 学生自助修改密码（v0.1 联系运营重置）。
 - ❌ 二次密码 / 双因素认证。
-- ❌ 学习日志可视化时间线 / 详细 practice_attempt 历史浏览（隐私简化，仅在导出 ZIP 中提供）。
+- ❌ 学习日志可视化时间线 / 详细 question_attempt 历史浏览（隐私简化，仅在导出 ZIP 中提供）。
 - ❌ 部分数据导出 / 时间范围筛选导出。
 - ❌ 撤销注销 / 数据找回。
 
@@ -239,7 +239,7 @@
 4. 首页展示 Mastery 环形图（G2.1 / G2.2，全部显示"未开始"）+ "开始今日学习"主按钮。
 5. 学生点击"开始今日学习"（G3.1），系统按三池合并凑 8–15 题，进入答题页。
 6. 学生在 25 分钟番茄钟内逐题作答（G3.2），可前后翻题修改，最后点击"提交全部"（G3.3）。
-7. 系统在事务内更新 practice_attempt / knowledge_point_mastery / mistake_book_entry / spaced_review，跳解析页（G3.4）。
+7. 系统在事务内更新 question_attempt / knowledge_point_mastery / mistake_book_entry / spaced_review，跳解析页（G3.4）。
 8. 学生查看每题对错与解析、查看 mastery 涨幅，点"返回首页"。**首次价值闭环达成**——首页 Mastery 图首次出现非"未开始"档位的 KP。
 
 ### §4.2 日常旅程 V2 — 每日打开做一次 Session
@@ -275,14 +275,14 @@
 |---|---|---|
 | T1 | 未登录访问 `/`、`/errors`、`/me` 等任意已登录路径必跳 `/login` | E2E：清空 cookie 访问 5 个随机路径，全部 302 |
 | T2 | 已登录但 `parent_consent_at IS NULL` 的学生访问任何学习路径必跳 G1.3 | E2E：mock 一个 consent_at=null 的 session，访问 `/`、`/errors` 全部跳同意页 |
-| T3 | G3.1 凑题结果中所有 practice_item 满足 `kp_ids ⊆ unlocked_kp_ids ∪ overlap` 即"主 KP 必在 unlocked_kp_ids 中" | 集成测试：构造仅含 5 个 unlocked KP 的学生，触发凑题 100 次，全部满足 |
-| T4 | G3.1 三池合并后同 KP 不出现在同一 Session 超过 1 题 | 集成测试：构造同 KP 同时命中 3 池场景，断言 Session.item_ids 中每个题对应的 primary_kp_id 唯一 |
-| T5 | G3.3 提交事务原子性：mock 第 4 步 mistake_book_entry 写入失败时，practice_attempt / knowledge_point_mastery / Session 全部回滚 | 集成测试：故障注入 |
-| T6 | G3.3 mistake_book_entry 连续 2 次答对自动 resolved | 集成测试：构造同一 student × item，第一次错→第二次对→第三次对，断言 status='resolved' |
+| T3 | G3.1 凑题结果中所有 question 满足 `kp_ids ⊆ unlocked_kp_ids ∪ overlap` 即"主 KP 必在 unlocked_kp_ids 中" | 集成测试：构造仅含 5 个 unlocked KP 的学生，触发凑题 100 次，全部满足 |
+| T4 | G3.1 三池合并后同 KP 不出现在同一 Session 超过 1 题 | 集成测试：构造同 KP 同时命中 3 池场景，断言 Session.question_ids 中每个题对应的 primary_kp_id 唯一 |
+| T5 | G3.3 提交事务原子性：mock 第 4 步 mistake_book_entry 写入失败时，question_attempt / knowledge_point_mastery / Session 全部回滚 | 集成测试：故障注入 |
+| T6 | G3.3 mistake_book_entry 连续 2 次答对自动 resolved | 集成测试：构造同一 student × question，第一次错→第二次对→第三次对，断言 status='resolved' |
 | T7 | G3.3 答错题且 KP 不在 spaced_review 时新建一条记录 idx=0；已存在则重置 idx=0 | 集成测试 |
 | T8 | G3.3 新学 KP 首次 attempt 时创建 spaced_review（触发器 B），不论对错 | 集成测试 |
 | T9 | G2.3 / G4.1 / Mastery 图任何位置不出现 `kp_id ∉ student.unlocked_kp_ids` 的 KP | E2E：构造 unlocked=3 KP 但全库 50 KP 的学生，扫描页面 DOM 仅含 3 个 KP 名 |
-| T10 | G5.3 注销后该 student_id 的 practice_attempt/knowledge_point_mastery/mistake_book_entry/spaced_review/learning_session 全部硬删，student 软删 | 集成测试 |
+| T10 | G5.3 注销后该 student_id 的 question_attempt/knowledge_point_mastery/mistake_book_entry/spaced_review/learning_session 全部硬删，student 软删 | 集成测试 |
 | T11 | G5.2 导出 ZIP 解压后含 6 个 JSON，且 student.json 主键与请求 student_id 一致；不含其他学生数据 | E2E + 跨用户隔离测试 |
 | T12 | Session 提交后 mastery 变化必满足主 PRD §10.2 增减规则表（按难度分档） | 集成测试：6 种难度 × 对错组合断言 |
 
@@ -309,9 +309,9 @@
 | `student` | ✅ 自己一行 | ✅ 仅 `parent_consent_at`（G1.3） | 监护人同意 |
 | `subject` | ✅ 全表只读 | ❌ | KP 学科展示 |
 | `knowledge_point` | ✅ 仅 `id ∈ unlocked_kp_ids` | ❌ | Mastery 图 / 错题本分组 |
-| `practice_item` | ✅ 仅 Session/错题本中分配的题 | ❌ | 答题页 / 解析页 |
+| `question` | ✅ 仅 Session/错题本中分配的题 | ❌ | 答题页 / 解析页 |
 | `learning_session` | ✅ 自己 | ✅ 创建 / 完成 / abandoned 状态机 | G3.1 / G3.3 |
-| `practice_attempt` | ✅ 自己 | ✅ 仅通过 G3.3 批量插入 | Session 提交 |
+| `question_attempt` | ✅ 自己 | ✅ 仅通过 G3.3 批量插入 | Session 提交 |
 | `knowledge_point_mastery` | ✅ 自己 + 仅 `unlocked_kp_ids` | ✅ 仅通过 G3.3 / G4.2 间接更新 | 答题后派生 |
 | `mistake_book_entry` | ✅ 自己 | ✅ 仅通过 G3.3 / G4.2 间接更新 | 答题后派生 |
 | `spaced_review` | ❌ 学生不见 | ✅ 仅通过 G3.3 间接更新 | 答题后派生 |

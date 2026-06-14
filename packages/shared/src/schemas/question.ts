@@ -1,13 +1,13 @@
 /**
- * 题目（practice_item）解析输出 zod schema — LLM → admin 审核流程契约
+ * 题目（question）解析输出 zod schema — LLM → admin 审核流程契约
  *
  * 用途：admin 在 F3.1–F3.2 把题集 PDF / 图片喂给 LLM（通过 analyzePdf 或单次 callLLM），
  *      要求 LLM 输出严格符合本 schema 的 JSON。callLLM 内部会做 structured-output 校验；
  *      不通过则 retry 1 次。
  *
- * 字段对齐策略（与 packages/db/prisma/schema.prisma model practice_item 收敛）：
+ * 字段对齐策略（与 packages/db/prisma/schema.prisma model question 收敛）：
  *   - content         必填，题干正文；图片题在末尾用 `[图片描述: ...]` 标注
- *   - item_type       仅 'choice' / 'fill_in'（决议 Q2=a；essay 被强制丢弃在 F3.7）
+ *   - question_type       仅 'choice' / 'fill_in'（决议 Q2=a；essay 被强制丢弃在 F3.7）
  *   - options         choice 时必填非空；fill_in 时数组留空
  *   - answer          标准答案；choice 形如 "A" / "AB"；fill_in 形如 "f(x)=2x+1" 或多空 "1;2;3"
  *   - solution_text   解析全文；LLM 抽不到时给空字符串，留运营在 F3.4 抽屉手补
@@ -25,31 +25,31 @@
 import { z } from 'zod';
 
 /** 题型 — v0.1 仅 2 类（决议 Q2=a） */
-export const PracticeItemTypeSchema = z.enum(['choice', 'fill_in']);
-export type PracticeItemTypeParsed = z.infer<typeof PracticeItemTypeSchema>;
+export const QuestionTypeSchema = z.enum(['choice', 'fill_in']);
+export type QuestionTypeParsed = z.infer<typeof QuestionTypeSchema>;
 
 /** 选项 — choice 题型专用，单选/多选共用 */
-export const PracticeOptionSchema = z.object({
+export const QuestionOptionSchema = z.object({
   /** 选项标号，大写字母 A-Z；多选时仍是单字母（多个选项各占一条） */
   label: z.string().regex(/^[A-Z]$/, '选项标号必须是单个大写字母 A-Z'),
   /** 选项正文 */
   text: z.string().min(1, '选项正文不能为空').max(500, '选项正文不超过 500 字符'),
 });
-export type PracticeOptionParsed = z.infer<typeof PracticeOptionSchema>;
+export type QuestionOptionParsed = z.infer<typeof QuestionOptionSchema>;
 
 /** 单题 LLM 抽取结果（一行 staging） */
-export const PracticeItemParsedSchema = z
+export const QuestionParsedSchema = z
   .object({
     content: z
       .string()
       .min(5, '题干至少 5 字符（疑似抽取失败）')
       .max(2000, '题干不超过 2000 字符（疑似把多题合并）'),
-    item_type: PracticeItemTypeSchema,
+    question_type: QuestionTypeSchema,
     /**
      * choice 题型必须给 ≥2 个选项；fill_in 题型必须留空数组。
      * v0.1 不放 minItems 在 zod 数组上避免 Gemini state explosion，靠 superRefine 兜底。
      */
-    options: z.array(PracticeOptionSchema).default([]),
+    options: z.array(QuestionOptionSchema).default([]),
     answer: z.string().min(1, '答案不能为空').max(500, '答案不超过 500 字符'),
     /**
      * 解析全文。LLM 抽不到时务必给空字符串而非省略字段，避免 staging 出 undefined。
@@ -70,13 +70,13 @@ export const PracticeItemParsedSchema = z
         /** 在原 PDF 第几页（从 1 起） */
         page: z.number().int().positive().nullable().optional(),
         /** 题集内题号，如 "第 3 题" / "1.2.3" / "（一）2" */
-        item_no: z.string().max(20).nullable().optional(),
+        question_no: z.string().max(20).nullable().optional(),
       })
       .optional(),
   })
-  .superRefine((item, ctx) => {
+  .superRefine((question, ctx) => {
     // choice 题型必须给 ≥2 个选项
-    if (item.item_type === 'choice' && item.options.length < 2) {
+    if (question.question_type === 'choice' && question.options.length < 2) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['options'],
@@ -84,7 +84,7 @@ export const PracticeItemParsedSchema = z
       });
     }
     // fill_in 题型不应有 options
-    if (item.item_type === 'fill_in' && item.options.length > 0) {
+    if (question.question_type === 'fill_in' && question.options.length > 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['options'],
@@ -92,7 +92,7 @@ export const PracticeItemParsedSchema = z
       });
     }
     // kp_hints 至少 1 条
-    if (item.kp_hints.length === 0) {
+    if (question.kp_hints.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['kp_hints'],
@@ -101,7 +101,7 @@ export const PracticeItemParsedSchema = z
     }
     // kp_hints 内部去重
     const seen = new Set<string>();
-    for (const h of item.kp_hints) {
+    for (const h of question.kp_hints) {
       if (seen.has(h)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -113,8 +113,8 @@ export const PracticeItemParsedSchema = z
       seen.add(h);
     }
     // choice 答案应为 A-Z 字母（单选 "A"，多选 "AB"），且每个字母都在 options 里
-    if (item.item_type === 'choice') {
-      const m = item.answer.match(/^[A-Z]+$/);
+    if (question.question_type === 'choice') {
+      const m = question.answer.match(/^[A-Z]+$/);
       if (!m) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -122,8 +122,8 @@ export const PracticeItemParsedSchema = z
           message: 'choice 答案必须由大写字母组成（如 "A" 或 "AB"）',
         });
       } else {
-        const labels = new Set(item.options.map((o) => o.label));
-        for (const ch of item.answer) {
+        const labels = new Set(question.options.map((o) => o.label));
+        for (const ch of question.answer) {
           if (!labels.has(ch)) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
@@ -136,7 +136,7 @@ export const PracticeItemParsedSchema = z
       }
     }
   });
-export type PracticeItemParsed = z.infer<typeof PracticeItemParsedSchema>;
+export type QuestionParsed = z.infer<typeof QuestionParsedSchema>;
 
 /**
  * 批量输出 —— LLM 一次解析的结果集合。
@@ -146,10 +146,10 @@ export type PracticeItemParsed = z.infer<typeof PracticeItemParsedSchema>;
  * 触 LLM 输出 token 上限被截断 —— analyzePdf 的 chunk 切片机制已经处理这点，单 chunk
  * 实际产 5-30 题更常见。
  */
-export const PracticeItemBatchSchema = z.object({
-  items: z
-    .array(PracticeItemParsedSchema)
+export const QuestionBatchSchema = z.object({
+  questions: z
+    .array(QuestionParsedSchema)
     .min(1, '至少应抽出 1 道题')
     .max(300, '单次解析超过 300 道题，疑似提示词失控'),
 });
-export type PracticeItemBatch = z.infer<typeof PracticeItemBatchSchema>;
+export type QuestionBatch = z.infer<typeof QuestionBatchSchema>;

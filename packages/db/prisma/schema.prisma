@@ -11,11 +11,11 @@
 //    S1   — knowledge_point_mastery 主键改为 (student_id, kp_id)，无 goal_instance_id
 //    S2-A — student.unlocked_kp_ids[] 字段化；spaced_review 每 (student, kp) 一条
 //    S2-N — mistake_book_entry 连续 2 次答对自动 resolve
-//    C1   — EP 简化；跨 KP 通过 practice_item.kp_ids[] 表达
+//    C1   — EP 简化；跨 KP 通过 question.kp_ids[] 表达
 //    C3   — GOAL_TEMPLATE/INSTANCE 在 v0.1 不入 schema（SQL 硬塞，留待 v0.2）
 //
 //  命名约定（详见 docs 终稿）：
-//    practice_item / practice_attempt          — 题目 / 答题
+//    question / question_attempt          — 题目 / 答题
 //    mistake_book_entry                        — 错题本条目（保留中国教育"错题本"概念）
 //    knowledge_point_mastery                   — 知识点掌握度
 //    spaced_review                             — 间隔复习调度
@@ -52,7 +52,7 @@ enum MistakeStatus {
 }
 
 /// 题目类型（v0.1 仅支持选择/填空，决议 Q2=a）
-enum PracticeItemType {
+enum QuestionType {
   choice /// 选择题（单选/多选）
   fill_in /// 填空题
 }
@@ -66,7 +66,7 @@ enum LLMProtocol {
 
 /// LLM 解析任务种类（运营端 F2.2 默认 Provider 绑定维度）
 enum ParseTaskKind {
-  practice_item /// 题目抽取
+  question /// 题目抽取
   knowledge_point /// 知识点抽取
   goal_template /// Goal Template 抽取（v0.2 才用，schema 先留位）
 }
@@ -83,7 +83,7 @@ enum ParseJobStatus {
 enum UploadFileType {
   exam_outline /// 考试大纲（goal_template 用）
   textbook /// 教材 / 章节讲义（knowledge_point 用）
-  item_pack /// 题集 / 习题图（practice_item 用）
+  question_pack /// 题集 / 习题图（question 用）
 }
 
 /// 上传记录的处理阶段
@@ -189,7 +189,7 @@ model student {
 
   // 反向关系
   learning_sessions         learning_session[]
-  practice_attempts         practice_attempt[]
+  question_attempts         question_attempt[]
   knowledge_point_masteries knowledge_point_mastery[]
   mistake_entries           mistake_book_entry[]
   spaced_reviews            spaced_review[]
@@ -223,9 +223,9 @@ model knowledge_point {
 }
 
 /// 题目（v0.1 仅 choice / fill_in）
-model practice_item {
+model question {
   /// 主键 UUID
-  id            String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// 题干（题目正文）
   content       String
   /// 标准答案
@@ -234,23 +234,23 @@ model practice_item {
   solution_text String
   /// 关联的所有知识点 ID 数组（决议 C1：N:M 通过数组）
   /// 必须包含 primary_kp_id
-  kp_ids        String[]         @db.Uuid
+  kp_ids        String[]     @db.Uuid
   /// 主知识点 ID（决议 S2-D5：仅主 KP 入错题本）
-  primary_kp_id String           @db.Uuid
+  primary_kp_id String       @db.Uuid
   /// 难度档：1=最易 ... 5=最难
   difficulty    Int
   /// 题型枚举（决议 Q2=a 不收 essay）
-  item_type     PracticeItemType
+  question_type QuestionType
   /// 创建时间
-  created_at    DateTime         @default(now()) @db.Timestamptz()
+  created_at    DateTime     @default(now()) @db.Timestamptz()
 
   // 反向关系
-  practice_attempts practice_attempt[]
+  question_attempts question_attempt[]
   mistake_entries   mistake_book_entry[]
 
   @@index([primary_kp_id])
   @@index([difficulty])
-  @@map("practice_item")
+  @@map("question")
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -272,12 +272,12 @@ model learning_session {
   status       LearningSessionStatus @default(in_progress)
   /// 本次会话分配的题目 ID 顺序数组（决议 S2-衍生2 去重后）
   /// 长度约束：8 ≤ length ≤ 15
-  item_ids     String[]              @db.Uuid
-  /// 每道题来自哪个池的标记，与 item_ids 一一对应
+  question_ids String[]              @db.Uuid
+  /// 每道题来自哪个池的标记，与 question_ids 一一对应
   pool_sources SessionPoolSource[]
 
   // 反向关系
-  practice_attempts practice_attempt[]
+  question_attempts question_attempt[]
 
   @@index([student_id, started_at])
   @@index([status])
@@ -285,7 +285,7 @@ model learning_session {
 }
 
 /// 答题记录（学生端 G3.3 提交事务步骤 1）
-model practice_attempt {
+model question_attempt {
   /// 主键 UUID
   id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// 所属 Session 外键
@@ -295,8 +295,8 @@ model practice_attempt {
   student_id     String           @db.Uuid
   student        student          @relation(fields: [student_id], references: [id])
   /// 题目外键
-  item_id        String           @db.Uuid
-  item           practice_item    @relation(fields: [item_id], references: [id])
+  question_id    String           @db.Uuid
+  question       question         @relation(fields: [question_id], references: [id])
   /// 学生提交的答案
   student_answer String
   /// 是否答对
@@ -305,8 +305,8 @@ model practice_attempt {
   answered_at    DateTime         @default(now()) @db.Timestamptz()
 
   @@index([student_id, answered_at])
-  @@index([item_id, is_correct])
-  @@map("practice_attempt")
+  @@index([question_id, is_correct])
+  @@map("question_attempt")
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -346,8 +346,8 @@ model mistake_book_entry {
   student_id                String        @db.Uuid
   student                   student       @relation(fields: [student_id], references: [id])
   /// 题目外键
-  item_id                   String        @db.Uuid
-  item                      practice_item @relation(fields: [item_id], references: [id])
+  question_id               String        @db.Uuid
+  question                  question      @relation(fields: [question_id], references: [id])
   /// 状态枚举（决议 D2=a 永久 resolve）
   status                    MistakeStatus @default(open)
   /// 累计答错次数
@@ -360,7 +360,7 @@ model mistake_book_entry {
   /// 解决时间。非 NULL 时 status 必为 resolved
   resolved_at               DateTime?     @db.Timestamptz()
 
-  @@unique([student_id, item_id])
+  @@unique([student_id, question_id])
   @@index([student_id, status])
   @@map("mistake_book_entry")
 }
@@ -409,7 +409,7 @@ model audit_log {
   ///   delete_student        — 运营端 F5.4 代注销
   ///   consent_withdraw      — 监护人同意撤回（v0.2+）
   action      String
-  /// 目标对象类型（如 "student" / "practice_item"）
+  /// 目标对象类型（如 "student" / "question"）
   target_type String
   /// 目标对象 ID
   target_id   String
@@ -580,7 +580,7 @@ model llm_parse_staging {
   reviewed_by    String?
   /// 审核时间
   reviewed_at    DateTime?      @db.Timestamptz()
-  /// accepted 后指向正式表的 ID（practice_item.id 或 knowledge_point.id）
+  /// accepted 后指向正式表的 ID（question.id 或 knowledge_point.id）
   /// 多态外键，应用层校验一致性；强约束：accepted ⇒ NOT NULL
   published_id   String?        @db.Uuid
   /// 创建时间
@@ -599,7 +599,7 @@ model llm_parse_staging {
 /// 用途：
 ///   - GC：可按 processor/version 通配删除老算法产物
 ///   - 重算：升级 processor 版本后，旧 row 保留可对比
-///   - 业务查询：practice_item.figures[].derived_key → 反查 storage_path 取裁切图
+///   - 业务查询：question.figures[].derived_key → 反查 storage_path 取裁切图
 model derived_asset {
   /// 派生源文件的 sha256（指向 content_upload.sha256 或任意 upload 的内容指纹）
   source_sha256 String   @db.Char(64)
@@ -607,7 +607,7 @@ model derived_asset {
   processor     String
   /// 版本号（kebab-case 字母数字），如 "v1"。算法/prompt 升级时递增
   version       String
-  /// 资产 key（在 (source,processor,version) 下唯一），如 "page-001.png" / "item-3-fig-1.png"
+  /// 资产 key（在 (source,processor,version) 下唯一），如 "page-001.png" / "question-3-fig-1.png"
   asset_key     String
   /// Storage key（完整路径，如 "derived/abc.../rasterize-v1/page-001.png"）
   storage_path  String
@@ -625,4 +625,3 @@ model derived_asset {
   @@index([source_sha256, processor])
   @@map("derived_asset")
 }
-

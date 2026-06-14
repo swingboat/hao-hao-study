@@ -51,7 +51,7 @@
 | 抽象层 | **自写 `callLLM(providerId, prompt, schema?, attachments?)`**（packages/llm） | 统一 OpenAI Chat + Google generateContent + Bedrock Converse 三种协议；内置 schema 校验、429 Retry-After 退避、5xx 重试 |
 | PDF 编排 | **`analyzePdf({providerId, pdfPath, ...})`**（packages/llm/src/pdf） | 大 PDF qpdf 切片 + 逐片送 Converse + 间隔 sleep（默认 60s）+ 终审整合；callLLM 单元的高阶封装 |
 | Provider 1 | `webex-gemini-3.1-pro`（OpenAI 协议） | 文本 KP / Goal Template 解析 |
-| Provider 2 | `webex-gemini-3-pro-image`（Google 协议） | 图片 / 题集 vision 解析（默认 ITEM 解析） |
+| Provider 2 | `webex-gemini-3-pro-image`（Google 协议） | 图片 / 题集 vision 解析（默认 question 解析） |
 | Provider 3 | `webex-claude-opus-4.7`（OpenAI 协议） | 纯文本 KP 抽取生产首选（探针 113/113 通过） |
 | Provider 4 | `webex-claude-opus-4.7-converse`（Bedrock Converse 协议） | 整本 PDF 原生解析（document part 直读 base64，保留图表/版式信息）；运行环境必装 qpdf |
 | Token 管理 | env var `WEBEX_LLM_TOKEN`，运行时读取 | 不入库、不出现在前端、不打日志 |
@@ -98,7 +98,7 @@ hao-hao-study/
 │       ├── app/
 │       │   ├── login/
 │       │   ├── (admin)/page.tsx       ← F6.1 看板
-│       │   ├── (admin)/items/import/
+│       │   ├── (admin)/questions/import/
 │       │   ├── (admin)/kps/
 │       │   ├── (admin)/students/
 │       │   ├── (admin)/settings/llm/

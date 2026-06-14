@@ -6,7 +6,7 @@
  * 所以本层是薄包，主要价值是：
  *   1. 给 L0 (analyzeFile.pdf, pagesPerCall>1) 提供"多页一次看"能力 → 缓解跨页
  *      题被切的问题，同时减少 LLM 调用次数（429 友好）。
- *   2. 给 L2 (extractItemsFromPdf) 提供 chunk 级抽题原语 + structured output。
+ *   2. 给 L2 (extractQuestionsFromPdf) 提供 chunk 级抽题原语 + structured output。
  *
  * 不做（caller 责任）：
  *   - 不分块：caller 自己决定哪几张图放一组

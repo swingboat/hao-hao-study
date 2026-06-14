@@ -29,9 +29,13 @@
  */
 'use server';
 
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { Prisma, prisma } from '@hao/db';
 import { callLLM, redactAuthHeaders } from '@hao/llm';
 import { type KnowledgePointBatch, KnowledgePointBatchSchema } from '@hao/shared/schemas';
+import { StoragePaths, createStore, extOf, sha256OfBuffer } from '@hao/storage';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { SESSION_COOKIE, verifySession } from '../../../../lib/auth';
@@ -56,7 +60,6 @@ import {
   KP_VISION_PROMPT_VERSION,
   buildKpPrompt,
 } from '../../../../lib/prompts';
-import { readUpload, saveUpload } from '../../../../lib/storage';
 
 async function requireAdmin() {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -271,6 +274,8 @@ async function runParse(
   providerId: string,
   subjectId: string,
 ): Promise<void> {
+  const store = createStore();
+  let tmpPath: string | null = null;
   try {
     const upload = await prisma.content_upload.findUnique({ where: { id: uploadId } });
     if (!upload) throw new Error('content_upload 不存在');
@@ -321,9 +326,15 @@ async function runParse(
       // ── 分片 + chunk 缓存 + 手工合并 ────────────────────────
       // vision (kp-pipeline-vision) 与 converse (kp-pipeline) 的 KpChunkOutcome / 事件名 / cache 形状完全一致；
       // 只是 cache key 不同（vision 带 `vision/` 前缀），所以二者共享同一份 cache 池也不会误命中对方。
-      const pdfPath = upload.file_uri.startsWith('file://')
-        ? upload.file_uri.slice('file://'.length)
-        : upload.file_uri;
+      //
+      // pdftoppm / converse 适配器都吃本地路径 → 把 storage 里的 PDF 拷到 OS tmp。
+      // 用完在 finally 里 rm 掉；tmpPath 提到 runParse 顶部 let 是为了 finally 能看到。
+      const pdfBuf = await store.get(upload.file_uri);
+      const tmpDir = path.join(tmpdir(), 'hao-admin-kp-parse');
+      await mkdir(tmpDir, { recursive: true });
+      tmpPath = path.join(tmpDir, `${jobId}.pdf`);
+      await writeFile(tmpPath, pdfBuf);
+      const pdfPath = tmpPath;
 
       const cache = await loadCacheForUpload(uploadId);
       const cachedRangeCount = Object.keys(cache.byRange).length;
@@ -508,7 +519,7 @@ async function runParse(
       await patchProgress(jobId, { phase: 'chunking', lastEvent: 'pdf-parse → callLLM (text)' });
       // 这里 dynamic import：避开 pdfjs-dist 在 server-action 模块顶层加载崩溃的问题
       const { extractPdfText } = await import('../../../../lib/pdf-extract');
-      const pdfBuf = await readUpload(upload.file_uri);
+      const pdfBuf = await store.get(upload.file_uri);
       const { text: pdfText, numPages, truncated } = await extractPdfText(pdfBuf);
       if (!pdfText.trim()) {
         throw new Error(`PDF 解析后为空（${numPages} 页），疑似扫描件，需要 OCR`);
@@ -614,6 +625,10 @@ async function runParse(
     } catch (patchErr) {
       console.error(`[runParse job=${jobId}] failed-patch error:`, patchErr);
     }
+  } finally {
+    if (tmpPath) {
+      await rm(tmpPath, { force: true }).catch(() => {});
+    }
   }
 }
 
@@ -667,18 +682,27 @@ export async function uploadAndParseAction(
     return { error: `LLM Provider ${providerId} 不存在 / 未启用` };
   const promptVersion = pickPromptVersion(provider);
 
-  // 1) 落本地（这里同步等，因为文件还要传完才能返回）
-  const saved = await saveUpload(file, '.pdf');
+  // 1) 上传到 ObjectStore（CAS：按 sha256 寻址，同份 PDF 多次上传只存一份）
+  const store = createStore();
+  const buf = Buffer.from(await file.arrayBuffer());
+  const sha256 = sha256OfBuffer(buf);
+  const ext = extOf(file.name);
+  const key = StoragePaths.upload(sha256, ext);
+  await store.put(key, buf, {
+    contentType: file.type || 'application/pdf',
+    expectedSha256: sha256,
+  });
 
   // 2) 写 content_upload + 预创建 job(queued)
   const upload = await prisma.content_upload.create({
     data: {
       uploader_id: session.sub,
-      file_uri: saved.fileUri,
+      file_uri: key,
       file_type: 'textbook',
       purpose: 'knowledge_point',
       original_name: file.name,
-      size_bytes: saved.sizeBytes,
+      size_bytes: buf.byteLength,
+      sha256,
     },
   });
   const job = await prisma.llm_parse_job.create({

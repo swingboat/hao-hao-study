@@ -1,12 +1,12 @@
 /**
- * 按 bbox 裁切 items / resources 上的 figure，落 storage + derived_asset。
+ * 按 bbox 裁切 questions / resources 上的 figure，落 storage + derived_asset。
  *
  * 输入：analyzeImages 的结果 + 源 PNG 字典 + ObjectStore + 上游 PDF/image 的 sha256
- * 输出：富化后的 items/resources（figures[].url 填充为 presigned URL，可直接给前端）+
+ * 输出：富化后的 questions/resources（figures[].url 填充为 presigned URL，可直接给前端）+
  *       derived_asset upsert 记录列表（caller 决定是落 Prisma 还是别的）
  *
  * 裁切实现：sharp（已经是 next.js 的 transitive dep）。
- * Storage key：StoragePaths.derived(sourceSha, 'figure-crop', 'v1', '{itemId}-fig-{N}.png')。
+ * Storage key：StoragePaths.derived(sourceSha, 'figure-crop', 'v1', '{questionId}-fig-{N}.png')。
  */
 import sharp from 'sharp';
 import {
@@ -14,11 +14,11 @@ import {
   type ObjectStore,
   type PutResult,
 } from '@hao/storage';
-import type { ExtractedItem, ExtractedResource, Figure } from './analyze-images';
+import type { ExtractedQuestion, ExtractedResource, Figure } from './analyze-images';
 
 export interface CropFiguresOptions {
-  /** items + resources 来自 analyzeImages */
-  items: ExtractedItem[];
+  /** questions + resources 来自 analyzeImages */
+  questions: ExtractedQuestion[];
   resources: ExtractedResource[];
   /** image name → PNG 字节；通常是 analyzeImages 输入的同一份 */
   imagesByName: Record<string, Buffer>;
@@ -46,8 +46,8 @@ export interface CroppedFigure extends Figure {
 }
 
 export interface CropFiguresResult {
-  /** 富化后的 items：含图题的 figures[i] 升级为 CroppedFigure（带 url） */
-  items: Array<Omit<ExtractedItem, 'figures'> & { figures?: CroppedFigure[] }>;
+  /** 富化后的 questions：含图题的 figures[i] 升级为 CroppedFigure（带 url） */
+  questions: Array<Omit<ExtractedQuestion, 'figures'> & { figures?: CroppedFigure[] }>;
   resources: Array<Omit<ExtractedResource, 'figures'> & { figures?: CroppedFigure[] }>;
   /** 写入 derived_asset 的候选记录；caller 自己决定是 prisma.upsert 还是别的 */
   derivedAssets: Array<{
@@ -60,7 +60,7 @@ export interface CropFiguresResult {
     metadata: CroppedFigure['derived_metadata'];
   }>;
   /** bbox 越界 / 裁切失败的图；caller 决定是日志还是丢回 staging */
-  invalid: Array<{ owner: 'item' | 'resource'; ownerIndex: number; figureNo: number; reason: string }>;
+  invalid: Array<{ owner: 'question' | 'resource'; ownerIndex: number; figureNo: number; reason: string }>;
 }
 
 export async function cropFiguresToStorage(opts: CropFiguresOptions): Promise<CropFiguresResult> {
@@ -72,7 +72,7 @@ export async function cropFiguresToStorage(opts: CropFiguresOptions): Promise<Cr
   const dimCache = new Map<string, { width: number; height: number }>();
 
   async function processOne(
-    owner: 'item' | 'resource',
+    owner: 'question' | 'resource',
     ownerIndex: number,
     srcImage: string,
     srcPage: number | undefined,
@@ -165,20 +165,20 @@ export async function cropFiguresToStorage(opts: CropFiguresOptions): Promise<Cr
     };
   }
 
-  const itemsOut: CropFiguresResult['items'] = [];
-  for (let i = 0; i < opts.items.length; i++) {
-    const it = opts.items[i]!;
-    const ownerIdHint = sanitizeIdHint(`item-${i + 1}-${it.item_no ?? ''}`);
-    if (!it.figures || it.figures.length === 0) {
-      itemsOut.push({ ...it, figures: undefined });
+  const questionsOut: CropFiguresResult['questions'] = [];
+  for (let i = 0; i < opts.questions.length; i++) {
+    const question = opts.questions[i]!;
+    const ownerIdHint = sanitizeIdHint(`question-${i + 1}-${question.question_no ?? ''}`);
+    if (!question.figures || question.figures.length === 0) {
+      questionsOut.push({ ...question, figures: undefined });
       continue;
     }
     const cropped: CroppedFigure[] = [];
-    for (const fig of it.figures) {
-      const c = await processOne('item', i, it._src_image, it._src_page, fig, ownerIdHint);
+    for (const fig of question.figures) {
+      const c = await processOne('question', i, question._src_image, question._src_page, fig, ownerIdHint);
       if (c) cropped.push(c);
     }
-    itemsOut.push({ ...it, figures: cropped });
+    questionsOut.push({ ...question, figures: cropped });
   }
 
   const resourcesOut: CropFiguresResult['resources'] = [];
@@ -197,7 +197,7 @@ export async function cropFiguresToStorage(opts: CropFiguresOptions): Promise<Cr
     resourcesOut.push({ ...r, figures: cropped });
   }
 
-  return { items: itemsOut, resources: resourcesOut, derivedAssets, invalid };
+  return { questions: questionsOut, resources: resourcesOut, derivedAssets, invalid };
 }
 
 /** asset_key 仅允许 [a-zA-Z0-9._-]；中文 / 空格 / 标点 → 下划线 */

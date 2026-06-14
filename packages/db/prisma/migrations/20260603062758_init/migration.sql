@@ -8,19 +8,19 @@ CREATE TYPE "LearningSessionStatus" AS ENUM ('in_progress', 'completed', 'abando
 CREATE TYPE "MistakeStatus" AS ENUM ('open', 'resolved');
 
 -- CreateEnum
-CREATE TYPE "PracticeItemType" AS ENUM ('choice', 'fill_in');
+CREATE TYPE "QuestionType" AS ENUM ('choice', 'fill_in');
 
 -- CreateEnum
 CREATE TYPE "LLMProtocol" AS ENUM ('openai_chat', 'google_generate_content');
 
 -- CreateEnum
-CREATE TYPE "ParseTaskKind" AS ENUM ('practice_item', 'knowledge_point', 'goal_template');
+CREATE TYPE "ParseTaskKind" AS ENUM ('question', 'knowledge_point', 'goal_template');
 
 -- CreateEnum
 CREATE TYPE "ParseJobStatus" AS ENUM ('queued', 'running', 'succeeded', 'failed');
 
 -- CreateEnum
-CREATE TYPE "UploadFileType" AS ENUM ('exam_outline', 'textbook', 'item_pack');
+CREATE TYPE "UploadFileType" AS ENUM ('exam_outline', 'textbook', 'question_pack');
 
 -- CreateEnum
 CREATE TYPE "UploadStatus" AS ENUM ('uploaded', 'parsed', 'published', 'discarded');
@@ -69,7 +69,7 @@ CREATE TABLE "knowledge_point" (
 );
 
 -- CreateTable
-CREATE TABLE "practice_item" (
+CREATE TABLE "question" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "content" TEXT NOT NULL,
     "answer" TEXT NOT NULL,
@@ -77,10 +77,10 @@ CREATE TABLE "practice_item" (
     "kp_ids" UUID[],
     "primary_kp_id" UUID NOT NULL,
     "difficulty" INTEGER NOT NULL,
-    "item_type" "PracticeItemType" NOT NULL,
+    "question_type" "QuestionType" NOT NULL,
     "created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "practice_item_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "question_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -90,23 +90,23 @@ CREATE TABLE "learning_session" (
     "started_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "ended_at" TIMESTAMPTZ,
     "status" "LearningSessionStatus" NOT NULL DEFAULT 'in_progress',
-    "item_ids" UUID[],
+    "question_ids" UUID[],
     "pool_sources" "SessionPoolSource"[],
 
     CONSTRAINT "learning_session_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
-CREATE TABLE "practice_attempt" (
+CREATE TABLE "question_attempt" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "session_id" UUID NOT NULL,
     "student_id" UUID NOT NULL,
-    "item_id" UUID NOT NULL,
+    "question_id" UUID NOT NULL,
     "student_answer" TEXT NOT NULL,
     "is_correct" BOOLEAN NOT NULL,
     "answered_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "practice_attempt_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "question_attempt_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -125,7 +125,7 @@ CREATE TABLE "knowledge_point_mastery" (
 CREATE TABLE "mistake_book_entry" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "student_id" UUID NOT NULL,
-    "item_id" UUID NOT NULL,
+    "question_id" UUID NOT NULL,
     "status" "MistakeStatus" NOT NULL DEFAULT 'open',
     "error_count" INTEGER NOT NULL DEFAULT 1,
     "consecutive_correct_count" INTEGER NOT NULL DEFAULT 0,
@@ -244,10 +244,10 @@ CREATE INDEX "knowledge_point_subject_id_chapter_no_idx" ON "knowledge_point"("s
 CREATE UNIQUE INDEX "knowledge_point_subject_id_name_key" ON "knowledge_point"("subject_id", "name");
 
 -- CreateIndex
-CREATE INDEX "practice_item_primary_kp_id_idx" ON "practice_item"("primary_kp_id");
+CREATE INDEX "question_primary_kp_id_idx" ON "question"("primary_kp_id");
 
 -- CreateIndex
-CREATE INDEX "practice_item_difficulty_idx" ON "practice_item"("difficulty");
+CREATE INDEX "question_difficulty_idx" ON "question"("difficulty");
 
 -- CreateIndex
 CREATE INDEX "learning_session_student_id_started_at_idx" ON "learning_session"("student_id", "started_at");
@@ -256,10 +256,10 @@ CREATE INDEX "learning_session_student_id_started_at_idx" ON "learning_session"(
 CREATE INDEX "learning_session_status_idx" ON "learning_session"("status");
 
 -- CreateIndex
-CREATE INDEX "practice_attempt_student_id_answered_at_idx" ON "practice_attempt"("student_id", "answered_at");
+CREATE INDEX "question_attempt_student_id_answered_at_idx" ON "question_attempt"("student_id", "answered_at");
 
 -- CreateIndex
-CREATE INDEX "practice_attempt_item_id_is_correct_idx" ON "practice_attempt"("item_id", "is_correct");
+CREATE INDEX "question_attempt_question_id_is_correct_idx" ON "question_attempt"("question_id", "is_correct");
 
 -- CreateIndex
 CREATE INDEX "knowledge_point_mastery_student_id_mastery_score_idx" ON "knowledge_point_mastery"("student_id", "mastery_score");
@@ -268,7 +268,7 @@ CREATE INDEX "knowledge_point_mastery_student_id_mastery_score_idx" ON "knowledg
 CREATE INDEX "mistake_book_entry_student_id_status_idx" ON "mistake_book_entry"("student_id", "status");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "mistake_book_entry_student_id_item_id_key" ON "mistake_book_entry"("student_id", "item_id");
+CREATE UNIQUE INDEX "mistake_book_entry_student_id_question_id_key" ON "mistake_book_entry"("student_id", "question_id");
 
 -- CreateIndex
 CREATE INDEX "spaced_review_next_review_at_idx" ON "spaced_review"("next_review_at");
@@ -304,13 +304,13 @@ ALTER TABLE "knowledge_point" ADD CONSTRAINT "knowledge_point_subject_id_fkey" F
 ALTER TABLE "learning_session" ADD CONSTRAINT "learning_session_student_id_fkey" FOREIGN KEY ("student_id") REFERENCES "student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "practice_attempt" ADD CONSTRAINT "practice_attempt_session_id_fkey" FOREIGN KEY ("session_id") REFERENCES "learning_session"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "question_attempt" ADD CONSTRAINT "question_attempt_session_id_fkey" FOREIGN KEY ("session_id") REFERENCES "learning_session"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "practice_attempt" ADD CONSTRAINT "practice_attempt_student_id_fkey" FOREIGN KEY ("student_id") REFERENCES "student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "question_attempt" ADD CONSTRAINT "question_attempt_student_id_fkey" FOREIGN KEY ("student_id") REFERENCES "student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "practice_attempt" ADD CONSTRAINT "practice_attempt_item_id_fkey" FOREIGN KEY ("item_id") REFERENCES "practice_item"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "question_attempt" ADD CONSTRAINT "question_attempt_question_id_fkey" FOREIGN KEY ("question_id") REFERENCES "question"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "knowledge_point_mastery" ADD CONSTRAINT "knowledge_point_mastery_student_id_fkey" FOREIGN KEY ("student_id") REFERENCES "student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -325,7 +325,7 @@ ALTER TABLE "knowledge_point_mastery" ADD CONSTRAINT "knowledge_point_mastery_kp
 ALTER TABLE "mistake_book_entry" ADD CONSTRAINT "mistake_book_entry_student_id_fkey" FOREIGN KEY ("student_id") REFERENCES "student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "mistake_book_entry" ADD CONSTRAINT "mistake_book_entry_item_id_fkey" FOREIGN KEY ("item_id") REFERENCES "practice_item"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "mistake_book_entry" ADD CONSTRAINT "mistake_book_entry_question_id_fkey" FOREIGN KEY ("question_id") REFERENCES "question"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "spaced_review" ADD CONSTRAINT "spaced_review_student_id_fkey" FOREIGN KEY ("student_id") REFERENCES "student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

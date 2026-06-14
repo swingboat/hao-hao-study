@@ -5,9 +5,9 @@
  * 每个 prompt 模块导出 PROMPT_VERSION 常量，admin 落 llm_parse_job.prompt_version 时引用。
  */
 export {
-  buildPracticeItemChunkPrompt,
-  buildPracticeItemFinalPrompt,
-  PRACTICE_ITEM_PROMPT_VERSION,
-  type PracticeItemChunkPromptCtx,
-  type PracticeItemFinalPromptCtx,
-} from './practice-item';
+  buildQuestionChunkPrompt,
+  buildQuestionFinalPrompt,
+  QUESTION_PROMPT_VERSION,
+  type QuestionChunkPromptCtx,
+  type QuestionFinalPromptCtx,
+} from './question';
