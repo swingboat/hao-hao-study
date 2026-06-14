@@ -56,7 +56,8 @@ function tokenize(input: string): Segment[] {
     }
   };
   while (i < input.length) {
-    const ch = input[i]!;
+    const ch = input[i];
+    if (ch === undefined) break;
     if (ch === '\\' && i + 1 < input.length && input[i + 1] === '$') {
       textBuf += '$';
       i += 2;
@@ -116,7 +117,7 @@ function renderMath(tex: string, display: boolean): string {
       strict: 'ignore',
       output: 'html',
     });
-  } catch (e) {
+  } catch {
     // 兜底：katex 还是抛了就显示原始 TeX，方便人工修正
     const safe = tex.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     return `<code class="text-red-600">${safe}</code>`;
@@ -131,10 +132,7 @@ export function MathText({ text, block = false, className = '' }: MathTextProps)
     .map((seg) => {
       if (seg.type === 'math') return renderMath(seg.value, seg.display);
       // text：转义后保留换行
-      const escaped = seg.value
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+      const escaped = seg.value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       return escaped.replace(/\n/g, '<br/>');
     })
     .join('');

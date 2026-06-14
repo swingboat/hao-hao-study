@@ -3,9 +3,9 @@
  *
  * 流程：
  *   1. uploadAndParseAction：multipart → 算 sha256 → @hao/storage 落盘（CAS）
- *      → 写 content_upload(purpose='practice_item', file_uri=storage key, sha256)
- *      → 预创建 llm_parse_job(task_kind='practice_item', status='queued')
- *      → void runItemParse() 抛进事件循环 → 立刻 redirect 到 staging 页
+ *      → 写 content_upload(purpose='question', file_uri=storage key, sha256)
+ *      → 预创建 llm_parse_job(task_kind='question', status='queued')
+ *      → void runQuestionParse() 抛进事件循环 → 立刻 redirect 到 staging 页
  *   2. reparseUploadAction：同一 upload，旧 zombie job 先标 failed，再起新 job
  *
  * 与 KP 路径的差异（除了 task_kind）：
@@ -13,11 +13,11 @@
  *     新业务按 AGENTS.md §通用规则 4 必须走抽象层）
  *   - PDF 上限 50MB（PRD §F3.1：题集 PDF ≤20MB，放宽到 50 容错）
  *   - file_uri 即 storage key（不是 file:// 绝对路径）；后端读用 store.get(key)
- *   - runItemParse 在 lib/item-runner.ts —— 不要放回 'use server' 文件里：
+ *   - runQuestionParse 在 lib/question-runner.ts —— 不要放回 'use server' 文件里：
  *     'use server' 文件的导出会被 Next 注册成 client-callable action，runParse
  *     不能作为公开 endpoint。
  *
- * T10：LLM 失败时 runItemParse 把 job.status='failed' + error_message；createMany
+ * T10：LLM 失败时 runQuestionParse 把 job.status='failed' + error_message；createMany
  * 包在事务最后，前面 throw 直接走 catch 分支，事务根本没开始 → staging 一行都不写。
  */
 'use server';
@@ -27,8 +27,8 @@ import { StoragePaths, createStore, extOf, sha256OfBuffer } from '@hao/storage';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { SESSION_COOKIE, verifySession } from '../../../../lib/auth';
-import { ITEM_PROMPT_VERSION } from '../../../../lib/item-pipeline';
-import { runItemParse } from '../../../../lib/item-runner';
+import { QUESTION_PROMPT_VERSION } from '../../../../lib/question-pipeline';
+import { runQuestionParse } from '../../../../lib/question-runner';
 
 async function requireAdmin() {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -88,8 +88,8 @@ export async function uploadAndParseAction(
     data: {
       uploader_id: session.sub,
       file_uri: key,
-      file_type: 'item_pack',
-      purpose: 'practice_item',
+      file_type: 'question_pack',
+      purpose: 'question',
       original_name: file.name,
       size_bytes: buf.byteLength,
       sha256,
@@ -98,16 +98,16 @@ export async function uploadAndParseAction(
   const job = await prisma.llm_parse_job.create({
     data: {
       upload_id: upload.id,
-      task_kind: 'practice_item',
+      task_kind: 'question',
       provider_id: providerId,
-      prompt_version: ITEM_PROMPT_VERSION,
+      prompt_version: QUESTION_PROMPT_VERSION,
       status: 'queued',
     },
   });
 
-  void runItemParse(job.id, upload.id, providerId, subjectId);
+  void runQuestionParse(job.id, upload.id, providerId, subjectId);
 
-  redirect(`/admin/items/import/${upload.id}`);
+  redirect(`/admin/questions/import/${upload.id}`);
 }
 
 async function reapZombieJobs(uploadId: string): Promise<number> {
@@ -115,7 +115,7 @@ async function reapZombieJobs(uploadId: string): Promise<number> {
     where: {
       upload_id: uploadId,
       status: { in: ['running', 'queued'] },
-      task_kind: 'practice_item',
+      task_kind: 'question',
     },
     data: {
       status: 'failed',
@@ -150,13 +150,13 @@ export async function reparseUploadAction(
   const job = await prisma.llm_parse_job.create({
     data: {
       upload_id: uploadId,
-      task_kind: 'practice_item',
+      task_kind: 'question',
       provider_id: providerId,
-      prompt_version: ITEM_PROMPT_VERSION,
+      prompt_version: QUESTION_PROMPT_VERSION,
       status: 'queued',
     },
   });
 
-  void runItemParse(job.id, uploadId, providerId, subjectId);
-  redirect(`/admin/items/import/${uploadId}`);
+  void runQuestionParse(job.id, uploadId, providerId, subjectId);
+  redirect(`/admin/questions/import/${uploadId}`);
 }

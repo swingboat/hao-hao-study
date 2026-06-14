@@ -8,7 +8,9 @@ export default function AdminHomePage() {
   return (
     <main className="p-8 max-w-4xl mx-auto">
       <h1 className="text-2xl font-semibold mb-1">运营端控制台</h1>
-      <p className="text-sm opacity-60 mb-6">v0.1 MVP — F1/F2/F3/F4 已上线，F5–F7 按里程碑陆续交付</p>
+      <p className="text-sm opacity-60 mb-6">
+        v0.1 MVP — F1/F2/F3/F4 已上线，F5–F7 按里程碑陆续交付
+      </p>
 
       <ul className="grid gap-3 sm:grid-cols-2">
         <li className="border rounded-lg p-4">
@@ -26,7 +28,7 @@ export default function AdminHomePage() {
           </p>
         </li>
         <li className="border rounded-lg p-4">
-          <Link href="/admin/items" className="font-medium underline">
+          <Link href="/admin/questions" className="font-medium underline">
             试题库（F3）
           </Link>
           <p className="text-xs opacity-60 mt-1">

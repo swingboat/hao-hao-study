@@ -15,7 +15,10 @@ const nextConfig: NextConfig = {
   webpack: (config, { isServer }) => {
     if (isServer) {
       const existing = config.externals;
-      const sharpExternal = ({ request }: { request?: string }, callback: (err?: unknown, result?: string) => void) => {
+      const sharpExternal = (
+        { request }: { request?: string },
+        callback: (err?: unknown, result?: string) => void,
+      ) => {
         if (request === 'sharp') return callback(null, 'commonjs sharp');
         callback();
       };

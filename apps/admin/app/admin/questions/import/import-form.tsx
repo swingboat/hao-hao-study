@@ -97,7 +97,7 @@ export function ImportForm({ subjects, providers, defaultProvider }: ImportFormP
                   点击选择题集 PDF <span className="text-red-600">*</span>
                 </p>
                 <p className="text-xs opacity-60">
-                  ≤ 50MB · L2 extractItemsFromPdf 按 3 页/片切，跨页题自动重抽
+                  ≤ 50MB · L2 extractQuestionsFromPdf 按 3 页/片切，跨页题自动重抽
                 </p>
               </>
             )}

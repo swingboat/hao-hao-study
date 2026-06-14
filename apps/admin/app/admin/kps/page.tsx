@@ -22,7 +22,7 @@ interface KpRow {
   name: string;
   subject_id: string;
   chapter_no: string | null;
-  item_count: number;
+  question_count: number;
   student_count: number;
 }
 
@@ -108,14 +108,14 @@ async function loadKps(
   });
   if (kps.length === 0) return [];
 
-  // 关联题数：unnest practice_item.kp_ids → 按 kp_id 聚合
+  // 关联题数：unnest question.kp_ids → 按 kp_id 聚合
   // 学生数：knowledge_point_mastery 复合主键 (student_id, kp_id)，
   //         同一 (student, kp) 只会有一条，所以直接 count(*) 即可
   const ids = kps.map((k) => k.id);
-  const [itemCounts, studentCounts] = await Promise.all([
+  const [questionCounts, studentCounts] = await Promise.all([
     prisma.$queryRaw<Array<{ kp_id: string; cnt: bigint }>>`
       SELECT kp_id, COUNT(*)::bigint AS cnt
-      FROM (SELECT unnest(kp_ids) AS kp_id FROM practice_item) sub
+      FROM (SELECT unnest(kp_ids) AS kp_id FROM question) sub
       WHERE kp_id = ANY(${ids}::uuid[])
       GROUP BY kp_id
     `,
@@ -125,7 +125,7 @@ async function loadKps(
       _count: { _all: true },
     }),
   ]);
-  const itemMap = new Map(itemCounts.map((r) => [r.kp_id, Number(r.cnt)]));
+  const questionMap = new Map(questionCounts.map((r) => [r.kp_id, Number(r.cnt)]));
   const studentMap = new Map(studentCounts.map((r) => [r.kp_id, r._count._all]));
 
   return kps.map((k) => ({
@@ -133,7 +133,7 @@ async function loadKps(
     name: k.name,
     subject_id: k.subject_id,
     chapter_no: k.chapter_no,
-    item_count: itemMap.get(k.id) ?? 0,
+    question_count: questionMap.get(k.id) ?? 0,
     student_count: studentMap.get(k.id) ?? 0,
   }));
 }
@@ -431,7 +431,7 @@ export default async function KpsPage({ searchParams }: PageProps) {
                   <td className="p-2">{k.name}</td>
                   <td className="p-2 font-mono text-xs">{k.subject_id}</td>
                   <td className="p-2 text-xs opacity-80">{k.chapter_no ?? '—'}</td>
-                  <td className="p-2 text-right tabular-nums">{k.item_count}</td>
+                  <td className="p-2 text-right tabular-nums">{k.question_count}</td>
                   <td className="p-2 text-right tabular-nums">{k.student_count}</td>
                   <td className="p-2 text-right">
                     <Link

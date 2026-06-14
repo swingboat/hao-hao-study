@@ -15,7 +15,7 @@ export interface KpRow {
   name: string;
   subject_id: string;
   chapter_no: string | null;
-  item_count: number;
+  question_count: number;
   student_count: number;
 }
 
@@ -48,7 +48,7 @@ function chapterCompare(a: string, b: string): number {
 interface ChapterGroup {
   chapter: string; // raw chapter_no 或 UNGROUPED_KEY
   kps: KpRow[];
-  itemTotal: number;
+  questionTotal: number;
   studentMax: number; // 章节级"覆盖学生数"取下属 KP 中最大（学生集合不可加）
 }
 
@@ -83,9 +83,9 @@ function groupKps(kps: KpRow[], subjectIdToName: Map<string, string>): SubjectGr
     for (const [chapter, items] of chapMap) {
       // 章内 KP 按 name 字典序（list 模式也是这个序）
       items.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
-      const itemTotal = items.reduce((s, k) => s + k.item_count, 0);
+      const questionTotal = items.reduce((s, k) => s + k.question_count, 0);
       const studentMax = items.reduce((m, k) => Math.max(m, k.student_count), 0);
-      chapters.push({ chapter, kps: items, itemTotal, studentMax });
+      chapters.push({ chapter, kps: items, questionTotal, studentMax });
       kpTotal += items.length;
     }
     chapters.sort((a, b) => chapterCompare(a.chapter, b.chapter));
@@ -121,7 +121,7 @@ function ChapterBlock({
         <span className="font-medium">{label}</span>
         {title ? <span className="font-medium">{title}</span> : null}
         <span className="opacity-60 text-xs tabular-nums">
-          {group.kps.length} 条 KP · 题 {group.itemTotal}
+          {group.kps.length} 条 KP · 题 {group.questionTotal}
           {group.studentMax > 0 ? ` · 学生峰值 ${group.studentMax}` : ''}
         </span>
         {showCheckmark ? <span className="ml-auto text-xs opacity-40">▾</span> : null}
@@ -136,7 +136,7 @@ function ChapterBlock({
               {k.name}
             </span>
             <span className="opacity-60 text-xs tabular-nums whitespace-nowrap">
-              题 {k.item_count} · 生 {k.student_count}
+              题 {k.question_count} · 生 {k.student_count}
             </span>
             <Link
               href={`/admin/kps?edit=${k.id}`}

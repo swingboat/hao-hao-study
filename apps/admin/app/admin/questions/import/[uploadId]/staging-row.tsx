@@ -6,13 +6,13 @@
 
 import { useState } from 'react';
 import { rejectStagingAction } from './actions';
-import { DiffDrawer, type LlmItemPayload } from './diff-drawer';
+import { DiffDrawer, type LlmQuestionPayload } from './diff-drawer';
 import { MathText } from './math-text';
 
 export interface StagingRowProps {
   stagingId: string;
   uploadId: string;
-  payload: LlmItemPayload;
+  payload: LlmQuestionPayload;
   subjectId: string;
   subjectLabel: string;
   providers: Array<{ id: string; model: string }>;
@@ -22,7 +22,7 @@ export function StagingRow(props: StagingRowProps) {
   const [open, setOpen] = useState(false);
   const { payload } = props;
   const fullContent = payload.content ?? '';
-  const itemType = payload.item_type ?? 'choice';
+  const questionType = payload.question_type ?? 'choice';
   const options = payload.options ?? [];
 
   return (
@@ -30,10 +30,10 @@ export function StagingRow(props: StagingRowProps) {
       <div className="flex items-baseline gap-2 mb-2 text-xs opacity-60">
         <span>学科：{props.subjectLabel}</span>
         <span className="font-mono">staging:{props.stagingId.slice(0, 8)}</span>
-        <span>· 题型 {payload.item_type ?? '?'}</span>
+        <span>· 题型 {payload.question_type ?? '?'}</span>
         <span>· 难度 {payload.difficulty ?? '?'}</span>
         {payload.source_hint?.page ? <span>· 原文 p{payload.source_hint.page}</span> : null}
-        {payload.source_hint?.item_no ? <span>· {payload.source_hint.item_no}</span> : null}
+        {payload.source_hint?.question_no ? <span>· {payload.source_hint.question_no}</span> : null}
       </div>
 
       <MathText
@@ -42,7 +42,7 @@ export function StagingRow(props: StagingRowProps) {
         className="text-sm leading-relaxed [&_.katex]:text-[0.95em]"
       />
 
-      {itemType === 'choice' && options.length > 0 ? (
+      {questionType === 'choice' && options.length > 0 ? (
         <ul className="mt-2 text-sm space-y-0.5">
           {options.map((o) => (
             <li key={o.label} className="flex gap-2">
@@ -51,7 +51,7 @@ export function StagingRow(props: StagingRowProps) {
             </li>
           ))}
         </ul>
-      ) : itemType === 'choice' && options.length === 0 ? (
+      ) : questionType === 'choice' && options.length === 0 ? (
         <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
           ⚠️ 选择题但未抽到选项；接受前请打开抽屉补全或丢弃。
         </p>

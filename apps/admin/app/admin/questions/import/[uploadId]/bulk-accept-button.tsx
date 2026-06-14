@@ -11,7 +11,10 @@ import { type BulkActionState, bulkAcceptAllAction } from './actions';
 
 const INITIAL: BulkActionState = { error: null };
 
-export function BulkAcceptButton({ uploadId, pendingCount }: { uploadId: string; pendingCount: number }) {
+export function BulkAcceptButton({
+  uploadId,
+  pendingCount,
+}: { uploadId: string; pendingCount: number }) {
   const [state, action, pending] = useActionState(bulkAcceptAllAction, INITIAL);
   return (
     <form

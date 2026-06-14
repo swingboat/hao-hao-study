@@ -1,16 +1,16 @@
 /**
  * F3.3–F3.7 staging 审核 server actions（对照 /admin/kps/import/[uploadId]/actions.ts）。
  *
- *   - acceptStagingAction (F3.7)：事务里写 practice_item + audit_log + 更新 staging
- *     T3：item_type ∈ {choice, fill_in} + kp_ids 非空 + primary_kp_id ∈ kp_ids（DB schema 兜底但应用层先校）
- *     T4：audit_log.target_id == practice_item.id（同一事务，必一致）
+ *   - acceptStagingAction (F3.7)：事务里写 question + audit_log + 更新 staging
+ *     T3：question_type ∈ {choice, fill_in} + kp_ids 非空 + primary_kp_id ∈ kp_ids（DB schema 兜底但应用层先校）
+ *     T4：audit_log.target_id == question.id（同一事务，必一致）
  *   - rejectStagingAction：仅 review_status='rejected'
  *   - rerunStagingAction (F3.6 / T7)：选 provider → 新建 llm_parse_job → 同一 PDF（可缩窗）跑一遍
- *     → 用 item_no / kp_hints 匹配本 staging 行 → 覆盖 llm_payload + 把 parse_job_id 指到新 job
+ *     → 用 question_no / kp_hints 匹配本 staging 行 → 覆盖 llm_payload + 把 parse_job_id 指到新 job
  *   - bulkAcceptAllAction / bulkRejectAllAction：dev-only 批量操作（对照 KP 版）
- *   - getJobProgressAction：客户端轮询返回 ItemProgressSnapshot
+ *   - getJobProgressAction：客户端轮询返回 QuestionProgressSnapshot
  *
- * accept 时 review_payload 写最终 { content, item_type, options, answer, solution_text,
+ * accept 时 review_payload 写最终 { content, question_type, options, answer, solution_text,
  * difficulty, kp_ids, primary_kp_id, subject_id }，llm_payload 保持只读不动。
  */
 'use server';
@@ -19,14 +19,14 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { type Prisma, prisma } from '@hao/db';
-import { extractItemsFromPdf } from '@hao/llm';
-import { PRACTICE_ITEM_PROMPT_VERSION, buildPracticeItemChunkPrompt } from '@hao/shared/prompts';
+import { extractQuestionsFromPdf } from '@hao/llm';
+import { QUESTION_PROMPT_VERSION, buildQuestionChunkPrompt } from '@hao/shared/prompts';
 import { createStore } from '@hao/storage';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { SESSION_COOKIE, verifySession } from '../../../../../lib/auth';
-import type { ItemProgressSnapshot } from '../../../../../lib/item-pipeline';
+import type { QuestionProgressSnapshot } from '../../../../../lib/question-pipeline';
 
 async function requireAdmin() {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -43,7 +43,7 @@ const AcceptSchema = z
   .object({
     staging_id: z.string().uuid('staging_id 非法'),
     content: z.string().trim().min(5).max(2000),
-    item_type: z.enum(['choice', 'fill_in']),
+    question_type: z.enum(['choice', 'fill_in']),
     options_json: z.string().default('[]'),
     answer: z.string().trim().min(1).max(500),
     solution_text: z.string().max(3000).default(''),
@@ -82,14 +82,14 @@ const AcceptSchema = z
         message: 'primary_kp_id 必须出现在 kp_ids 中',
       });
     }
-    if (d.item_type === 'choice' && d.options.length < 2) {
+    if (d.question_type === 'choice' && d.options.length < 2) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['options_json'],
         message: 'choice 题至少 2 个选项',
       });
     }
-    if (d.item_type === 'fill_in' && d.options.length > 0) {
+    if (d.question_type === 'fill_in' && d.options.length > 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['options_json'],
@@ -112,7 +112,7 @@ export async function acceptStagingAction(
   const parsed = AcceptSchema.safeParse({
     staging_id: formData.get('staging_id'),
     content: formData.get('content'),
-    item_type: formData.get('item_type'),
+    question_type: formData.get('question_type'),
     options_json: formData.get('options_json') ?? '[]',
     answer: formData.get('answer'),
     solution_text: formData.get('solution_text') ?? '',
@@ -143,32 +143,32 @@ export async function acceptStagingAction(
 
   try {
     await prisma.$transaction(async (tx) => {
-      // T3：写 practice_item
-      const item = await tx.practice_item.create({
+      // T3：写 question
+      const question = await tx.question.create({
         data: {
           content: d.content,
           answer: d.answer,
           solution_text: d.solution_text,
           difficulty: d.difficulty,
-          item_type: d.item_type,
+          question_type: d.question_type,
           kp_ids: d.kp_ids,
           primary_kp_id: d.primary_kp_id,
         },
       });
 
-      // T4：同事务写 audit_log，target_id 必等于 item.id
+      // T4：同事务写 audit_log，target_id 必等于 question.id
       await tx.audit_log.create({
         data: {
           actor_id: session.sub,
-          action: 'publish_practice_item',
-          target_type: 'practice_item',
-          target_id: item.id,
+          action: 'publish_question',
+          target_type: 'question',
+          target_id: question.id,
           payload: {
             staging_id: d.staging_id,
             subject_id: d.subject_id,
             kp_ids: d.kp_ids,
             primary_kp_id: d.primary_kp_id,
-            item_type: d.item_type,
+            question_type: d.question_type,
             difficulty: d.difficulty,
           } as Prisma.InputJsonValue,
         },
@@ -180,7 +180,7 @@ export async function acceptStagingAction(
           review_status: 'accepted',
           review_payload: {
             content: d.content,
-            item_type: d.item_type,
+            question_type: d.question_type,
             options: d.options,
             answer: d.answer,
             solution_text: d.solution_text,
@@ -191,7 +191,7 @@ export async function acceptStagingAction(
           } as Prisma.InputJsonValue,
           reviewed_by: session.sub,
           reviewed_at: new Date(),
-          published_id: item.id,
+          published_id: question.id,
         },
       });
     });
@@ -200,9 +200,9 @@ export async function acceptStagingAction(
     return { error: msg.slice(0, 200) };
   }
 
-  revalidatePath('/admin/items');
+  revalidatePath('/admin/questions');
   const upload_id = String(formData.get('upload_id') ?? '');
-  if (upload_id) revalidatePath(`/admin/items/import/${upload_id}`);
+  if (upload_id) revalidatePath(`/admin/questions/import/${upload_id}`);
   return { error: null, ok: true };
 }
 
@@ -219,8 +219,8 @@ export async function rejectStagingAction(formData: FormData): Promise<void> {
     },
   });
   const upload_id = String(formData.get('upload_id') ?? '');
-  if (upload_id) revalidatePath(`/admin/items/import/${upload_id}`);
-  revalidatePath('/admin/items');
+  if (upload_id) revalidatePath(`/admin/questions/import/${upload_id}`);
+  revalidatePath('/admin/questions');
 }
 
 // ────────── KP 候选搜索（F3.5） ──────────
@@ -257,10 +257,10 @@ export interface RerunActionState {
 
 /**
  * 用新 provider 重跑该 staging 行：
- *   1) 新建 llm_parse_job(task_kind='practice_item', provider=new)
- *   2) 把同一 PDF 跑一遍 extractItemsFromPdf（如果 staging 有 source_hint.page，
+ *   1) 新建 llm_parse_job(task_kind='question', provider=new)
+ *   2) 把同一 PDF 跑一遍 extractQuestionsFromPdf（如果 staging 有 source_hint.page，
  *      就缩窗到 [page-1, page+1]，省 token；否则全本）
- *   3) 在结果里找匹配本题的那条（先按 item_no 精确匹配，找不到回退 content 前 60 字相似度），
+ *   3) 在结果里找匹配本题的那条（先按 question_no 精确匹配，找不到回退 content 前 60 字相似度），
  *      覆盖 staging.llm_payload + 把 staging.parse_job_id 指到新 job
  *   4) job 标 succeeded / failed
  *
@@ -280,8 +280,8 @@ export async function rerunStagingAction(
     include: { upload: true },
   });
   if (!staging) return { error: 'staging 不存在' };
-  if (staging.entity_kind !== 'practice_item') {
-    return { error: '该 staging 不是 practice_item' };
+  if (staging.entity_kind !== 'question') {
+    return { error: '该 staging 不是 question' };
   }
 
   const provider = await prisma.llm_provider.findUnique({ where: { id: providerId } });
@@ -291,7 +291,7 @@ export async function rerunStagingAction(
   if (!staging.upload.sha256) return { error: 'upload 缺 sha256，无法 rerun' };
 
   const llmPayload = staging.llm_payload as {
-    source_hint?: { page?: number | null; item_no?: string | null };
+    source_hint?: { page?: number | null; question_no?: string | null };
     content?: string;
     _subject_id?: string;
   };
@@ -302,15 +302,15 @@ export async function rerunStagingAction(
   if (!subject) return { error: `subject ${subjectId} 不存在` };
 
   const srcPage = llmPayload.source_hint?.page ?? null;
-  const srcItemNo = llmPayload.source_hint?.item_no ?? null;
+  const srcQuestionNo = llmPayload.source_hint?.question_no ?? null;
   const oldContentKey = (llmPayload.content ?? '').replace(/\s+/g, '').slice(0, 60);
 
   const job = await prisma.llm_parse_job.create({
     data: {
       upload_id: staging.upload_id,
-      task_kind: 'practice_item',
+      task_kind: 'question',
       provider_id: providerId,
-      prompt_version: PRACTICE_ITEM_PROMPT_VERSION,
+      prompt_version: QUESTION_PROMPT_VERSION,
       status: 'running',
     },
   });
@@ -319,7 +319,7 @@ export async function rerunStagingAction(
   let tmpPath: string | null = null;
   try {
     const buf = await store.get(staging.upload.file_uri);
-    const tmpDir = path.join(tmpdir(), 'hao-admin-item-rerun');
+    const tmpDir = path.join(tmpdir(), 'hao-admin-question-rerun');
     await mkdir(tmpDir, { recursive: true });
     tmpPath = path.join(tmpDir, `${job.id}.pdf`);
     await writeFile(tmpPath, buf);
@@ -330,7 +330,7 @@ export async function rerunStagingAction(
       select: { name: true },
       orderBy: [{ chapter_no: 'asc' }, { name: 'asc' }],
     });
-    // 保留 query 的 chapter_no 顺序，不要 .sort()（理由见 item-pipeline.ts 同名注释）
+    // 保留 query 的 chapter_no 顺序，不要 .sort()（理由见 question-pipeline.ts 同名注释）
     const kpNames = Array.from(
       new Set(existingKps.map((k) => k.name.trim()).filter((n) => n.length > 0)),
     ).slice(0, 500);
@@ -348,11 +348,11 @@ export async function rerunStagingAction(
     if (kpNames.length > 0) {
       await prisma.llm_parse_job.update({
         where: { id: job.id },
-        data: { prompt_version: `${PRACTICE_ITEM_PROMPT_VERSION}+kpdict-${kpNames.length}` },
+        data: { prompt_version: `${QUESTION_PROMPT_VERSION}+kpdict-${kpNames.length}` },
       });
     }
 
-    const result = await extractItemsFromPdf({
+    const result = await extractQuestionsFromPdf({
       pdfPath: tmpPath,
       providerId,
       sourceSha256: staging.upload.sha256,
@@ -363,7 +363,7 @@ export async function rerunStagingAction(
       pagesPerCall: 3,
       chunkPromptBuilder: (ctx) =>
         [
-          buildPracticeItemChunkPrompt({
+          buildQuestionChunkPrompt({
             chunkIndex: ctx.chunkIndex,
             totalChunks: ctx.totalChunks,
             startPage: ctx.pages[0] ?? 1,
@@ -376,20 +376,22 @@ export async function rerunStagingAction(
         ].join('\n'),
     });
 
-    // 匹配：先按 item_no（不空），再按 content 前 60 字归一相似（startsWith / includes 兜底）
+    // 匹配：先按 question_no（不空），再按 content 前 60 字归一相似（startsWith / includes 兜底）
     const matched =
-      (srcItemNo
-        ? result.items.find((it) => (it.item_no ?? '').trim() === srcItemNo.trim())
+      (srcQuestionNo
+        ? result.questions.find(
+            (question) => (question.question_no ?? '').trim() === srcQuestionNo.trim(),
+          )
         : null) ??
-      result.items.find(
-        (it) =>
+      result.questions.find(
+        (question) =>
           oldContentKey.length > 10 &&
-          it.content.replace(/\s+/g, '').slice(0, 60).startsWith(oldContentKey.slice(0, 30)),
+          question.content.replace(/\s+/g, '').slice(0, 60).startsWith(oldContentKey.slice(0, 30)),
       ) ??
-      result.items[0];
+      result.questions[0];
 
     if (!matched) {
-      throw new Error('rerun 没产出可匹配的题（result.items 为空）');
+      throw new Error('rerun 没产出可匹配的题（result.questions 为空）');
     }
 
     await prisma.$transaction([
@@ -399,7 +401,7 @@ export async function rerunStagingAction(
           parse_job_id: job.id,
           llm_payload: {
             content: matched.content,
-            item_type: matched.item_type,
+            question_type: matched.question_type,
             options: matched.options,
             answer: matched.answer,
             solution_text: matched.solution_text,
@@ -407,7 +409,7 @@ export async function rerunStagingAction(
             kp_hints: matched.kp_hints,
             source_hint: {
               page: matched._src_page ?? null,
-              item_no: matched.item_no ?? null,
+              question_no: matched.question_no ?? null,
             },
             figures: matched.figures ?? [],
             _subject_id: subjectId,
@@ -415,7 +417,9 @@ export async function rerunStagingAction(
               previous_job_id: staging.parse_job_id,
               previous_provider_id: provider.id,
               matched_strategy:
-                srcItemNo && matched.item_no === srcItemNo ? 'item_no' : 'content_prefix',
+                srcQuestionNo && matched.question_no === srcQuestionNo
+                  ? 'question_no'
+                  : 'content_prefix',
             },
           } as unknown as Prisma.InputJsonValue,
         },
@@ -424,7 +428,7 @@ export async function rerunStagingAction(
         where: { id: job.id },
         data: {
           status: 'succeeded',
-          parsed_output: { items: result.items } as unknown as Prisma.InputJsonValue,
+          parsed_output: { questions: result.questions } as unknown as Prisma.InputJsonValue,
           token_usage: {
             input: result.totalTokenUsage.input,
             output: result.totalTokenUsage.output,
@@ -435,7 +439,7 @@ export async function rerunStagingAction(
       }),
     ]);
 
-    revalidatePath(`/admin/items/import/${staging.upload_id}`);
+    revalidatePath(`/admin/questions/import/${staging.upload_id}`);
     return { error: null, ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -475,7 +479,7 @@ export interface BulkActionState {
 /**
  * 批量接受 pending stagings（运营人员"快进"用）。
  *
- * 逐条处理 —— 每条复用 acceptStagingAction 的核心逻辑（事务里写 practice_item + audit_log + 更新 staging），
+ * 逐条处理 —— 每条复用 acceptStagingAction 的核心逻辑（事务里写 question + audit_log + 更新 staging），
  * 但 kp_ids / primary_kp_id 由 kp_hints 在同学科 knowledge_point 表里按 name 自动解析（不命中的题跳过）。
  *
  * 跳过条件（写进 skipReasons 返回给前端，不抛错以免一条挡所有）：
@@ -484,7 +488,7 @@ export interface BulkActionState {
  *   - choice 题 options.length < 2
  *   - DB 事务失败（外键 / 字段长度）
  *
- * 与单条 accept 一致：item_type / kp_ids.len≥1 / primary∈kp_ids；同事务写 audit_log。
+ * 与单条 accept 一致：question_type / kp_ids.len≥1 / primary∈kp_ids；同事务写 audit_log。
  *
  * 关于 dev-only：bulkRejectAll 是 dev-only（reject 不可逆是数据安全考量），
  * 但 bulkAccept 是常规运营动作，**不**加 ensureDevOnly —— 运营人员就是要在生产环境批量过题。
@@ -498,7 +502,7 @@ export async function bulkAcceptAllAction(
   if (!upload_id) return { error: 'upload_id 缺失' };
 
   const stagings = await prisma.llm_parse_staging.findMany({
-    where: { upload_id, review_status: 'pending', entity_kind: 'practice_item' },
+    where: { upload_id, review_status: 'pending', entity_kind: 'question' },
     orderBy: { created_at: 'asc' },
   });
 
@@ -540,8 +544,12 @@ export async function bulkAcceptAllAction(
   const kpsBySubject = new Map<string, Array<{ id: string; name: string; norm: string }>>();
   for (const kp of allKps) {
     const norm = kp.name.trim().toLowerCase();
-    if (!kpsBySubject.has(kp.subject_id)) kpsBySubject.set(kp.subject_id, []);
-    kpsBySubject.get(kp.subject_id)!.push({ id: kp.id, name: kp.name, norm });
+    let bucket = kpsBySubject.get(kp.subject_id);
+    if (!bucket) {
+      bucket = [];
+      kpsBySubject.set(kp.subject_id, bucket);
+    }
+    bucket.push({ id: kp.id, name: kp.name, norm });
   }
 
   function matchKp(subjectId: string, hint: string): string | null {
@@ -558,9 +566,7 @@ export async function bulkAcceptAllAction(
     // 3) 去后缀后再 contains（"集合的并集运算" → "集合的并集"）
     const hStripped = stripNoise(h);
     if (hStripped && hStripped !== h) {
-      const after = pool.find(
-        (k) => k.norm.includes(hStripped) || hStripped.includes(k.norm),
-      );
+      const after = pool.find((k) => k.norm.includes(hStripped) || hStripped.includes(k.norm));
       if (after) return after.id;
     }
     // 4) 最长公共子串：cover "并集及其运算" ↔ "集合的并集"（共享 "并集"）这类只在中间共享的情况。
@@ -671,7 +677,7 @@ export async function bulkAcceptAllAction(
   for (const s of stagings) {
     const payload = s.llm_payload as {
       content?: string;
-      item_type?: 'choice' | 'fill_in';
+      question_type?: 'choice' | 'fill_in';
       options?: Array<{ label: string; text: string }>;
       answer?: string;
       solution_text?: string;
@@ -682,7 +688,7 @@ export async function bulkAcceptAllAction(
 
     const label = (payload.content ?? s.id).replace(/\s+/g, ' ').slice(0, 30);
     const subjectId = payload._subject_id ?? '';
-    const itemType = payload.item_type ?? 'choice';
+    const questionType = payload.question_type ?? 'choice';
     const content = (payload.content ?? '').trim();
     const answer = (payload.answer ?? '').trim();
     const options = Array.isArray(payload.options) ? payload.options : [];
@@ -699,15 +705,13 @@ export async function bulkAcceptAllAction(
       skipReasons.push(`「${label}…」缺 answer`);
       continue;
     }
-    if (itemType === 'choice' && options.length < 2) {
+    if (questionType === 'choice' && options.length < 2) {
       skipReasons.push(`「${label}…」choice 题 options < 2`);
       continue;
     }
 
     // kp_hints → kp_ids（模糊匹配同学科 KP；见上方 matchKp）
-    const hints = (payload.kp_hints ?? [])
-      .map((h) => h.trim())
-      .filter((h) => h.length > 0);
+    const hints = (payload.kp_hints ?? []).map((h) => h.trim()).filter((h) => h.length > 0);
     const kpIds: string[] = [];
     const seen = new Set<string>();
     for (const hint of hints) {
@@ -723,19 +727,23 @@ export async function bulkAcceptAllAction(
       );
       continue;
     }
-    const primaryKpId = kpIds[0]!;
+    const primaryKpId = kpIds[0];
+    if (!primaryKpId) {
+      skipReasons.push(`「${label}…」kp_ids 为空，需人工处理`);
+      continue;
+    }
     const difficulty = Math.min(5, Math.max(1, payload.difficulty ?? 3));
     const solution = (payload.solution_text ?? '').slice(0, 3000);
 
     try {
       await prisma.$transaction(async (tx) => {
-        const item = await tx.practice_item.create({
+        const question = await tx.question.create({
           data: {
             content,
             answer,
             solution_text: solution,
             difficulty,
-            item_type: itemType,
+            question_type: questionType,
             kp_ids: kpIds,
             primary_kp_id: primaryKpId,
           },
@@ -743,15 +751,15 @@ export async function bulkAcceptAllAction(
         await tx.audit_log.create({
           data: {
             actor_id: session.sub,
-            action: 'publish_practice_item',
-            target_type: 'practice_item',
-            target_id: item.id,
+            action: 'publish_question',
+            target_type: 'question',
+            target_id: question.id,
             payload: {
               staging_id: s.id,
               subject_id: subjectId,
               kp_ids: kpIds,
               primary_kp_id: primaryKpId,
-              item_type: itemType,
+              question_type: questionType,
               difficulty,
               bulk: true,
             } as Prisma.InputJsonValue,
@@ -763,7 +771,7 @@ export async function bulkAcceptAllAction(
             review_status: 'accepted',
             review_payload: {
               content,
-              item_type: itemType,
+              question_type: questionType,
               options,
               answer,
               solution_text: solution,
@@ -774,7 +782,7 @@ export async function bulkAcceptAllAction(
             } as Prisma.InputJsonValue,
             reviewed_by: session.sub,
             reviewed_at: new Date(),
-            published_id: item.id,
+            published_id: question.id,
           },
         });
       });
@@ -785,8 +793,8 @@ export async function bulkAcceptAllAction(
     }
   }
 
-  revalidatePath(`/admin/items/import/${upload_id}`);
-  revalidatePath('/admin/items');
+  revalidatePath(`/admin/questions/import/${upload_id}`);
+  revalidatePath('/admin/questions');
   return {
     error: null,
     ok: true,
@@ -806,12 +814,12 @@ export async function bulkRejectAllAction(
   if (!upload_id) return { error: 'upload_id 缺失' };
 
   const result = await prisma.llm_parse_staging.updateMany({
-    where: { upload_id, review_status: 'pending', entity_kind: 'practice_item' },
+    where: { upload_id, review_status: 'pending', entity_kind: 'question' },
     data: { review_status: 'rejected', reviewed_by: session.sub, reviewed_at: new Date() },
   });
 
-  revalidatePath(`/admin/items/import/${upload_id}`);
-  revalidatePath('/admin/items');
+  revalidatePath(`/admin/questions/import/${upload_id}`);
+  revalidatePath('/admin/questions');
   return { error: null, ok: true, rejected: result.count };
 }
 
@@ -825,9 +833,9 @@ export interface JobProgressView {
   latencyMs: number | null;
   promptVersion: string;
   providerId: string;
-  progress: ItemProgressSnapshot | null;
+  progress: QuestionProgressSnapshot | null;
   tokenUsage: { input: number; output: number; total: number } | null;
-  itemCount: number;
+  questionCount: number;
 }
 
 export async function getJobProgressAction(jobId: string): Promise<JobProgressView> {
@@ -849,7 +857,7 @@ export async function getJobProgressAction(jobId: string): Promise<JobProgressVi
   if (!job) throw new Error(`job ${jobId} 不存在`);
 
   const rawProgress =
-    (job.raw_response as { progress?: ItemProgressSnapshot } | null)?.progress ?? null;
+    (job.raw_response as { progress?: QuestionProgressSnapshot } | null)?.progress ?? null;
   const tokenUsageField = job.token_usage as {
     input?: number;
     output?: number;
@@ -863,8 +871,8 @@ export async function getJobProgressAction(jobId: string): Promise<JobProgressVi
       }
     : null;
 
-  const itemCount = await prisma.llm_parse_staging.count({
-    where: { parse_job_id: jobId, entity_kind: 'practice_item' },
+  const questionCount = await prisma.llm_parse_staging.count({
+    where: { parse_job_id: jobId, entity_kind: 'question' },
   });
 
   return {
@@ -884,6 +892,6 @@ export async function getJobProgressAction(jobId: string): Promise<JobProgressVi
             total: tokenUsageField.total ?? tokenUsageField.input + tokenUsageField.output,
           }
         : fallbackUsage,
-    itemCount,
+    questionCount,
   };
 }
