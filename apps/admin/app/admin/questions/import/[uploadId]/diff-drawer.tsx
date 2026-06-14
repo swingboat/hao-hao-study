@@ -3,7 +3,7 @@
  *
  * 布局：右侧抽屉
  *   - 左栏：LLM 原始抽取（content / answer / options / kp_hints / 图）只读展示
- *   - 右栏：可编辑表单（content / item_type / options JSON / answer / solution_text /
+ *   - 右栏：可编辑表单（content / question_type / options JSON / answer / solution_text /
  *           difficulty / kp_ids[]（带搜索） / primary_kp_id）
  *   - 底部：接受并发布 / 丢弃 / 换模型重跑（F3.6）
  *
@@ -24,15 +24,15 @@ import {
 } from './actions';
 import { MathText } from './math-text';
 
-export interface LlmItemPayload {
+export interface LlmQuestionPayload {
   content?: string;
-  item_type?: 'choice' | 'fill_in';
+  question_type?: 'choice' | 'fill_in';
   options?: Array<{ label: string; text: string }>;
   answer?: string;
   solution_text?: string;
   difficulty?: number;
   kp_hints?: string[];
-  source_hint?: { page?: number | null; item_no?: string | null };
+  source_hint?: { page?: number | null; question_no?: string | null };
   figures?: Array<{ figure_no?: number; alt?: string; bbox?: [number, number, number, number] }>;
   _subject_id?: string;
   _rerun?: { previous_provider_id?: string; matched_strategy?: string };
@@ -47,7 +47,7 @@ interface KpOption {
 export interface DiffDrawerProps {
   stagingId: string;
   uploadId: string;
-  payload: LlmItemPayload;
+  payload: LlmQuestionPayload;
   subjectId: string;
   subjectLabel: string;
   providers: Array<{ id: string; model: string }>;
@@ -67,7 +67,9 @@ export function DiffDrawer(props: DiffDrawerProps) {
 
   // 表单 state — 用 LLM 输出作为初值
   const [content, setContent] = useState(payload.content ?? '');
-  const [itemType, setItemType] = useState<'choice' | 'fill_in'>(payload.item_type ?? 'choice');
+  const [questionType, setQuestionType] = useState<'choice' | 'fill_in'>(
+    payload.question_type ?? 'choice',
+  );
   const [optionsJson, setOptionsJson] = useState(JSON.stringify(payload.options ?? [], null, 2));
   const [answer, setAnswer] = useState(payload.answer ?? '');
   const [solution, setSolution] = useState(payload.solution_text ?? '');
@@ -103,7 +105,8 @@ export function DiffDrawer(props: DiffDrawerProps) {
         }
         if (picked.length > 0) {
           setSelectedKps(picked);
-          setPrimaryKpId(picked[0]!.id);
+          const firstPicked = picked[0];
+          if (firstPicked) setPrimaryKpId(firstPicked.id);
         }
       } catch {
         /* 抽屉打开时偶发 401 / 网络抖动，忽略；用户可手动搜 */
@@ -141,7 +144,8 @@ export function DiffDrawer(props: DiffDrawerProps) {
     setSelectedKps((prev) => {
       if (prev.some((k) => k.id === kp.id)) {
         const next = prev.filter((k) => k.id !== kp.id);
-        if (primaryKpId === kp.id && next.length > 0) setPrimaryKpId(next[0]!.id);
+        const nextPrimary = next[0];
+        if (primaryKpId === kp.id && nextPrimary) setPrimaryKpId(nextPrimary.id);
         else if (next.length === 0) setPrimaryKpId('');
         return next;
       }
@@ -181,7 +185,7 @@ export function DiffDrawer(props: DiffDrawerProps) {
             <p className="text-xs opacity-60 mt-0.5">
               学科：{props.subjectLabel}
               {payload.source_hint?.page ? ` · 原文 p${payload.source_hint.page}` : ''}
-              {payload.source_hint?.item_no ? ` · ${payload.source_hint.item_no}` : ''}
+              {payload.source_hint?.question_no ? ` · ${payload.source_hint.question_no}` : ''}
               {payload._rerun?.previous_provider_id
                 ? ` · 已重跑（原 ${payload._rerun.previous_provider_id} → 新结果 via ${payload._rerun.matched_strategy ?? '?'} 匹配）`
                 : ''}
@@ -283,11 +287,11 @@ export function DiffDrawer(props: DiffDrawerProps) {
               </Field>
 
               <div className="grid grid-cols-2 gap-3">
-                <Field label="item_type *">
+                <Field label="question_type *">
                   <select
-                    name="item_type"
-                    value={itemType}
-                    onChange={(e) => setItemType(e.target.value as 'choice' | 'fill_in')}
+                    name="question_type"
+                    value={questionType}
+                    onChange={(e) => setQuestionType(e.target.value as 'choice' | 'fill_in')}
                     className="w-full px-2 py-1.5 border rounded text-xs bg-transparent"
                   >
                     <option value="choice">choice</option>
@@ -438,10 +442,10 @@ export function DiffDrawer(props: DiffDrawerProps) {
                   disabled={accepting || selectedKps.length === 0 || !primaryKpId}
                   className="px-4 py-2 rounded bg-green-600 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {accepting ? '发布中…' : '✅ 接受并发布到 practice_item'}
+                  {accepting ? '发布中…' : '✅ 接受并发布到 question'}
                 </button>
                 <span className="text-xs opacity-60">
-                  T3 校验：item_type / kp_ids.len≥1 / primary∈kp_ids；T4：同事务写 audit_log
+                  T3 校验：question_type / kp_ids.len≥1 / primary∈kp_ids；T4：同事务写 audit_log
                 </span>
               </div>
             </form>

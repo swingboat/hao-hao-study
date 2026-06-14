@@ -1,5 +1,5 @@
 /**
- * F3.1 题集 PDF 上传 + 解析入口页 — /admin/items/import
+ * F3.1 题集 PDF 上传 + 解析入口页 — /admin/questions/import
  * 同构对照 /admin/kps/import/page.tsx：表单 + 最近上传列表。
  */
 import { prisma } from '@hao/db';
@@ -8,9 +8,9 @@ import { ImportForm } from './import-form';
 
 export const dynamic = 'force-dynamic';
 
-const TASK_KIND_DEFAULT_ENV = 'DEFAULT_PROVIDER_PRACTICE_ITEM';
+const TASK_KIND_DEFAULT_ENV = 'DEFAULT_PROVIDER_QUESTION';
 
-export default async function ItemsImportPage() {
+export default async function QuestionsImportPage() {
   const [subjects, providers, recent] = await Promise.all([
     prisma.subject.findMany({ orderBy: { id: 'asc' } }),
     prisma.llm_provider.findMany({
@@ -18,7 +18,7 @@ export default async function ItemsImportPage() {
       orderBy: { id: 'asc' },
     }),
     prisma.content_upload.findMany({
-      where: { purpose: 'practice_item' },
+      where: { purpose: 'question' },
       orderBy: { created_at: 'desc' },
       take: 10,
       include: {
@@ -53,7 +53,7 @@ export default async function ItemsImportPage() {
             上传后自动调 LLM 抽题（含跨页修复 + figure crop），落 staging 等运营审核。
           </p>
         </div>
-        <Link href="/admin/items" className="text-sm underline opacity-70 hover:opacity-100">
+        <Link href="/admin/questions" className="text-sm underline opacity-70 hover:opacity-100">
           ← 返回试题列表
         </Link>
       </header>
@@ -139,7 +139,7 @@ export default async function ItemsImportPage() {
                       <td className="p-2 text-right tabular-nums">{u._count.llm_parse_stagings}</td>
                       <td className="p-2 text-right">
                         <Link
-                          href={`/admin/items/import/${u.id}`}
+                          href={`/admin/questions/import/${u.id}`}
                           className="px-2 py-1 rounded border text-xs hover:bg-black/5 dark:hover:bg-white/10"
                         >
                           查看

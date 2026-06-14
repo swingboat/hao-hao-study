@@ -1,6 +1,6 @@
 /**
  * F3 staging 页轮询组件 — 当 job.status ∈ {queued, running} 时挂载。
- * 与 /admin/kps/import/[uploadId]/job-progress-poller.tsx 同形，但读 ItemProgressSnapshot。
+ * 与 /admin/kps/import/[uploadId]/job-progress-poller.tsx 同形，但读 QuestionProgressSnapshot。
  */
 'use client';
 
@@ -33,7 +33,7 @@ function phaseLabel(p: JobProgressView['progress']): string {
     case 'persisting':
       return '⑤ 写 staging 中…';
     case 'done':
-      return `✅ 完成（${p.itemCount ?? '?'} 题 / ${p.figureCount ?? 0} figures）`;
+      return `✅ 完成（${p.questionCount ?? '?'} 题 / ${p.figureCount ?? 0} figures）`;
     case 'failed':
       return '❌ 解析失败';
     default:
@@ -123,7 +123,7 @@ export function JobProgressPoller({ jobId, initialStatus }: JobProgressPollerPro
     if (!Number.isFinite(lastAt)) return null;
     const idleMs = Date.now() - lastAt;
     if (idleMs < STALE_THRESHOLD_MS) return null;
-    return `任务 ${formatDuration(idleMs)} 无进度更新，后台 runItemParse 可能已中断（server 重启 / 进程崩溃）`;
+    return `任务 ${formatDuration(idleMs)} 无进度更新，后台 runQuestionParse 可能已中断（server 重启 / 进程崩溃）`;
   })();
 
   return (
@@ -170,7 +170,11 @@ export function JobProgressPoller({ jobId, initialStatus }: JobProgressPollerPro
           }
           mono
         />
-        <Metric label="items" value={p?.itemCount != null ? String(p.itemCount) : '—'} mono />
+        <Metric
+          label="questions"
+          value={p?.questionCount != null ? String(p.questionCount) : '—'}
+          mono
+        />
       </div>
 
       <p className="text-[10px] opacity-50">

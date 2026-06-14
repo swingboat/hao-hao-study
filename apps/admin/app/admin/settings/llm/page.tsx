@@ -2,7 +2,7 @@
  * F2 LLM Provider 配置页。
  *   - F2.1：列出 llm_provider 全表，行末"启用 / 停用"切换。
  *   - F2.2：默认 Provider 绑定。v0.1 schema 暂无承载表，先用 env 只读展示
- *           （DEFAULT_PROVIDER_PRACTICE_ITEM / DEFAULT_PROVIDER_KNOWLEDGE_POINT /
+ *           （DEFAULT_PROVIDER_QUESTION / DEFAULT_PROVIDER_KNOWLEDGE_POINT /
  *            DEFAULT_PROVIDER_GOAL_TEMPLATE）。后续总控加 admin_setting 表后改为可写。
  */
 import { prisma } from '@hao/db';
@@ -11,13 +11,13 @@ import { toggleProviderAction } from './actions';
 export const dynamic = 'force-dynamic';
 
 const TASK_KIND_LABELS: Record<string, string> = {
-  practice_item: '题目解析默认',
+  question: '题目解析默认',
   knowledge_point: '知识点解析默认',
   goal_template: 'Goal Template 解析默认',
 };
 
 const DEFAULT_ENV_KEYS: Record<string, string> = {
-  practice_item: 'DEFAULT_PROVIDER_PRACTICE_ITEM',
+  question: 'DEFAULT_PROVIDER_QUESTION',
   knowledge_point: 'DEFAULT_PROVIDER_KNOWLEDGE_POINT',
   goal_template: 'DEFAULT_PROVIDER_GOAL_TEMPLATE',
 };

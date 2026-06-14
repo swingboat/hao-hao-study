@@ -1,5 +1,5 @@
 /**
- * F3.3 staging 审核页 — /admin/items/import/[uploadId]
+ * F3.3 staging 审核页 — /admin/questions/import/[uploadId]
  * 对照 /admin/kps/import/[uploadId]/page.tsx。
  *
  *   - 顶部：上传元信息 + 最近一次 job 状态
@@ -12,7 +12,7 @@ import { prisma } from '@hao/db';
 import Link from 'next/link';
 import { reparseUploadAction } from '../actions';
 import { BulkAcceptButton } from './bulk-accept-button';
-import type { LlmItemPayload } from './diff-drawer';
+import type { LlmQuestionPayload } from './diff-drawer';
 import { JobProgressPoller } from './job-progress-poller';
 import { MathText } from './math-text';
 import { StagingRow } from './staging-row';
@@ -23,7 +23,7 @@ interface PageProps {
   params: Promise<{ uploadId: string }>;
 }
 
-export default async function ItemStagingReviewPage({ params }: PageProps) {
+export default async function QuestionStagingReviewPage({ params }: PageProps) {
   const { uploadId } = await params;
 
   const upload = await prisma.content_upload.findUnique({
@@ -31,7 +31,7 @@ export default async function ItemStagingReviewPage({ params }: PageProps) {
     include: {
       llm_parse_jobs: { orderBy: { created_at: 'desc' }, take: 1 },
       llm_parse_stagings: {
-        where: { entity_kind: 'practice_item' },
+        where: { entity_kind: 'question' },
         orderBy: { created_at: 'asc' },
       },
     },
@@ -41,7 +41,7 @@ export default async function ItemStagingReviewPage({ params }: PageProps) {
     return (
       <main className="p-8 max-w-4xl mx-auto">
         <p className="text-red-600">upload {uploadId} 不存在。</p>
-        <Link href="/admin/items/import" className="underline text-sm">
+        <Link href="/admin/questions/import" className="underline text-sm">
           ← 返回上传页
         </Link>
       </main>
@@ -74,7 +74,10 @@ export default async function ItemStagingReviewPage({ params }: PageProps) {
             上传：{upload.original_name ?? '(未命名)'} · {upload.created_at.toLocaleString('zh-CN')}
           </p>
         </div>
-        <Link href="/admin/items/import" className="text-sm underline opacity-70 hover:opacity-100">
+        <Link
+          href="/admin/questions/import"
+          className="text-sm underline opacity-70 hover:opacity-100"
+        >
           ← 返回上传列表
         </Link>
       </header>
@@ -181,7 +184,7 @@ export default async function ItemStagingReviewPage({ params }: PageProps) {
         {pending.length === 0 ? null : (
           <div className="space-y-2">
             {pending.map((s) => {
-              const payload = s.llm_payload as LlmItemPayload;
+              const payload = s.llm_payload as LlmQuestionPayload;
               const subjectId = payload._subject_id ?? subjects[0]?.id ?? '';
               const sub = subjectMap.get(subjectId);
               return (
@@ -218,7 +221,7 @@ export default async function ItemStagingReviewPage({ params }: PageProps) {
                 </thead>
                 <tbody>
                   {processed.map((s) => {
-                    const display = (s.review_payload ?? s.llm_payload) as LlmItemPayload;
+                    const display = (s.review_payload ?? s.llm_payload) as LlmQuestionPayload;
                     // 截 200 char 而非 60：MathText 渲染后视觉密度变高，留更多空间还能塞下；
                     // 表格 max-w 仍由 td 控制不会撑爆。
                     const summary = (display.content ?? '').replace(/\s+/g, ' ').slice(0, 200);
