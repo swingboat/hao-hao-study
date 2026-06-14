@@ -9,9 +9,7 @@
  *   2. reparseUploadAction：同一 upload，旧 zombie job 先标 failed，再起新 job
  *
  * 与 KP 路径的差异（除了 task_kind）：
- *   - 上传走 @hao/storage（KP 现在还在用 apps/admin/lib/storage 的 .run/uploads —— 那是 grandfathered，
- *     新业务按 AGENTS.md §通用规则 4 必须走抽象层）
- *   - PDF 上限 50MB（PRD §F3.1：题集 PDF ≤20MB，放宽到 50 容错）
+ *   - 文件上限 50MB（PDF / Word）
  *   - file_uri 即 storage key（不是 file:// 绝对路径）；后端读用 store.get(key)
  *   - runQuestionParse 在 lib/question-runner.ts —— 不要放回 'use server' 文件里：
  *     'use server' 文件的导出会被 Next 注册成 client-callable action，runParse
@@ -38,7 +36,11 @@ async function requireAdmin() {
 }
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
-const ACCEPTED_PDF_MIME = ['application/pdf'];
+const ACCEPTED_FILE_MIME = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+];
 
 export interface UploadFormState {
   error: string | null;
@@ -54,12 +56,12 @@ export async function uploadAndParseAction(
   const subjectId = String(formData.get('subject_id') ?? '');
   const providerId = String(formData.get('provider_id') ?? '');
 
-  if (!(file instanceof File) || file.size === 0) return { error: '请选择 PDF 文件' };
+  if (!(file instanceof File) || file.size === 0) return { error: '请选择 PDF / Word 文件' };
   if (file.size > MAX_FILE_BYTES) {
     return { error: `文件超过 50MB（当前 ${(file.size / 1024 / 1024).toFixed(1)}MB）` };
   }
-  if (!ACCEPTED_PDF_MIME.includes(file.type) && !file.name.toLowerCase().endsWith('.pdf')) {
-    return { error: '仅支持 PDF 文件' };
+  if (!isAcceptedQuestionFile(file)) {
+    return { error: '仅支持 PDF / Word 文件' };
   }
   if (!subjectId) return { error: '请选择学科' };
   if (!providerId) return { error: '请选择 LLM Provider' };
@@ -67,6 +69,9 @@ export async function uploadAndParseAction(
   const provider = await prisma.llm_provider.findUnique({ where: { id: providerId } });
   if (!provider || !provider.enabled) {
     return { error: `LLM Provider ${providerId} 不存在 / 未启用` };
+  }
+  if (provider.protocol !== 'openai_chat') {
+    return { error: `试题解析只支持 protocol=openai_chat 的 Provider；当前 ${provider.id}` };
   }
   const caps = (provider.capabilities ?? {}) as { vision?: boolean };
   if (!caps.vision) {
@@ -110,6 +115,16 @@ export async function uploadAndParseAction(
   redirect(`/admin/questions/import/${upload.id}`);
 }
 
+function isAcceptedQuestionFile(file: File): boolean {
+  const name = file.name.toLowerCase();
+  return (
+    ACCEPTED_FILE_MIME.includes(file.type) ||
+    name.endsWith('.pdf') ||
+    name.endsWith('.doc') ||
+    name.endsWith('.docx')
+  );
+}
+
 async function reapZombieJobs(uploadId: string): Promise<number> {
   const result = await prisma.llm_parse_job.updateMany({
     where: {
@@ -143,6 +158,13 @@ export async function reparseUploadAction(
   const provider = await prisma.llm_provider.findUnique({ where: { id: providerId } });
   if (!provider || !provider.enabled) {
     return { error: `LLM Provider ${providerId} 不存在 / 未启用` };
+  }
+  if (provider.protocol !== 'openai_chat') {
+    return { error: `试题解析只支持 protocol=openai_chat 的 Provider；当前 ${provider.id}` };
+  }
+  const caps = (provider.capabilities ?? {}) as { vision?: boolean };
+  if (caps.vision !== true) {
+    return { error: `试题解析只支持 capabilities.vision=true 的 Provider；当前 ${provider.id}` };
   }
 
   await reapZombieJobs(uploadId);

@@ -3,8 +3,8 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@hao/db', '@hao/shared', '@hao/llm', '@hao/ui'],
-  // sharp 在 packages/llm/src/vision/crop-figures.ts 里被 import；@hao/llm 走
-  // transpilePackages 后 webpack 会顺着把 sharp 也打进 server bundle，但 sharp 的
+  // @hao/llm 的公共文档分析入口会在服务端依赖 sharp；transpilePackages 后 webpack
+  // 会顺着把 sharp 也打进 server bundle，但 sharp 的
   // .node 原生二进制（@img/sharp-darwin-arm64）走不了 webpack —— 运行时报
   // "Could not load the sharp module using the darwin-arm64 runtime"。
   //

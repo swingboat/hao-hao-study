@@ -3,7 +3,7 @@
  *
  * Server action 现在是「上传完文件 → 预创建 job(queued) → fire-and-forget 后台跑解析 →
  * 立刻 redirect 到 staging 页」。pending=true 只覆盖文件上传 + DB 写入这一小段，
- * 真实 chunk 进度由 staging 页的 JobProgressPoller 接管。
+ * 真实解析进度由 staging 页的 JobProgressPoller 接管。
  *
  * 提交时附 onSubmit 拦截 + console.info，方便排查「点了按钮但没反应」类问题：
  * 若 console 没看到 "[ImportForm] submit"，说明浏览器原生 form validation 把请求拦了
@@ -126,7 +126,7 @@ export function ImportForm({ subjects, providers, defaultProvider }: ImportFormP
                   点击选择 PDF 文件 <span className="text-red-600">*</span>
                 </p>
                 <p className="text-xs opacity-60">
-                  ≤ 500MB · vision 管线会渲染页面图像并按小批次解析
+                  ≤ 500MB · 使用 analyzeKnowledgePoints 公共入口解析
                 </p>
               </>
             )}

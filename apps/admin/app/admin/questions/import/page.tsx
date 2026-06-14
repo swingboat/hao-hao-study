@@ -1,5 +1,5 @@
 /**
- * F3.1 题集 PDF 上传 + 解析入口页 — /admin/questions/import
+ * F3.1 题集文件上传 + 解析入口页 — /admin/questions/import
  * 同构对照 /admin/kps/import/page.tsx：表单 + 最近上传列表。
  */
 import { prisma } from '@hao/db';
@@ -32,10 +32,10 @@ export default async function QuestionsImportPage() {
     }),
   ]);
 
-  // L2 流水线全程走 vision（rasterize + analyzeImageBatch）；只列 vision provider。
+  // analyzeQuestions 当前需要 openai_chat + 可处理文档页面的 vision provider。
   const visionProviders = providers.filter((p) => {
     const caps = p.capabilities as { vision?: boolean } | null;
-    return caps?.vision === true;
+    return p.protocol === 'openai_chat' && caps?.vision === true;
   });
 
   const envDefault = process.env[TASK_KIND_DEFAULT_ENV];
@@ -48,9 +48,9 @@ export default async function QuestionsImportPage() {
     <main className="p-8 max-w-4xl mx-auto space-y-8">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">题集 PDF 上传 → 解析试题（F3.1–F3.2）</h1>
+          <h1 className="text-2xl font-semibold">题集文件上传 → 解析试题（F3.1–F3.2）</h1>
           <p className="text-sm opacity-60 mt-1">
-            上传后自动调 LLM 抽题（含跨页修复 + figure crop），落 staging 等运营审核。
+            上传后通过 analyzeQuestions 抽取试题，落 staging 等运营审核。
           </p>
         </div>
         <Link href="/admin/questions" className="text-sm underline opacity-70 hover:opacity-100">
@@ -65,7 +65,8 @@ export default async function QuestionsImportPage() {
           ) : null}
           {visionProviders.length === 0 ? (
             <p className="text-amber-700">
-              没有 capabilities.vision=true 且启用的 LLM Provider；请去 /admin/settings/llm 检查。
+              没有 openai_chat + capabilities.vision=true 且启用的 LLM Provider；请去
+              /admin/settings/llm 检查。
             </p>
           ) : null}
         </section>
