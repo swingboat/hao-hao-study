@@ -36,12 +36,12 @@
 ├── derived/                                    派生资产（永久；老 version 可 GC）
 │   └── {source-sha256}/
 │       └── {processor}-{version}/              如 rasterize-v1 / figure-crop-v1
-│           └── {asset-key}.{ext}               如 page-001.png / item-3-fig-1.png
+│           └── {asset-key}.{ext}               如 page-001.png / question-3-fig-1.png
 │
 └── llm-jobs/                                   LLM 中间产物（raw 30 天 GC）
     └── {job-uuid}/
         ├── raw/page-{NN}.json                  Gemini/Claude 原始响应
-        ├── parsed/page-{NN}.json               解析后 items + resources
+        ├── parsed/page-{NN}.json               解析后 questions + resources
         ├── all.json                            合并去重后总输出
         └── stats.json                          token / 耗时 / 重试统计
 ```
@@ -179,7 +179,7 @@ type DerivedMetadata =
 | processor | version | 输入 | 输出 asset_key 模式 | metadata 关键字段 |
 |---|---|---|---|---|
 | `rasterize` | `v1` | PDF | `page-001.png` ~ `page-NNN.png` | `page`, `dpi` |
-| `figure-crop` | `v1` | rasterize 的 page PNG + Gemini bbox | `item-{N}-fig-{M}.png` / `resource-{N}-fig-{M}.png` | `src_page`, `bbox`, `alt` |
+| `figure-crop` | `v1` | rasterize 的 page PNG + Gemini bbox | `question-{N}-fig-{M}.png` / `resource-{N}-fig-{M}.png` | `src_page`, `bbox`, `alt` |
 | `vision-extract` | `v1` | rasterize 的 page PNG | （写在 llm-jobs/，不入 derived_asset） | `provider_id`, `prompt_version` |
 
 > 升级算法（如 prompt 改了 → `vision-extract` v2）时，**version 字段递增**；老版本不删，便于 A/B 对比。

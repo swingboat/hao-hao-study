@@ -7,15 +7,15 @@
  * ────────────────────────────────────────────────────────────────────────────
  * 边界（重要，决定了 L0 不变成 L2）：
  *   - L0 **不**做 figure 裁切 / 落 storage（要这个走 L2 `analyzeImagesToStorage`）
- *   - L0 **不**做完整性自检 / 边界重抽 / dedup（要这个走 L2 `extractItemsFromPdf`）
+ *   - L0 **不**做完整性自检 / 边界重抽 / dedup（要这个走 L2 `extractQuestionsFromPdf`）
  *   - L0 **不**发 progress 事件（要事件级控制走 L1 `analyzePdfWithVision`）
  *   - L0 **不**支持 PDF + schema 的多页合并（schema 模式下多页 PDF 抛错；
- *     真要结构化多页抽取请走 L2 extractItemsFromPdf）
+ *     真要结构化多页抽取请走 L2 extractQuestionsFromPdf）
  *
  * 跨页题问题：
  *   - PDF 默认 `pagesPerCall: 1`（每页独立调 LLM），跨页内容会被切断
  *   - 设 `pagesPerCall: 2|3` 让 LLM 一次看相邻多页 → 缓解但不能根治 chunk 边界
- *   - 教材抽题"不丢题"硬需求请走 L2 `extractItemsFromPdf`（带边界重抽）
+ *   - 教材抽题"不丢题"硬需求请走 L2 `extractQuestionsFromPdf`（带边界重抽）
  *
  * 弃用提醒：
  *   - bedrock_converse 原生 PDF 路径已软弃用（429 频发）；L0 PDF 路径**仅**走
@@ -117,7 +117,7 @@ export interface AnalyzeFilePdfOptions<T = unknown> extends AnalyzeFileBaseOptio
   /**
    * 一次 LLM 调用喂多少张连续页图；默认 1（每页独立）。
    * 设 2 或 3 可缓解跨页题被切断；代价是单次 output 变大、可能撞 max_tokens。
-   * 真要"不丢题"请走 L2 extractItemsFromPdf。
+   * 真要"不丢题"请走 L2 extractQuestionsFromPdf。
    */
   pagesPerCall?: number;
   /** 两次 LLM 调用之间睡秒数；默认 8（避 Webex 429） */
@@ -180,7 +180,7 @@ async function analyzePdf<T = unknown>(
   const wantSchema = !!opts.schema;
   if (wantSchema && groups.length > 1) {
     throw new Error(
-      `analyzeFile.pdf: schema mode requires the whole PDF to fit in a single LLM call (got ${groups.length} groups with pagesPerCall=${pagesPerCall}); use L2 extractItemsFromPdf for multi-page structured extraction`,
+      `analyzeFile.pdf: schema mode requires the whole PDF to fit in a single LLM call (got ${groups.length} groups with pagesPerCall=${pagesPerCall}); use L2 extractQuestionsFromPdf for multi-page structured extraction`,
     );
   }
 

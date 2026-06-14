@@ -2,7 +2,7 @@
  * callWithSplitFallback — analyzeImageBatch 的 split-on-recoverable-error 封装
  *
  * 多页 LLM 调用失败时（典型：Webex Gemini 输出 cap 撞顶导致 JSON 截断 → LLMSchemaError；
- * 或 proxy 偶发 5xx → LLMHttpError），自动拆成单页逐个跑，把成功页的 items 合成一份
+ * 或 proxy 偶发 5xx → LLMHttpError），自动拆成单页逐个跑，把成功页的 questions 合成一份
  * "看起来像整片成功"的 result 返回。caller 拿到的 shape 与直接调 analyzeImageBatch
  * 完全一致（多 synthesized + subStats 两个 debug 字段）。
  *
@@ -23,11 +23,11 @@
  *   - 整片首调失败 + 不可恢复 / 单页 → throw 原 err（caller 自己处理）
  *   - 整片首调失败 + 可恢复 + 多页 → 拆单页：
  *       - 全员阵亡：throw new Error(`split fallback 全部失败: ${第一个 reason}`)
- *       - 部分成功：合 subResults 的 items 字段返回；失败页通过 onSubFailure 通知
+ *       - 部分成功：合 subResults 的 questions 字段返回；失败页通过 onSubFailure 通知
  *
  * caller 责任：用 mergeText callback 决定如何把多个单页结果合成一片的 text。KP 的实现
- * 形如 `(subs) => JSON.stringify({items: subs.flatMap(r => extractJsonBlock(r.text)?.items ?? [])})`，
- * Items 那条线 schema 是 `{items, resources}`，要合两个数组 —— 由 caller 自己写。
+ * 形如 `(subs) => JSON.stringify({questions: subs.flatMap(r => extractJsonBlock(r.text)?.questions ?? [])})`，
+ * Questions 那条线 schema 是 `{questions, resources}`，要合两个数组 —— 由 caller 自己写。
  */
 import type { ZodTypeAny } from 'zod';
 import {

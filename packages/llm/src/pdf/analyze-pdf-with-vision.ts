@@ -3,7 +3,7 @@
  *
  * 串起来的三块：
  *   1. rasterizePdf  (pdftoppm)           PDF → 每页 PNG
- *   2. analyzeImages (callLLM)            每页 PNG → items + resources + figures.bbox
+ *   2. analyzeImages (callLLM)            每页 PNG → questions + resources + figures.bbox
  *   3. cropFiguresToStorage (sharp+store) figures.bbox → 裁切落 ObjectStore
  *
  * 同时：
@@ -62,7 +62,7 @@ export interface AnalyzePdfWithVisionResult {
   sourceSha256: string;
   bytes: number;
   pageCount: number;
-  items: CropFiguresResult['items'];
+  questions: CropFiguresResult['questions'];
   resources: CropFiguresResult['resources'];
   perPage: AnalyzedImage[];
   derivedAssets: Array<{
@@ -141,7 +141,7 @@ export async function analyzePdfWithVision(
     sourceSha256: sha256,
     bytes: pdfBytes.length,
     pageCount: pages.length,
-    items: visionResult.items,
+    questions: visionResult.questions,
     resources: visionResult.resources,
     perPage: visionResult.perImage,
     derivedAssets,

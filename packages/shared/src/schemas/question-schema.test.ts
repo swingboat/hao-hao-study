@@ -1,5 +1,5 @@
 /**
- * PracticeItemParsedSchema 单测
+ * QuestionParsedSchema 单测
  *
  * 覆盖：
  *   - choice happy path（含多选）
@@ -7,22 +7,22 @@
  *   - choice 无 options 拒收
  *   - choice 答案不在 options 里拒收
  *   - fill_in 含 options 拒收
- *   - essay 等其它 item_type 拒收（zod enum 兜底）
+ *   - essay 等其它 question_type 拒收（zod enum 兜底）
  *   - kp_hints 空 / 重复拒收
  *   - 字段长度边界（content / options.text / kp_hints[i]）
  *   - 批量上限 300
  */
 import { describe, expect, it } from 'vitest';
 import {
-  PracticeItemBatchSchema,
-  PracticeItemParsedSchema,
-} from './practice-item';
+  QuestionBatchSchema,
+  QuestionParsedSchema,
+} from './question';
 
-describe('PracticeItemParsedSchema — choice happy path', () => {
+describe('QuestionParsedSchema — choice happy path', () => {
   it('单选题：A-D 选项 + 答案 A', () => {
-    const r = PracticeItemParsedSchema.safeParse({
+    const r = QuestionParsedSchema.safeParse({
       content: '集合 A = {1,2,3}, B = {2,3,4}, 则 A ∩ B = ?',
-      item_type: 'choice',
+      question_type: 'choice',
       options: [
         { label: 'A', text: '{2,3}' },
         { label: 'B', text: '{1,2,3,4}' },
@@ -33,15 +33,15 @@ describe('PracticeItemParsedSchema — choice happy path', () => {
       solution_text: 'A ∩ B 取两个集合的公共元素。',
       difficulty: 2,
       kp_hints: ['集合的运算'],
-      source_hint: { page: 12, item_no: '第 3 题' },
+      source_hint: { page: 12, question_no: '第 3 题' },
     });
     expect(r.success).toBe(true);
   });
 
   it('多选题：答案 AB 时两个字母都要在 options 里', () => {
-    const r = PracticeItemParsedSchema.safeParse({
+    const r = QuestionParsedSchema.safeParse({
       content: '下列函数中是奇函数的是？',
-      item_type: 'choice',
+      question_type: 'choice',
       options: [
         { label: 'A', text: 'f(x) = x^3' },
         { label: 'B', text: 'f(x) = sin(x)' },
@@ -57,11 +57,11 @@ describe('PracticeItemParsedSchema — choice happy path', () => {
   });
 });
 
-describe('PracticeItemParsedSchema — fill_in happy path', () => {
+describe('QuestionParsedSchema — fill_in happy path', () => {
   it('单空填空', () => {
-    const r = PracticeItemParsedSchema.safeParse({
+    const r = QuestionParsedSchema.safeParse({
       content: '函数 f(x) = 2x + 1 的反函数为 _____',
-      item_type: 'fill_in',
+      question_type: 'fill_in',
       // options 留空
       options: [],
       answer: 'f^{-1}(x) = (x-1)/2',
@@ -73,9 +73,9 @@ describe('PracticeItemParsedSchema — fill_in happy path', () => {
   });
 
   it('多空填空：用分号分隔答案', () => {
-    const r = PracticeItemParsedSchema.safeParse({
+    const r = QuestionParsedSchema.safeParse({
       content: '集合 {1,2,3} 的子集个数是 _____, 真子集个数是 _____',
-      item_type: 'fill_in',
+      question_type: 'fill_in',
       options: [],
       answer: '8;7',
       solution_text: '2^n / 2^n - 1。',
@@ -86,9 +86,9 @@ describe('PracticeItemParsedSchema — fill_in happy path', () => {
   });
 
   it('options 字段缺省也 OK（zod default=[]）', () => {
-    const r = PracticeItemParsedSchema.safeParse({
+    const r = QuestionParsedSchema.safeParse({
       content: '函数 f(x) = 2x + 1 的反函数为 _____',
-      item_type: 'fill_in',
+      question_type: 'fill_in',
       answer: 'f^{-1}(x) = (x-1)/2',
       difficulty: 2,
       kp_hints: ['反函数'],
@@ -98,9 +98,9 @@ describe('PracticeItemParsedSchema — fill_in happy path', () => {
   });
 
   it('solution_text 缺省时 default=""', () => {
-    const r = PracticeItemParsedSchema.safeParse({
+    const r = QuestionParsedSchema.safeParse({
       content: '1 + 1 = _____',
-      item_type: 'fill_in',
+      question_type: 'fill_in',
       answer: '2',
       difficulty: 1,
       kp_hints: ['加法运算'],
@@ -110,11 +110,11 @@ describe('PracticeItemParsedSchema — fill_in happy path', () => {
   });
 });
 
-describe('PracticeItemParsedSchema — superRefine 拒收路径', () => {
+describe('QuestionParsedSchema — superRefine 拒收路径', () => {
   it('choice 只给 1 个选项 → 拒收', () => {
-    const r = PracticeItemParsedSchema.safeParse({
+    const r = QuestionParsedSchema.safeParse({
       content: 'X = ?',
-      item_type: 'choice',
+      question_type: 'choice',
       options: [{ label: 'A', text: '1' }],
       answer: 'A',
       difficulty: 1,
@@ -127,9 +127,9 @@ describe('PracticeItemParsedSchema — superRefine 拒收路径', () => {
   });
 
   it('choice 答案字母不在 options 里 → 拒收', () => {
-    const r = PracticeItemParsedSchema.safeParse({
+    const r = QuestionParsedSchema.safeParse({
       content: 'X = ?',
-      item_type: 'choice',
+      question_type: 'choice',
       options: [
         { label: 'A', text: '1' },
         { label: 'B', text: '2' },
@@ -145,9 +145,9 @@ describe('PracticeItemParsedSchema — superRefine 拒收路径', () => {
   });
 
   it('choice 答案含非字母 → 拒收', () => {
-    const r = PracticeItemParsedSchema.safeParse({
+    const r = QuestionParsedSchema.safeParse({
       content: 'X = ?',
-      item_type: 'choice',
+      question_type: 'choice',
       options: [
         { label: 'A', text: '1' },
         { label: 'B', text: '2' },
@@ -163,9 +163,9 @@ describe('PracticeItemParsedSchema — superRefine 拒收路径', () => {
   });
 
   it('fill_in 含 options → 拒收', () => {
-    const r = PracticeItemParsedSchema.safeParse({
+    const r = QuestionParsedSchema.safeParse({
       content: 'X = _____',
-      item_type: 'fill_in',
+      question_type: 'fill_in',
       options: [{ label: 'A', text: '不该有' }],
       answer: '1',
       difficulty: 1,
@@ -177,10 +177,10 @@ describe('PracticeItemParsedSchema — superRefine 拒收路径', () => {
     }
   });
 
-  it('essay 等其它 item_type → 被 enum 拒收（决议 Q2=a）', () => {
-    const r = PracticeItemParsedSchema.safeParse({
+  it('essay 等其它 question_type → 被 enum 拒收（决议 Q2=a）', () => {
+    const r = QuestionParsedSchema.safeParse({
       content: '请论述...',
-      item_type: 'essay',
+      question_type: 'essay',
       answer: '...',
       difficulty: 3,
       kp_hints: ['x'],
@@ -189,9 +189,9 @@ describe('PracticeItemParsedSchema — superRefine 拒收路径', () => {
   });
 
   it('kp_hints 为空 → 拒收', () => {
-    const r = PracticeItemParsedSchema.safeParse({
+    const r = QuestionParsedSchema.safeParse({
       content: 'X = _____',
-      item_type: 'fill_in',
+      question_type: 'fill_in',
       answer: '1',
       difficulty: 1,
       kp_hints: [],
@@ -203,9 +203,9 @@ describe('PracticeItemParsedSchema — superRefine 拒收路径', () => {
   });
 
   it('kp_hints 重复条目 → 拒收', () => {
-    const r = PracticeItemParsedSchema.safeParse({
+    const r = QuestionParsedSchema.safeParse({
       content: 'X = _____',
-      item_type: 'fill_in',
+      question_type: 'fill_in',
       answer: '1',
       difficulty: 1,
       kp_hints: ['集合', '集合'],
@@ -218,9 +218,9 @@ describe('PracticeItemParsedSchema — superRefine 拒收路径', () => {
 
   it('difficulty 越界（0 / 6 / 非整数）→ 拒收', () => {
     for (const d of [0, 6, 2.5]) {
-      const r = PracticeItemParsedSchema.safeParse({
+      const r = QuestionParsedSchema.safeParse({
         content: 'X = _____',
-        item_type: 'fill_in',
+        question_type: 'fill_in',
         answer: '1',
         difficulty: d,
         kp_hints: ['x'],
@@ -230,18 +230,18 @@ describe('PracticeItemParsedSchema — superRefine 拒收路径', () => {
   });
 
   it('content 过短 / 过长 → 拒收', () => {
-    const short = PracticeItemParsedSchema.safeParse({
+    const short = QuestionParsedSchema.safeParse({
       content: '?',
-      item_type: 'fill_in',
+      question_type: 'fill_in',
       answer: '1',
       difficulty: 1,
       kp_hints: ['x'],
     });
     expect(short.success).toBe(false);
 
-    const long = PracticeItemParsedSchema.safeParse({
+    const long = QuestionParsedSchema.safeParse({
       content: 'x'.repeat(2001),
-      item_type: 'fill_in',
+      question_type: 'fill_in',
       answer: '1',
       difficulty: 1,
       kp_hints: ['x'],
@@ -250,9 +250,9 @@ describe('PracticeItemParsedSchema — superRefine 拒收路径', () => {
   });
 
   it('option label 必须单大写字母', () => {
-    const r = PracticeItemParsedSchema.safeParse({
+    const r = QuestionParsedSchema.safeParse({
       content: 'X?',
-      item_type: 'choice',
+      question_type: 'choice',
       options: [
         { label: 'a', text: '1' }, // 小写
         { label: 'B', text: '2' },
@@ -265,33 +265,33 @@ describe('PracticeItemParsedSchema — superRefine 拒收路径', () => {
   });
 });
 
-describe('PracticeItemBatchSchema', () => {
-  const validItem = {
+describe('QuestionBatchSchema', () => {
+  const validQuestion = {
     content: '集合 A = {1}, B = {2}, 则 A ∪ B = ?',
-    item_type: 'fill_in' as const,
+    question_type: 'fill_in' as const,
     answer: '{1,2}',
     difficulty: 1,
     kp_hints: ['集合的运算'],
   };
 
   it('正常批量', () => {
-    const r = PracticeItemBatchSchema.safeParse({
-      items: [validItem, validItem],
+    const r = QuestionBatchSchema.safeParse({
+      questions: [validQuestion, validQuestion],
     });
     expect(r.success).toBe(true);
   });
 
-  it('items 为空 → 拒收', () => {
-    const r = PracticeItemBatchSchema.safeParse({ items: [] });
+  it('questions 为空 → 拒收', () => {
+    const r = QuestionBatchSchema.safeParse({ questions: [] });
     expect(r.success).toBe(false);
     if (!r.success) {
       expect(JSON.stringify(r.error.issues)).toContain('至少应抽出 1 道题');
     }
   });
 
-  it('items 超过 300 → 拒收（疑似提示词失控）', () => {
-    const r = PracticeItemBatchSchema.safeParse({
-      items: Array.from({ length: 301 }, () => validItem),
+  it('questions 超过 300 → 拒收（疑似提示词失控）', () => {
+    const r = QuestionBatchSchema.safeParse({
+      questions: Array.from({ length: 301 }, () => validQuestion),
     });
     expect(r.success).toBe(false);
     if (!r.success) {

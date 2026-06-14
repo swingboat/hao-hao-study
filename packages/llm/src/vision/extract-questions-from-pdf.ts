@@ -1,5 +1,5 @@
 /**
- * extractItemsFromPdf — L2 教材抽题流水线
+ * extractQuestionsFromPdf — L2 教材抽题流水线
  *
  * 在 L3 (`analyzeImageBatch`) + L1 friends (`rasterizePdf` / `cropFiguresToStorage`)
  * 之上做"不丢题"语义：
@@ -10,23 +10,23 @@
  *   │       - _src_pages: number[]            （这道题出现在哪几页）
  *   │       - _truncated_before: boolean      （chunk 首页前还有内容 → 跨页）
  *   │       - _truncated_after:  boolean      （chunk 末页后还有内容 → 跨页）
- *   ├── 4. 收集所有 items；找到所有"边界对"[N, N+1]：
+ *   ├── 4. 收集所有 questions；找到所有"边界对"[N, N+1]：
  *   │       chunk A 末题 _truncated_after=true 且 chunk B 首题 _truncated_before=true
  *   │       且 A.末页 + 1 == B.首页
  *   ├── 5. 对每个边界对调 analyzeImageBatch([page_N, page_N+1])，
  *   │       prompt 改为"只抽跨这两页的题"
- *   ├── 6. dedup：content 前 100 字 normalized hash + item_no；
+ *   ├── 6. dedup：content 前 100 字 normalized hash + question_no；
  *   │       完整版本（_truncated_* 均 false）覆盖被切版本
  *   └── 7. cropFiguresToStorage → derived_asset 候选
  *
  * 与 L0 (`analyzeFile.pdf`) 的边界：
- *   - L0 不懂"题"，只 join 文本；L2 懂 schema，输出 structured items
+ *   - L0 不懂"题"，只 join 文本；L2 懂 schema，输出 structured questions
  *   - L0 默认 pagesPerCall=1；L2 默认 pagesPerCall=3 + 边界重抽
  *   - L0 不沾 storage；L2 做 figure crop + derived_asset
  *
  * caller 责任：
  *   - 算 sourceSha256 传入（PDF 的 sha；derived_asset 都挂这下面）
- *   - 落 prisma（content_upload / derived_asset / staging.kp_items）
+ *   - 落 prisma（content_upload / derived_asset / llm_parse_staging）
  *   - 调用前自己 validate pdfPath 可读
  */
 import { createHash } from 'node:crypto';
@@ -41,14 +41,14 @@ import {
   type CropFiguresResult,
 } from './crop-figures';
 import type {
-  ExtractedItem,
+  ExtractedQuestion,
   ExtractedResource,
   Figure,
 } from './analyze-images';
 
 // ────────── 选项 / 返回 ──────────
 
-export interface ExtractItemsFromPdfOptions {
+export interface ExtractQuestionsFromPdfOptions {
   pdfPath: string;
   providerId: string;
   /** PDF 的 sha256；caller 自己算（避免 L2 帮你算了又跟你的 content_upload 路径对不上） */
@@ -70,30 +70,30 @@ export interface ExtractItemsFromPdfOptions {
   chunkPromptBuilder?: (ctx: { pages: number[]; totalPages: number; chunkIndex: number; totalChunks: number }) => string;
   /** 自定义边界重抽 prompt（默认见 buildDefaultBoundaryPrompt） */
   boundaryPromptBuilder?: (ctx: { pageA: number; pageB: number }) => string;
-  onProgress?: (e: ExtractItemsProgressEvent) => void;
+  onProgress?: (e: ExtractQuestionsProgressEvent) => void;
 }
 
-export type ExtractItemsProgressEvent =
+export type ExtractQuestionsProgressEvent =
   | { type: 'rasterize_done'; pageCount: number; dpi: number }
   | { type: 'chunk_start'; chunkIndex: number; totalChunks: number; pages: number[] }
-  | { type: 'chunk_done'; chunkIndex: number; pages: number[]; itemCount: number; truncatedCount: number; tokenUsage: { input: number; output: number } | null }
+  | { type: 'chunk_done'; chunkIndex: number; pages: number[]; questionCount: number; truncatedCount: number; tokenUsage: { input: number; output: number } | null }
   | { type: 'chunk_error'; chunkIndex: number; pages: number[]; error: unknown }
   | { type: 'boundary_plan'; boundaries: Array<[number, number]> }
-  | { type: 'boundary_done'; pages: [number, number]; addedItemCount: number }
+  | { type: 'boundary_done'; pages: [number, number]; addedQuestionCount: number }
   | { type: 'dedup_done'; before: number; after: number }
   | { type: 'crop_done'; figureCount: number; invalidCount: number };
 
-export interface ExtractItemsFromPdfResult {
+export interface ExtractQuestionsFromPdfResult {
   pageCount: number;
-  items: CropFiguresResult['items'];
+  questions: CropFiguresResult['questions'];
   resources: CropFiguresResult['resources'];
   derivedAssets: CropFiguresResult['derivedAssets'];
   invalidFigures: CropFiguresResult['invalid'];
   totalTokenUsage: { input: number; output: number };
   /** 调试 / 审计用：每个 chunk 的抽取统计 */
-  chunks: Array<{ pages: number[]; itemCount: number; truncatedCount: number; error?: string }>;
+  chunks: Array<{ pages: number[]; questionCount: number; truncatedCount: number; error?: string }>;
   /** 调试 / 审计用：实际重抽的边界对 */
-  boundaryRefetches: Array<{ pages: [number, number]; addedItemCount: number }>;
+  boundaryRefetches: Array<{ pages: [number, number]; addedQuestionCount: number }>;
   /** 调试 / 审计用：dedup 前后数量 */
   dedup: { before: number; after: number };
 }
@@ -104,19 +104,19 @@ function buildDefaultChunkPrompt(ctx: { pages: number[]; totalPages: number; chu
   const pagesText = ctx.pages.join(', ');
   return [
     `这是教材/试卷 PDF 第 ${ctx.chunkIndex}/${ctx.totalChunks} 个分片（原 PDF 第 ${pagesText} 页，共 ${ctx.totalPages} 页）。`,
-    '请抽取这几页里出现的**试题**（item）和**知识点说明 / 解题方法 / 易错点 / 关键概念**（resource）。',
+    '请抽取这几页里出现的**试题**（question）和**知识点说明 / 解题方法 / 易错点 / 关键概念**（resource）。',
     '',
     '严格按以下 JSON Schema 输出（不要任何 markdown 包裹、不要解释、不要前后缀）：',
     '{',
-    '  "items": [{',
+    '  "questions": [{',
     '    "content": "题干（含 [图N] 占位符）",',
-    '    "item_type": "choice" | "fill_in",',
+    '    "question_type": "choice" | "fill_in",',
     '    "options": [{"label":"A","text":"..."}, ...],   // 填空题留空数组',
     '    "answer": "答案",',
     '    "solution_text": "解析（无则空串）",',
     '    "difficulty": 1-5,',
     '    "kp_hints": ["相关知识点名"],',
-    '    "item_no": "题号（如 12 / 第三题）",            // 没有就 null',
+    '    "question_no": "题号（如 12 / 第三题）",            // 没有就 null',
     '    "figures": [{"figure_no":1,"alt":"...","bbox":[x1,y1,x2,y2]}],  // 归一化 [0..1] 左上原点',
     '    "_src_pages": [页号, ...],                       // 这题出现在哪几页（必填）',
     '    "_truncated_before": true|false,                 // 这题题干是不是从上一页延续过来的',
@@ -150,9 +150,9 @@ function buildDefaultBoundaryPrompt(ctx: { pageA: number; pageB: number }): stri
     '完全在 A 内或完全在 B 内的题目**不要**重复抽出。',
     '',
     '按相同 JSON Schema 输出（含 _src_pages、_truncated_before/after，但跨页题的两个 _truncated_* 都应为 false 因为这次你两页都看到了）：',
-    '{ "items": [...], "resources": [...] }',
+    '{ "questions": [...], "resources": [...] }',
     '',
-    '没有跨页题就返回 { "items": [], "resources": [] }。',
+    '没有跨页题就返回 { "questions": [], "resources": [] }。',
   ].join('\n');
 }
 
@@ -164,15 +164,15 @@ const FigureSchema = z.object({
   bbox: z.tuple([z.number(), z.number(), z.number(), z.number()]),
 });
 
-const ChunkItemSchema = z.object({
+const ChunkQuestionSchema = z.object({
   content: z.string(),
-  item_type: z.enum(['choice', 'fill_in']),
+  question_type: z.enum(['choice', 'fill_in']),
   options: z.array(z.object({ label: z.string(), text: z.string() })),
   answer: z.string(),
   solution_text: z.string(),
   difficulty: z.number(),
   kp_hints: z.array(z.string()),
-  item_no: z.string().nullable().optional(),
+  question_no: z.string().nullable().optional(),
   figures: z.array(FigureSchema).optional(),
   _src_pages: z.array(z.number()),
   _truncated_before: z.boolean(),
@@ -191,11 +191,11 @@ const ChunkResourceSchema = z.object({
 });
 
 const ChunkExtractionSchema = z.object({
-  items: z.array(ChunkItemSchema),
+  questions: z.array(ChunkQuestionSchema),
   resources: z.array(ChunkResourceSchema),
 });
 
-type ChunkItem = z.infer<typeof ChunkItemSchema>;
+type ChunkQuestion = z.infer<typeof ChunkQuestionSchema>;
 type ChunkResource = z.infer<typeof ChunkResourceSchema>;
 type ChunkExtraction = z.infer<typeof ChunkExtractionSchema>;
 
@@ -211,10 +211,10 @@ function chunkPages(pages: number[], pagesPerCall: number): number[][] {
   return groups;
 }
 
-/** 按 normalized content 前 100 字 + item_no 做 dedup key */
-function dedupKey(content: string, itemNo?: string | null): string {
+/** 按 normalized content 前 100 字 + question_no 做 dedup key */
+function dedupKey(content: string, questionNo?: string | null): string {
   const norm = content.replace(/\s+/g, '').slice(0, 100);
-  const h = createHash('sha1').update(norm).update('|').update(itemNo ?? '').digest('hex');
+  const h = createHash('sha1').update(norm).update('|').update(questionNo ?? '').digest('hex');
   return h;
 }
 
@@ -227,19 +227,19 @@ function preferComplete<T extends { _truncated_before: boolean; _truncated_after
   return a;  // 都完整或都被切：保留先出现的（chunk 顺序）
 }
 
-/** chunk item → 业务 ExtractedItem（去掉内部字段 + 填 _src_image / _src_page 兼容字段） */
-function toExtractedItem(it: ChunkItem, imageNameByPage: Map<number, string>): ExtractedItem {
-  const firstPage = it._src_pages[0];
+/** chunk question → 业务 ExtractedQuestion（去掉内部字段 + 填 _src_image / _src_page 兼容字段） */
+function toExtractedQuestion(question: ChunkQuestion, imageNameByPage: Map<number, string>): ExtractedQuestion {
+  const firstPage = question._src_pages[0];
   return {
-    content: it.content,
-    item_type: it.item_type,
-    options: it.options,
-    answer: it.answer,
-    solution_text: it.solution_text,
-    difficulty: it.difficulty,
-    kp_hints: it.kp_hints,
-    item_no: it.item_no ?? undefined,
-    figures: it.figures as Figure[] | undefined,
+    content: question.content,
+    question_type: question.question_type,
+    options: question.options,
+    answer: question.answer,
+    solution_text: question.solution_text,
+    difficulty: question.difficulty,
+    kp_hints: question.kp_hints,
+    question_no: question.question_no ?? undefined,
+    figures: question.figures as Figure[] | undefined,
     _src_image: firstPage !== undefined ? imageNameByPage.get(firstPage) ?? `page-${String(firstPage).padStart(3, '0')}` : 'unknown',
     _src_page: firstPage,
   };
@@ -260,9 +260,9 @@ function toExtractedResource(r: ChunkResource, imageNameByPage: Map<number, stri
 
 // ────────── 主流程 ──────────
 
-export async function extractItemsFromPdf(
-  opts: ExtractItemsFromPdfOptions,
-): Promise<ExtractItemsFromPdfResult> {
+export async function extractQuestionsFromPdf(
+  opts: ExtractQuestionsFromPdfOptions,
+): Promise<ExtractQuestionsFromPdfResult> {
   const pagesPerCall = opts.pagesPerCall ?? 3;
   const dpi = opts.dpi ?? 150;
   const delayMs = (opts.delayBetweenRequestsSeconds ?? 8) * 1000;
@@ -291,8 +291,8 @@ export async function extractItemsFromPdf(
   const groups = chunkPages(pageNumbers, pagesPerCall);
 
   // 2) 逐 chunk 抽题
-  const chunkStats: ExtractItemsFromPdfResult['chunks'] = [];
-  const allRawItems: ChunkItem[] = [];
+  const chunkStats: ExtractQuestionsFromPdfResult['chunks'] = [];
+  const allRawQuestions: ChunkQuestion[] = [];
   const allRawResources: ChunkResource[] = [];
   let tokIn = 0;
   let tokOut = 0;
@@ -321,11 +321,11 @@ export async function extractItemsFromPdf(
         maxOutputTokens: opts.maxOutputTokens,
         maxRetries: opts.maxRetries,
       });
-      const parsed = (r.data ?? { items: [], resources: [] }) as ChunkExtraction;
-      allRawItems.push(...parsed.items);
+      const parsed = (r.data ?? { questions: [], resources: [] }) as ChunkExtraction;
+      allRawQuestions.push(...parsed.questions);
       allRawResources.push(...parsed.resources);
-      const truncatedCount = parsed.items.filter((i) => i._truncated_before || i._truncated_after).length;
-      chunkStats.push({ pages: groupPages, itemCount: parsed.items.length, truncatedCount });
+      const truncatedCount = parsed.questions.filter((i) => i._truncated_before || i._truncated_after).length;
+      chunkStats.push({ pages: groupPages, questionCount: parsed.questions.length, truncatedCount });
       if (r.tokenUsage) {
         tokIn += r.tokenUsage.input;
         tokOut += r.tokenUsage.output;
@@ -334,12 +334,12 @@ export async function extractItemsFromPdf(
         type: 'chunk_done',
         chunkIndex: gi + 1,
         pages: groupPages,
-        itemCount: parsed.items.length,
+        questionCount: parsed.questions.length,
         truncatedCount,
         tokenUsage: r.tokenUsage,
       });
     } catch (err) {
-      chunkStats.push({ pages: groupPages, itemCount: 0, truncatedCount: 0, error: String(err).slice(0, 500) });
+      chunkStats.push({ pages: groupPages, questionCount: 0, truncatedCount: 0, error: String(err).slice(0, 500) });
       emit({ type: 'chunk_error', chunkIndex: gi + 1, pages: groupPages, error: err });
     }
 
@@ -349,15 +349,15 @@ export async function extractItemsFromPdf(
   // 3) 计算边界对：chunk 末尾 _truncated_after + 下一 chunk 首部 _truncated_before
   //    用页对 (lower, lower+1) 唯一化（避免对同一边界查两次）
   const boundarySet = new Set<string>();
-  for (const it of [...allRawItems, ...allRawResources]) {
-    if (it._truncated_after) {
-      const lastPage = it._src_pages[it._src_pages.length - 1];
+  for (const candidate of [...allRawQuestions, ...allRawResources]) {
+    if (candidate._truncated_after) {
+      const lastPage = candidate._src_pages[candidate._src_pages.length - 1];
       if (typeof lastPage === 'number' && pageNumbers.includes(lastPage + 1)) {
         boundarySet.add(`${lastPage},${lastPage + 1}`);
       }
     }
-    if (it._truncated_before) {
-      const firstPage = it._src_pages[0];
+    if (candidate._truncated_before) {
+      const firstPage = candidate._src_pages[0];
       if (typeof firstPage === 'number' && pageNumbers.includes(firstPage - 1)) {
         boundarySet.add(`${firstPage - 1},${firstPage}`);
       }
@@ -369,7 +369,7 @@ export async function extractItemsFromPdf(
   emit({ type: 'boundary_plan', boundaries });
 
   // 4) 逐个边界重抽
-  const boundaryRefetches: ExtractItemsFromPdfResult['boundaryRefetches'] = [];
+  const boundaryRefetches: ExtractQuestionsFromPdfResult['boundaryRefetches'] = [];
   for (let bi = 0; bi < boundaries.length; bi++) {
     const [pa, pb] = boundaries[bi]!;
     if (delayMs > 0) await SLEEP(delayMs);
@@ -385,28 +385,28 @@ export async function extractItemsFromPdf(
         maxOutputTokens: opts.maxOutputTokens,
         maxRetries: opts.maxRetries,
       });
-      const parsed = (r.data ?? { items: [], resources: [] }) as ChunkExtraction;
-      allRawItems.push(...parsed.items);
+      const parsed = (r.data ?? { questions: [], resources: [] }) as ChunkExtraction;
+      allRawQuestions.push(...parsed.questions);
       allRawResources.push(...parsed.resources);
       if (r.tokenUsage) {
         tokIn += r.tokenUsage.input;
         tokOut += r.tokenUsage.output;
       }
-      boundaryRefetches.push({ pages: [pa, pb], addedItemCount: parsed.items.length });
-      emit({ type: 'boundary_done', pages: [pa, pb], addedItemCount: parsed.items.length });
+      boundaryRefetches.push({ pages: [pa, pb], addedQuestionCount: parsed.questions.length });
+      emit({ type: 'boundary_done', pages: [pa, pb], addedQuestionCount: parsed.questions.length });
     } catch (err) {
-      // 重抽失败不致命：原 chunk 里的被切版本仍然在 allRawItems 里
-      boundaryRefetches.push({ pages: [pa, pb], addedItemCount: 0 });
-      emit({ type: 'boundary_done', pages: [pa, pb], addedItemCount: 0 });
+      // 重抽失败不致命：原 chunk 里的被切版本仍然在 allRawQuestions 里
+      boundaryRefetches.push({ pages: [pa, pb], addedQuestionCount: 0 });
+      emit({ type: 'boundary_done', pages: [pa, pb], addedQuestionCount: 0 });
     }
   }
 
   // 5) dedup：完整版本优先
-  const itemMap = new Map<string, ChunkItem>();
-  for (const it of allRawItems) {
-    const k = dedupKey(it.content, it.item_no);
-    const prev = itemMap.get(k);
-    itemMap.set(k, prev ? preferComplete(prev, it) : it);
+  const questionMap = new Map<string, ChunkQuestion>();
+  for (const question of allRawQuestions) {
+    const k = dedupKey(question.content, question.question_no);
+    const prev = questionMap.get(k);
+    questionMap.set(k, prev ? preferComplete(prev, question) : question);
   }
   const resourceMap = new Map<string, ChunkResource>();
   for (const r of allRawResources) {
@@ -414,14 +414,14 @@ export async function extractItemsFromPdf(
     const prev = resourceMap.get(k);
     resourceMap.set(k, prev ? preferComplete(prev, r) : r);
   }
-  emit({ type: 'dedup_done', before: allRawItems.length, after: itemMap.size });
+  emit({ type: 'dedup_done', before: allRawQuestions.length, after: questionMap.size });
 
-  // 6) 转 ExtractedItem 形态 + cropFigures
-  const dedupedItems = Array.from(itemMap.values()).map((it) => toExtractedItem(it, imageNameByPage));
+  // 6) 转 ExtractedQuestion 形态 + cropFigures
+  const dedupedQuestions = Array.from(questionMap.values()).map((question) => toExtractedQuestion(question, imageNameByPage));
   const dedupedResources = Array.from(resourceMap.values()).map((r) => toExtractedResource(r, imageNameByPage));
 
   const cropped = await cropFiguresToStorage({
-    items: dedupedItems,
+    questions: dedupedQuestions,
     resources: dedupedResources,
     imagesByName,
     sourceSha256: opts.sourceSha256,
@@ -432,13 +432,13 @@ export async function extractItemsFromPdf(
 
   return {
     pageCount: renderedPages.length,
-    items: cropped.items,
+    questions: cropped.questions,
     resources: cropped.resources,
     derivedAssets: cropped.derivedAssets,
     invalidFigures: cropped.invalid,
     totalTokenUsage: { input: tokIn, output: tokOut },
     chunks: chunkStats,
     boundaryRefetches,
-    dedup: { before: allRawItems.length, after: itemMap.size },
+    dedup: { before: allRawQuestions.length, after: questionMap.size },
   };
 }

@@ -54,7 +54,7 @@ export type AnalyzeImagesToStorageEvent =
   | { type: 'crop_done'; figureCount: number; invalidCount: number };
 
 export interface AnalyzeImagesToStorageResult {
-  items: CropFiguresResult['items'];
+  questions: CropFiguresResult['questions'];
   resources: CropFiguresResult['resources'];
   perImage: AnalyzedImage[];
   /** 仅 figure-crop 候选；rasterize-v1 / upload-v1 这类原图持久化由 caller 自己加 */
@@ -76,7 +76,7 @@ export async function analyzeImagesToStorage(
 ): Promise<AnalyzeImagesToStorageResult> {
   const figureCropVersion = opts.figureCropVersion ?? 'v1';
 
-  // 1) analyzeImages：每张图独立调一次 vision LLM → items + resources + figures.bbox
+  // 1) analyzeImages：每张图独立调一次 vision LLM → questions + resources + figures.bbox
   const analyzed = await analyzeImages({
     providerId: opts.providerId,
     images: opts.images,
@@ -93,7 +93,7 @@ export async function analyzeImagesToStorage(
 
   // 3) cropFiguresToStorage：bbox → sharp 裁切 → store.put → 出 derived_asset 候选
   const cropped = await cropFiguresToStorage({
-    items: analyzed.items,
+    questions: analyzed.questions,
     resources: analyzed.resources,
     imagesByName,
     sourceSha256: opts.sourceSha256,
@@ -116,7 +116,7 @@ export async function analyzeImagesToStorage(
   );
 
   return {
-    items: cropped.items,
+    questions: cropped.questions,
     resources: cropped.resources,
     perImage: analyzed.perImage,
     derivedAssets: cropped.derivedAssets,
