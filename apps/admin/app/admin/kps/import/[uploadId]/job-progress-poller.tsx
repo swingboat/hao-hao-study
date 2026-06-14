@@ -9,8 +9,8 @@
  *
  * 设计取舍：
  *   - 用 server action 而非 /api 路由，省一个文件，鉴权也复用 admin session
- *   - 轮询 interval 2s：chunk 阶段平均 45s/片 + 60s sleep，2s 粒度对 UI 完全够用，
- *     且每次只读 1 行 job + 1 个 count，对 DB 几乎无压
+ *   - 轮询 interval 2s：vision chunk 通常几十秒级，2s 粒度对 UI 完全够用，且每次只读
+ *     1 行 job + 1 个 count，对 DB 几乎无压
  *   - 进入终态后不会立刻有新 staging 行（事务里一起写的），所以 router.refresh 是必须的
  */
 'use client';
@@ -34,7 +34,7 @@ function phaseLabel(p: JobProgressView['progress']): string {
   if (!p) return '等待启动…';
   switch (p.phase) {
     case 'planning':
-      return '① 切片规划中（qpdf 计算页数）';
+      return '① 页面渲染与切片规划中';
     case 'chunking':
       return p.currentChunk
         ? `② 正在解析 chunk #${p.currentChunk.index}/${p.totalChunks ?? '?'}（页 ${p.currentChunk.startPage}-${p.currentChunk.endPage}${(p.chunksReused ?? 0) > 0 ? `；已复用 ${p.chunksReused} 片` : ''}）`
@@ -128,7 +128,7 @@ export function JobProgressPoller({ jobId, initialStatus }: JobProgressPollerPro
   // Stale 检测：progress.lastEventAt 超过 STALE_THRESHOLD_MS 没更新 → 提示用户。
   // 触发条件：runParse 后台 promise 死了（dev server 重启 / OOM / 容器轮转），
   // job 在 DB 仍是 running 但没人推进它，poller 一直读到同一个 snapshot。
-  // 阈值放 3 分钟（一次 chunk + 60s sleep 大约 100-120s，正常应在该窗口内推进）。
+  // 阈值放 3 分钟：正常 vision chunk 应在该窗口内推进。
   const STALE_THRESHOLD_MS = 3 * 60 * 1000;
   const staleWarning = (() => {
     if (!p) return null;
@@ -139,13 +139,13 @@ export function JobProgressPoller({ jobId, initialStatus }: JobProgressPollerPro
     return `任务 ${formatDuration(idleMs)} 无进度更新，后台 runParse 可能已中断（server 重启 / 进程崩溃）`;
   })();
 
-  // ETA：剩余（fresh）chunk × (avg + 60s sleep) + 合并 5s；复用片不耗时
+  // ETA：剩余 fresh chunk × 平均耗时 + 合并 5s；复用片不耗时
   const eta = (() => {
     if (!p || !p.totalChunks || !p.avgChunkLatencyMs) return null;
     const advanced = p.chunksDone + (p.chunksReused ?? 0);
     const remaining = Math.max(0, p.totalChunks - advanced);
     if (remaining === 0 && p.phase !== 'merging') return 5_000;
-    return remaining * (p.avgChunkLatencyMs + 60_000) + 5_000;
+    return remaining * p.avgChunkLatencyMs + 5_000;
   })();
 
   return (

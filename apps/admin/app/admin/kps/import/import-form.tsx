@@ -126,7 +126,7 @@ export function ImportForm({ subjects, providers, defaultProvider }: ImportFormP
                   点击选择 PDF 文件 <span className="text-red-600">*</span>
                 </p>
                 <p className="text-xs opacity-60">
-                  ≤ 500MB · analyzePdf 会按 15 页/片自动切割发给 LLM
+                  ≤ 500MB · vision 管线会渲染页面图像并按小批次解析
                 </p>
               </>
             )}

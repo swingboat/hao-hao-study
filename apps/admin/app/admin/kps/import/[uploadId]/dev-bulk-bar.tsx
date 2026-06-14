@@ -5,7 +5,7 @@
  *   - 「接受全部并发布」→ bulkAcceptAllAction
  *   - 「丢弃全部」      → bulkRejectAllAction
  *
- * 两个按钮都用 onClick confirm 兜底；提交中禁用，结果以 state.error / state.accepted 反馈。
+ * 两个按钮都用 onClick confirm 二次确认；提交中禁用，结果以 state.error / state.accepted 反馈。
  */
 'use client';
 
@@ -32,7 +32,7 @@ export function DevBulkBar({ uploadId, pendingCount }: DevBulkBarProps) {
         <span className="text-xs font-medium uppercase tracking-wider text-amber-700 dark:text-amber-300">
           DEV 批量
         </span>
-        <span className="opacity-70 text-xs">仅开发环境可见；生产由 server action 兜底拒绝</span>
+        <span className="opacity-70 text-xs">仅开发环境可见；生产由 server action 拒绝</span>
 
         <form
           action={acceptAll}
