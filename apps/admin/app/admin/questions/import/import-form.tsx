@@ -94,18 +94,16 @@ export function ImportForm({ subjects, providers, defaultProvider }: ImportFormP
             ) : (
               <>
                 <p className="text-sm font-medium">
-                  点击选择题集 PDF <span className="text-red-600">*</span>
+                  点击选择题集 PDF / Word <span className="text-red-600">*</span>
                 </p>
-                <p className="text-xs opacity-60">
-                  ≤ 50MB · L2 extractQuestionsFromPdf 按 3 页/片切，跨页题自动重抽
-                </p>
+                <p className="text-xs opacity-60">≤ 50MB · 使用 analyzeQuestions 公共入口解析</p>
               </>
             )}
             <input
               id="file"
               name="file"
               type="file"
-              accept="application/pdf,.pdf"
+              accept="application/pdf,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               required
               className="sr-only"
               onChange={(e) => {
@@ -131,7 +129,7 @@ export function ImportForm({ subjects, providers, defaultProvider }: ImportFormP
             {pending ? '上传中…' : '上传并开始解析'}
           </button>
           <span className="text-xs opacity-60">
-            {pickedFile ? '上传完会自动跳转到审核页。' : '先选一个 PDF 文件。'}
+            {pickedFile ? '上传完会自动跳转到审核页。' : '先选一个 PDF / Word 文件。'}
           </span>
         </div>
       </form>

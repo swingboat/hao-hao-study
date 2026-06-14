@@ -22,14 +22,14 @@ function formatDuration(ms: number): string {
 function phaseLabel(p: JobProgressView['progress']): string {
   if (!p) return '等待启动…';
   switch (p.phase) {
-    case 'rasterizing':
-      return '① 渲染 PDF（pdftoppm → PNG）';
-    case 'chunking':
-      return `② 抽题中（${p.chunksDone}/${p.totalChunks ?? '?'} chunks）`;
-    case 'boundary_refetching':
-      return `③ 边界重抽（已处理 ${p.boundaryDone ?? 0} 对跨页题）`;
-    case 'cropping':
-      return '④ figure crop + dedup';
+    case 'preparing':
+      return '① 准备解析任务';
+    case 'rendering':
+      return '② 文档页面处理中';
+    case 'analyzing':
+      return `③ 解析试题中（${p.pagesDone}/${p.pageCount ?? '?'} 页）`;
+    case 'synthesizing':
+      return '④ 汇总试题结果';
     case 'persisting':
       return '⑤ 写 staging 中…';
     case 'done':
@@ -45,12 +45,12 @@ function pctOf(p: JobProgressView['progress']): number {
   if (!p) return 0;
   if (p.phase === 'done') return 100;
   if (p.phase === 'failed') return 0;
-  if (p.phase === 'rasterizing') return 5;
-  if (p.phase === 'chunking' && p.totalChunks) {
-    return Math.min(75, 10 + Math.round((p.chunksDone / p.totalChunks) * 65));
+  if (p.phase === 'preparing') return 5;
+  if (p.phase === 'rendering') return 15;
+  if (p.phase === 'analyzing' && p.pageCount) {
+    return Math.min(75, 10 + Math.round((p.pagesDone / p.pageCount) * 65));
   }
-  if (p.phase === 'boundary_refetching') return 80;
-  if (p.phase === 'cropping') return 90;
+  if (p.phase === 'synthesizing') return 90;
   if (p.phase === 'persisting') return 95;
   return 0;
 }
@@ -153,10 +153,10 @@ export function JobProgressPoller({ jobId, initialStatus }: JobProgressPollerPro
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
         <Metric label="status" value={view.status} mono />
         <Metric
-          label="chunks"
+          label="pages"
           value={
             p
-              ? `${p.chunksDone}/${p.totalChunks ?? '?'}${p.chunksFailed ? ` (fail ${p.chunksFailed})` : ''}`
+              ? `${p.pagesDone}/${p.pageCount ?? '?'}${p.pagesFailed ? ` (fail ${p.pagesFailed})` : ''}`
               : '—'
           }
           mono

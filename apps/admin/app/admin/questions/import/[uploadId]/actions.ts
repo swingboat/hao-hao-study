@@ -5,8 +5,8 @@
  *     T3：question_type ∈ {choice, fill_in} + kp_ids 非空 + primary_kp_id ∈ kp_ids（DB schema 兜底但应用层先校）
  *     T4：audit_log.target_id == question.id（同一事务，必一致）
  *   - rejectStagingAction：仅 review_status='rejected'
- *   - rerunStagingAction (F3.6 / T7)：选 provider → 新建 llm_parse_job → 同一 PDF（可缩窗）跑一遍
- *     → 用 question_no / kp_hints 匹配本 staging 行 → 覆盖 llm_payload + 把 parse_job_id 指到新 job
+ *   - rerunStagingAction (F3.6 / T7)：选 provider → 新建 llm_parse_job → 同一文件跑一遍
+ *     analyzeQuestions → 用 question_no / content 匹配本 staging 行 → 覆盖 llm_payload + 把 parse_job_id 指到新 job
  *   - bulkAcceptAllAction / bulkRejectAllAction：dev-only 批量操作（对照 KP 版）
  *   - getJobProgressAction：客户端轮询返回 QuestionProgressSnapshot
  *
@@ -18,15 +18,26 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { type Prisma, prisma } from '@hao/db';
-import { extractQuestionsFromPdf } from '@hao/llm';
-import { QUESTION_PROMPT_VERSION, buildQuestionChunkPrompt } from '@hao/shared/prompts';
+import { Prisma, prisma } from '@hao/db';
 import { createStore } from '@hao/storage';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { SESSION_COOKIE, verifySession } from '../../../../../lib/auth';
-import type { QuestionProgressSnapshot } from '../../../../../lib/question-pipeline';
+import {
+  analysisFileTypeFromName,
+  knowledgeRowsForQuestionContext,
+  questionContentKey,
+  questionNoFromPayload,
+  questionToStagingPayload,
+  tokenUsageFromEducationUsage,
+  tokenUsageTotal,
+} from '../../../../../lib/education-analysis-adapter';
+import {
+  QUESTION_PROMPT_VERSION,
+  type QuestionProgressSnapshot,
+  runQuestionAnalysis,
+} from '../../../../../lib/question-pipeline';
 
 async function requireAdmin() {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -258,8 +269,7 @@ export interface RerunActionState {
 /**
  * 用新 provider 重跑该 staging 行：
  *   1) 新建 llm_parse_job(task_kind='question', provider=new)
- *   2) 把同一 PDF 跑一遍 extractQuestionsFromPdf（如果 staging 有 source_hint.page，
- *      就缩窗到 [page-1, page+1]，省 token；否则全本）
+ *   2) 把同一文件跑一遍 analyzeQuestions
  *   3) 在结果里找匹配本题的那条（先按 question_no 精确匹配，找不到回退 content 前 60 字相似度），
  *      覆盖 staging.llm_payload + 把 staging.parse_job_id 指到新 job
  *   4) job 标 succeeded / failed
@@ -286,10 +296,11 @@ export async function rerunStagingAction(
 
   const provider = await prisma.llm_provider.findUnique({ where: { id: providerId } });
   if (!provider || !provider.enabled) return { error: `provider ${providerId} 不存在 / 未启用` };
+  if (provider.protocol !== 'openai_chat') {
+    return { error: `rerun 只支持 protocol=openai_chat 的 provider；当前 ${provider.id}` };
+  }
   const caps = (provider.capabilities ?? {}) as { vision?: boolean };
   if (!caps.vision) return { error: 'rerun 只支持 vision provider' };
-  if (!staging.upload.sha256) return { error: 'upload 缺 sha256，无法 rerun' };
-
   const llmPayload = staging.llm_payload as {
     source_hint?: { page?: number | null; question_no?: string | null };
     content?: string;
@@ -302,8 +313,8 @@ export async function rerunStagingAction(
   if (!subject) return { error: `subject ${subjectId} 不存在` };
 
   const srcPage = llmPayload.source_hint?.page ?? null;
-  const srcQuestionNo = llmPayload.source_hint?.question_no ?? null;
-  const oldContentKey = (llmPayload.content ?? '').replace(/\s+/g, '').slice(0, 60);
+  const srcQuestionNo = questionNoFromPayload(llmPayload);
+  const oldContentKey = questionContentKey(llmPayload);
 
   const job = await prisma.llm_parse_job.create({
     data: {
@@ -321,72 +332,42 @@ export async function rerunStagingAction(
     const buf = await store.get(staging.upload.file_uri);
     const tmpDir = path.join(tmpdir(), 'hao-admin-question-rerun');
     await mkdir(tmpDir, { recursive: true });
-    tmpPath = path.join(tmpDir, `${job.id}.pdf`);
+    const originalName = staging.upload.original_name ?? `${job.id}.pdf`;
+    tmpPath = path.join(tmpDir, `${job.id}${path.extname(originalName) || '.pdf'}`);
     await writeFile(tmpPath, buf);
 
-    // 同学科 KP 字典 → 注入 chunk prompt（与首次解析对称；rerun 后 admin 抽屉自动映射也能立刻命中）
     const existingKps = await prisma.knowledge_point.findMany({
       where: { subject_id: subjectId },
-      select: { name: true },
+      select: { id: true, name: true, chapter_no: true },
       orderBy: [{ chapter_no: 'asc' }, { name: 'asc' }],
     });
-    // 保留 query 的 chapter_no 顺序，不要 .sort()（理由见 question-pipeline.ts 同名注释）
-    const kpNames = Array.from(
-      new Set(existingKps.map((k) => k.name.trim()).filter((n) => n.length > 0)),
-    ).slice(0, 500);
-    const dictSection =
-      kpNames.length === 0
-        ? ''
-        : [
-            '',
-            `【优先复用以下 ${kpNames.length} 个已有 ${subject.name} 知识点名（字面完全一致最佳）】`,
-            kpNames.map((n) => `- ${n}`).join('\n'),
-            '',
-            '若题目考查的概念上方列表里没有，再用你自己的术语并保持 2-50 字符。',
-          ].join('\n');
 
-    if (kpNames.length > 0) {
-      await prisma.llm_parse_job.update({
-        where: { id: job.id },
-        data: { prompt_version: `${QUESTION_PROMPT_VERSION}+kpdict-${kpNames.length}` },
-      });
-    }
-
-    const result = await extractQuestionsFromPdf({
-      pdfPath: tmpPath,
+    const result = await runQuestionAnalysis({
       providerId,
-      sourceSha256: staging.upload.sha256,
-      store,
-      // 窗口 = ±1 页，给跨页留余地；没 source_hint 就全本（贵但兜底）
-      firstPage: srcPage ? Math.max(1, srcPage - 1) : undefined,
-      lastPage: srcPage ? srcPage + 1 : undefined,
-      pagesPerCall: 3,
-      chunkPromptBuilder: (ctx) =>
-        [
-          buildQuestionChunkPrompt({
-            chunkIndex: ctx.chunkIndex,
-            totalChunks: ctx.totalChunks,
-            startPage: ctx.pages[0] ?? 1,
-            endPage: ctx.pages[ctx.pages.length - 1] ?? ctx.pages[0] ?? 1,
-            subjectName: subject.name,
-          }),
-          dictSection,
-          '',
-          '⚠️ 必须额外带 _src_pages / _truncated_before / _truncated_after / figures / source_hint。',
-        ].join('\n'),
+      file: {
+        type: analysisFileTypeFromName(originalName),
+        name: originalName,
+        path: tmpPath,
+      },
+      subject,
+      knowledge: knowledgeRowsForQuestionContext(existingKps),
     });
 
     // 匹配：先按 question_no（不空），再按 content 前 60 字归一相似（startsWith / includes 兜底）
     const matched =
       (srcQuestionNo
         ? result.questions.find(
-            (question) => (question.question_no ?? '').trim() === srcQuestionNo.trim(),
+            (question) =>
+              questionNoFromPayload(questionToStagingPayload(question, subjectId)) ===
+              srcQuestionNo,
           )
         : null) ??
       result.questions.find(
         (question) =>
           oldContentKey.length > 10 &&
-          question.content.replace(/\s+/g, '').slice(0, 60).startsWith(oldContentKey.slice(0, 30)),
+          questionContentKey(questionToStagingPayload(question, subjectId)).startsWith(
+            oldContentKey.slice(0, 30),
+          ),
       ) ??
       result.questions[0];
 
@@ -394,30 +375,24 @@ export async function rerunStagingAction(
       throw new Error('rerun 没产出可匹配的题（result.questions 为空）');
     }
 
+    const matchedPayload = questionToStagingPayload(matched, subjectId);
+    const tokenUsage = tokenUsageTotal(tokenUsageFromEducationUsage(result.usage));
+
     await prisma.$transaction([
       prisma.llm_parse_staging.update({
         where: { id: stagingId },
         data: {
           parse_job_id: job.id,
           llm_payload: {
-            content: matched.content,
-            question_type: matched.question_type,
-            options: matched.options,
-            answer: matched.answer,
-            solution_text: matched.solution_text,
-            difficulty: matched.difficulty,
-            kp_hints: matched.kp_hints,
-            source_hint: {
-              page: matched._src_page ?? null,
-              question_no: matched.question_no ?? null,
-            },
-            figures: matched.figures ?? [],
-            _subject_id: subjectId,
+            ...matchedPayload,
             _rerun: {
               previous_job_id: staging.parse_job_id,
               previous_provider_id: provider.id,
               matched_strategy:
-                srcQuestionNo && matched.question_no === srcQuestionNo
+                srcQuestionNo &&
+                questionNoFromPayload(
+                  matchedPayload as { source_hint?: { question_no?: string | null } },
+                ) === srcQuestionNo
                   ? 'question_no'
                   : 'content_prefix',
             },
@@ -429,11 +404,16 @@ export async function rerunStagingAction(
         data: {
           status: 'succeeded',
           parsed_output: { questions: result.questions } as unknown as Prisma.InputJsonValue,
-          token_usage: {
-            input: result.totalTokenUsage.input,
-            output: result.totalTokenUsage.output,
-            total: result.totalTokenUsage.input + result.totalTokenUsage.output,
-          } as Prisma.InputJsonValue,
+          token_usage: tokenUsage
+            ? (tokenUsage as Prisma.InputJsonValue)
+            : (Prisma.JsonNull as unknown as Prisma.InputJsonValue),
+          raw_response: {
+            status: result.status,
+            diagnostics: result.diagnostics,
+            pageCount: result.source.page_count,
+            questionCount: result.questions.length,
+            rerun_source_page: srcPage,
+          } as unknown as Prisma.InputJsonValue,
           finished_at: new Date(),
         },
       }),

@@ -2,7 +2,7 @@
  * F4.3 上传 + 解析入口页 — /admin/kps/import
  *
  *   - 表单：subject 下拉 / Provider 下拉 / 文件输入（仅 PDF，≤500MB）
- *   - 提交 → uploadAndParseAction 上传并创建后台 vision 解析任务
+ *   - 提交 → uploadAndParseAction 上传并创建后台 analyzeKnowledgePoints 解析任务
  *   - 成功跳到 /admin/kps/import/<uploadId> 看 staging
  *   - 历史上传列表：最近 10 条 content_upload(purpose=knowledge_point)
  */
@@ -17,7 +17,7 @@ const TASK_KIND_DEFAULT_ENV = 'DEFAULT_PROVIDER_KNOWLEDGE_POINT';
 export default async function KpImportPage() {
   const [subjects, providers, recent] = await Promise.all([
     prisma.subject.findMany({ orderBy: { id: 'asc' } }),
-    // 只列启用的 provider；下面再收敛到 KP vision 管线可用的协议与能力。
+    // 只列启用的 provider；下面再收敛到 analyzeKnowledgePoints 可用的协议与能力。
     prisma.llm_provider.findMany({
       where: { enabled: true },
       orderBy: { id: 'asc' },

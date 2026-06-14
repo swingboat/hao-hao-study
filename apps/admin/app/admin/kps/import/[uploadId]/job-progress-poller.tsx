@@ -3,14 +3,13 @@
  *
  * 行为：
  *   - 每 2s 调 getJobProgressAction(jobId) 拉最新快照
- *   - 显示当前阶段（planning / chunking #N/total / sleeping / final）、累计 token、ETA
+ *   - 显示 analyzeKnowledgePoints 公共入口的当前阶段、页面进度、累计 token
  *   - 进入终态（succeeded / failed）→ stop poll + router.refresh() 让 page.tsx 重渲染
  *     渲染完成后整页结构会变（出现 staging 列表），这个 poller 也会从 DOM 中消失
  *
  * 设计取舍：
  *   - 用 server action 而非 /api 路由，省一个文件，鉴权也复用 admin session
- *   - 轮询 interval 2s：vision chunk 通常几十秒级，2s 粒度对 UI 完全够用，且每次只读
- *     1 行 job + 1 个 count，对 DB 几乎无压
+ *   - 轮询 interval 2s：每次只读 1 行 job + 1 个 count，对 DB 几乎无压
  *   - 进入终态后不会立刻有新 staging 行（事务里一起写的），所以 router.refresh 是必须的
  */
 'use client';
@@ -33,18 +32,18 @@ function formatDuration(ms: number): string {
 function phaseLabel(p: JobProgressView['progress']): string {
   if (!p) return '等待启动…';
   switch (p.phase) {
-    case 'planning':
-      return '① 页面渲染与切片规划中';
-    case 'chunking':
-      return p.currentChunk
-        ? `② 正在解析 chunk #${p.currentChunk.index}/${p.totalChunks ?? '?'}（页 ${p.currentChunk.startPage}-${p.currentChunk.endPage}${(p.chunksReused ?? 0) > 0 ? `；已复用 ${p.chunksReused} 片` : ''}）`
-        : `② chunk ${p.chunksDone}/${p.totalChunks ?? '?'} 已完成${(p.chunksReused ?? 0) > 0 ? `（含 ${p.chunksReused} 片复用）` : ''}`;
-    case 'sleeping':
-      return `⏸ rate-limit sleep（${p.chunksDone}/${p.totalChunks ?? '?'} chunks done）`;
-    case 'merging':
-      return '③ 合并去重中（TS 手工合并，无 LLM 终审）';
+    case 'preparing':
+      return '① 准备解析任务';
+    case 'rendering':
+      return '② 文档页面处理中';
+    case 'analyzing':
+      return `③ 解析知识点中（${p.pagesDone}/${p.pageCount ?? '?'} 页）`;
+    case 'synthesizing':
+      return '④ 汇总知识点结果';
+    case 'persisting':
+      return '⑤ 写 staging 中…';
     case 'done':
-      return '④ 写 staging 中…';
+      return '✅ 完成';
     case 'failed':
       return '❌ 解析失败';
     default:
@@ -53,12 +52,17 @@ function phaseLabel(p: JobProgressView['progress']): string {
 }
 
 function pctOf(p: JobProgressView['progress']): number {
-  if (!p || !p.totalChunks) return 0;
-  // chunk 实际推进 = 本轮跑的 + 复用的；占 90%，merge 占最后 10%
-  const advanced = p.chunksDone + (p.chunksReused ?? 0);
-  const chunkPct = (advanced / p.totalChunks) * 90;
-  const finalBoost = p.phase === 'merging' ? 5 : p.phase === 'done' ? 10 : 0;
-  return Math.min(99, Math.round(chunkPct + finalBoost));
+  if (!p) return 0;
+  if (p.phase === 'done') return 100;
+  if (p.phase === 'failed') return 0;
+  if (p.phase === 'preparing') return 5;
+  if (p.phase === 'rendering') return 15;
+  if (p.phase === 'analyzing' && p.pageCount) {
+    return Math.min(75, 10 + Math.round((p.pagesDone / p.pageCount) * 65));
+  }
+  if (p.phase === 'synthesizing') return 90;
+  if (p.phase === 'persisting') return 95;
+  return 0;
 }
 
 export interface JobProgressPollerProps {
@@ -125,10 +129,6 @@ export function JobProgressPoller({ jobId, initialStatus }: JobProgressPollerPro
   const elapsedMs = Math.max(0, Date.now() - startedAtMs);
   const pct = pctOf(p);
 
-  // Stale 检测：progress.lastEventAt 超过 STALE_THRESHOLD_MS 没更新 → 提示用户。
-  // 触发条件：runParse 后台 promise 死了（dev server 重启 / OOM / 容器轮转），
-  // job 在 DB 仍是 running 但没人推进它，poller 一直读到同一个 snapshot。
-  // 阈值放 3 分钟：正常 vision chunk 应在该窗口内推进。
   const STALE_THRESHOLD_MS = 3 * 60 * 1000;
   const staleWarning = (() => {
     if (!p) return null;
@@ -137,15 +137,6 @@ export function JobProgressPoller({ jobId, initialStatus }: JobProgressPollerPro
     const idleMs = Date.now() - lastAt;
     if (idleMs < STALE_THRESHOLD_MS) return null;
     return `任务 ${formatDuration(idleMs)} 无进度更新，后台 runParse 可能已中断（server 重启 / 进程崩溃）`;
-  })();
-
-  // ETA：剩余 fresh chunk × 平均耗时 + 合并 5s；复用片不耗时
-  const eta = (() => {
-    if (!p || !p.totalChunks || !p.avgChunkLatencyMs) return null;
-    const advanced = p.chunksDone + (p.chunksReused ?? 0);
-    const remaining = Math.max(0, p.totalChunks - advanced);
-    if (remaining === 0 && p.phase !== 'merging') return 5_000;
-    return remaining * p.avgChunkLatencyMs + 5_000;
   })();
 
   return (
@@ -175,16 +166,12 @@ export function JobProgressPoller({ jobId, initialStatus }: JobProgressPollerPro
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
         <Metric label="status" value={view.status} mono />
         <Metric
-          label="chunks"
-          value={(() => {
-            if (!p) return '—';
-            const total = p.totalChunks ?? '?';
-            const reused = p.chunksReused ?? 0;
-            // 显示 fresh + reused / total，让用户一眼看清复用了多少
-            return reused > 0
-              ? `${p.chunksDone}+${reused}=${p.chunksDone + reused}/${total}`
-              : `${p.chunksDone}/${total}`;
-          })()}
+          label="pages"
+          value={
+            p
+              ? `${p.pagesDone}/${p.pageCount ?? '?'}${p.pagesFailed ? ` (fail ${p.pagesFailed})` : ''}`
+              : '—'
+          }
           mono
         />
         <Metric
@@ -196,7 +183,7 @@ export function JobProgressPoller({ jobId, initialStatus }: JobProgressPollerPro
           }
           mono
         />
-        <Metric label="ETA" value={eta != null ? `~${formatDuration(eta)}` : '—'} mono />
+        <Metric label="phase" value={p?.phase ?? '—'} mono />
       </div>
 
       <p className="text-[10px] opacity-50">
@@ -206,7 +193,7 @@ export function JobProgressPoller({ jobId, initialStatus }: JobProgressPollerPro
       </p>
       {staleWarning ? (
         <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-400 rounded p-2 mt-1">
-          ⚠️ {staleWarning} — 已落盘的 chunk 缓存保留，重新解析会跳过它们。
+          ⚠️ {staleWarning}
         </p>
       ) : null}
     </section>
