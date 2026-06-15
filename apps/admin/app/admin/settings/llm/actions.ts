@@ -6,10 +6,10 @@
  */
 'use server';
 
-import { prisma } from '@hao/db';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { SESSION_COOKIE, verifySession } from '../../../../lib/auth';
+import { setLlmProviderEnabled } from '../../../../lib/llm-providers';
 
 async function requireAdmin() {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -24,9 +24,6 @@ export async function toggleProviderAction(formData: FormData): Promise<void> {
   const next = String(formData.get('next') ?? '') === 'true';
   if (!id) throw new Error('Provider id 缺失');
 
-  await prisma.llm_provider.update({
-    where: { id },
-    data: { enabled: next },
-  });
+  await setLlmProviderEnabled(id, next);
   revalidatePath('/admin/settings/llm');
 }

@@ -4,6 +4,11 @@
  */
 import { prisma } from '@hao/db';
 import Link from 'next/link';
+import {
+  documentAnalysisProtocolLabel,
+  isDocumentAnalysisProvider,
+  listLlmProviders,
+} from '../../../../lib/llm-providers';
 import { ImportForm } from './import-form';
 
 export const dynamic = 'force-dynamic';
@@ -13,10 +18,7 @@ const TASK_KIND_DEFAULT_ENV = 'DEFAULT_PROVIDER_QUESTION';
 export default async function QuestionsImportPage() {
   const [subjects, providers, recent] = await Promise.all([
     prisma.subject.findMany({ orderBy: { id: 'asc' } }),
-    prisma.llm_provider.findMany({
-      where: { enabled: true },
-      orderBy: { id: 'asc' },
-    }),
+    listLlmProviders({ enabledOnly: true }),
     prisma.content_upload.findMany({
       where: { purpose: 'question' },
       orderBy: { created_at: 'desc' },
@@ -32,11 +34,8 @@ export default async function QuestionsImportPage() {
     }),
   ]);
 
-  // analyzeQuestions 当前需要 openai_chat + 可处理文档页面的 vision provider。
-  const visionProviders = providers.filter((p) => {
-    const caps = p.capabilities as { vision?: boolean } | null;
-    return p.protocol === 'openai_chat' && caps?.vision === true;
-  });
+  // analyzeQuestions 当前只开放已接入公共文档解析能力的 vision provider。
+  const visionProviders = providers.filter(isDocumentAnalysisProvider);
 
   const envDefault = process.env[TASK_KIND_DEFAULT_ENV];
   const defaultProvider =
@@ -65,8 +64,7 @@ export default async function QuestionsImportPage() {
           ) : null}
           {visionProviders.length === 0 ? (
             <p className="text-amber-700">
-              没有 openai_chat + capabilities.vision=true 且启用的 LLM Provider；请去
-              /admin/settings/llm 检查。
+              没有启用的{documentAnalysisProtocolLabel()} LLM Provider；请去 /admin/settings/llm 检查。
             </p>
           ) : null}
         </section>
