@@ -12,10 +12,13 @@ const BASE_PROVIDER = {
 
 beforeEach(() => {
   process.env.LLM_PROXY_API_KEY = 'test-token-xyz';
+  process.env.LLM_PROXY_OPENAI_CHAT_ENDPOINT =
+    'https://example.com/openai/v1/chat/completions';
 });
 
 afterEach(() => {
   process.env.LLM_PROXY_API_KEY = undefined;
+  process.env.LLM_PROXY_OPENAI_CHAT_ENDPOINT = undefined;
 });
 
 describe('providerToTarget', () => {
@@ -59,6 +62,18 @@ describe('providerToTarget', () => {
       temperature: 0.2,
       maxTokens: undefined,
     });
+  });
+
+  it('resolves endpoint env references at runtime', () => {
+    const result = providerToTarget({
+      ...BASE_PROVIDER,
+      endpoint: 'env:LLM_PROXY_OPENAI_CHAT_ENDPOINT',
+      default_params: { temperature: 0.2 },
+      max_output_tokens: null,
+      quirks: {},
+    });
+
+    expect(result.llmTarget.path).toBe('https://example.com/openai/v1/chat/completions');
   });
 
   it('maps Bedrock Converse provider records to the synced llmTarget api shape', () => {

@@ -29,8 +29,8 @@ const GOOGLE_GEMINI_3_PRO_IMAGE_ENDPOINT_ENV =
 const BEDROCK_CLAUDE_OPUS_4_7_ENDPOINT_ENV =
   'LLM_PROXY_BEDROCK_CONVERSE_CLAUDE_OPUS_4_7_ENDPOINT';
 
-function endpointFromEnv(envVar: string): string {
-  return process.env[envVar]?.trim() || `env:${envVar}`;
+function endpointEnvRef(envVar: string): string {
+  return `env:${envVar}`;
 }
 
 function enabledWhenEndpointConfigured(defaultEnabled: boolean, envVar: string): boolean {
@@ -42,7 +42,7 @@ const PROVIDERS: ProviderSeed[] = [
   {
     id: 'openai-chat-gemini-3.1-pro',
     protocol: 'openai_chat',
-    endpoint: endpointFromEnv(OPENAI_CHAT_ENDPOINT_ENV),
+    endpoint: endpointEnvRef(OPENAI_CHAT_ENDPOINT_ENV),
     model: 'google.gemini-3.1-pro-global',
     capabilities: { text: true, vision: true, pdf: true, structured_output: true },
     auth_env_var: LLM_PROXY_API_KEY_ENV,
@@ -64,7 +64,7 @@ const PROVIDERS: ProviderSeed[] = [
   {
     id: 'openai-chat-gemini-3.5-flash',
     protocol: 'openai_chat',
-    endpoint: endpointFromEnv(OPENAI_CHAT_ENDPOINT_ENV),
+    endpoint: endpointEnvRef(OPENAI_CHAT_ENDPOINT_ENV),
     model: 'google.gemini-3.5-flash-global',
     capabilities: { text: true, vision: false, pdf: false, structured_output: true },
     auth_env_var: LLM_PROXY_API_KEY_ENV,
@@ -81,7 +81,7 @@ const PROVIDERS: ProviderSeed[] = [
   {
     id: 'openai-chat-claude-opus-4.7',
     protocol: 'openai_chat',
-    endpoint: endpointFromEnv(OPENAI_CHAT_ENDPOINT_ENV),
+    endpoint: endpointEnvRef(OPENAI_CHAT_ENDPOINT_ENV),
     model: 'anthropic.claude-opus-4-7',
     capabilities: { text: true, vision: true, pdf: false, structured_output: true },
     auth_env_var: LLM_PROXY_API_KEY_ENV,
@@ -104,7 +104,7 @@ const PROVIDERS: ProviderSeed[] = [
   {
     id: 'openai-chat-gpt-5.4',
     protocol: 'openai_chat',
-    endpoint: endpointFromEnv(OPENAI_CHAT_ENDPOINT_ENV),
+    endpoint: endpointEnvRef(OPENAI_CHAT_ENDPOINT_ENV),
     model: 'gpt-5.4',
     capabilities: { text: true, vision: true, pdf: false, structured_output: true },
     auth_env_var: LLM_PROXY_API_KEY_ENV,
@@ -125,7 +125,7 @@ const PROVIDERS: ProviderSeed[] = [
   {
     id: 'google-generate-content-gemini-3-pro-image',
     protocol: 'google_generate_content',
-    endpoint: endpointFromEnv(GOOGLE_GEMINI_3_PRO_IMAGE_ENDPOINT_ENV),
+    endpoint: endpointEnvRef(GOOGLE_GEMINI_3_PRO_IMAGE_ENDPOINT_ENV),
     model: 'google.gemini-3-pro-image-preview',
     capabilities: { text: true, vision: true, pdf: false, structured_output: true },
     auth_env_var: LLM_PROXY_API_KEY_ENV,
@@ -140,7 +140,7 @@ const PROVIDERS: ProviderSeed[] = [
   {
     id: 'bedrock-converse-claude-opus-4.7',
     protocol: 'bedrock_converse',
-    endpoint: endpointFromEnv(BEDROCK_CLAUDE_OPUS_4_7_ENDPOINT_ENV),
+    endpoint: endpointEnvRef(BEDROCK_CLAUDE_OPUS_4_7_ENDPOINT_ENV),
     model: 'anthropic.claude-opus-4-7',
     capabilities: { text: true, vision: true, pdf: false, structured_output: true },
     auth_env_var: LLM_PROXY_API_KEY_ENV,
@@ -155,26 +155,32 @@ const PROVIDERS: ProviderSeed[] = [
   },
 ];
 
+const LEGACY_PROVIDER_PREFIX = ['we', 'bex-'].join('');
+
 const LEGACY_PROVIDER_RENAMES = [
   {
-    from: ['we', 'bex-gemini-3.1-pro'].join(''),
+    from: `${LEGACY_PROVIDER_PREFIX}gemini-3.1-pro`,
     to: 'openai-chat-gemini-3.1-pro',
   },
   {
-    from: ['we', 'bex-gemini-3.5-flash'].join(''),
+    from: `${LEGACY_PROVIDER_PREFIX}gemini-3.5-flash`,
     to: 'openai-chat-gemini-3.5-flash',
   },
   {
-    from: ['we', 'bex-claude-opus-4.7'].join(''),
+    from: `${LEGACY_PROVIDER_PREFIX}claude-opus-4.7`,
     to: 'openai-chat-claude-opus-4.7',
   },
   {
-    from: ['we', 'bex-gpt-5.4'].join(''),
+    from: `${LEGACY_PROVIDER_PREFIX}gpt-5.4`,
     to: 'openai-chat-gpt-5.4',
   },
   {
-    from: ['we', 'bex-gemini-3-pro-image'].join(''),
+    from: `${LEGACY_PROVIDER_PREFIX}gemini-3-pro-image`,
     to: 'google-generate-content-gemini-3-pro-image',
+  },
+  {
+    from: `${LEGACY_PROVIDER_PREFIX}claude-opus-4.7-converse`,
+    to: 'bedrock-converse-claude-opus-4.7',
   },
 ];
 
@@ -202,6 +208,25 @@ async function renameLegacyProviderIds() {
   }
 }
 
+async function deleteRemainingLegacyProviderIds() {
+  await prisma.llm_parse_job.updateMany({
+    where: {
+      provider_id: {
+        startsWith: LEGACY_PROVIDER_PREFIX,
+      },
+    },
+    data: { provider_id: 'openai-chat-claude-opus-4.7' },
+  });
+
+  await prisma.llm_provider.deleteMany({
+    where: {
+      id: {
+        startsWith: LEGACY_PROVIDER_PREFIX,
+      },
+    },
+  });
+}
+
 async function seedLLMProviders() {
   await renameLegacyProviderIds();
 
@@ -224,6 +249,7 @@ async function seedLLMProviders() {
       create: p,
     });
   }
+  await deleteRemainingLegacyProviderIds();
   console.info(`🌱 llm_provider seeded: ${PROVIDERS.map((p) => p.id).join(' / ')}`);
 }
 

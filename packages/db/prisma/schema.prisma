@@ -439,7 +439,7 @@ model llm_provider {
   id                 String      @id
   /// 协议类型（决定 llm-client 走哪条请求构造 / 响应解析分支）
   protocol           LLMProtocol
-  /// HTTPS 端点完整 URL
+  /// HTTPS 端点完整 URL，或 env:ENV_VAR_NAME 形式的运行时环境变量引用
   endpoint           String
   /// 真实模型名（透传到 body.model 或 URL path）
   model              String

@@ -39,6 +39,7 @@ export function providerToTarget(provider: ProviderRecord): ResolvedProviderTarg
   if (!apiKey) {
     throw new Error(`env var ${provider.auth_env_var} not set; required by provider ${provider.id}`);
   }
+  const endpoint = resolveEndpoint(provider.endpoint, provider.id);
 
   const defaultParams = toRecord(provider.default_params);
   const quirks = toRecord(provider.quirks);
@@ -63,7 +64,7 @@ export function providerToTarget(provider: ProviderRecord): ResolvedProviderTarg
       provider: provider.protocol,
       api_shape: apiShapeForProtocol(provider.protocol),
       model: provider.model,
-      path: provider.endpoint,
+      path: endpoint,
       headers: {
         'Content-Type': 'application/json',
         Authorization: 'Bearer ${LLM_PROXY_API_KEY}',
@@ -88,6 +89,17 @@ function apiShapeForProtocol(protocol: string) {
     default:
       throw new Error(`Unknown LLM protocol: ${protocol}`);
   }
+}
+
+function resolveEndpoint(endpoint: string, providerId: string): string {
+  if (!endpoint.startsWith('env:')) return endpoint;
+
+  const envVar = endpoint.slice('env:'.length).trim();
+  if (!envVar) throw new Error(`empty endpoint env reference for provider ${providerId}`);
+
+  const value = process.env[envVar]?.trim();
+  if (!value) throw new Error(`env var ${envVar} not set; required as endpoint by provider ${providerId}`);
+  return value;
 }
 
 function toRecord(value: unknown): Record<string, unknown> {
