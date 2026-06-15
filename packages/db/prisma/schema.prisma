@@ -61,6 +61,7 @@ enum QuestionType {
 enum LLMProtocol {
   openai_chat /// OpenAI /v1/chat/completions 协议
   google_generate_content /// Google /v1/models/*:generateContent 协议
+  bedrock_converse /// Bedrock /converse 协议
 }
 
 /// LLM 解析任务种类（运营端 F2.2 默认 Provider 绑定维度）
@@ -427,8 +428,8 @@ model audit_log {
 // ══════════════════════════════════════════════════════════════════
 
 /// LLM Provider 配置
-/// MVP 通过 seed 写入：webex-gemini-3.1-pro / webex-gemini-3.5-flash /
-/// webex-claude-opus-4.7 / webex-gpt-5.4 / webex-gemini-3-pro-image
+/// MVP 通过 seed 写入：openai-chat-* / google-generate-content-* /
+/// bedrock-converse-* 系列 Provider。
 ///
 /// 模型族行为差异由 packages/llm adapter/provider-target.ts 映射到 how-to-use 同步层
 /// llmTarget；业务层调用方仍然只用 analyzeKnowledgePoints/analyzeQuestions，

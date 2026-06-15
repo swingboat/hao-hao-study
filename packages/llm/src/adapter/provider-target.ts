@@ -83,6 +83,8 @@ function apiShapeForProtocol(protocol: string) {
       return 'openai-chat-completions';
     case 'google_generate_content':
       return 'google-generate-content';
+    case 'bedrock_converse':
+      return 'bedrock-converse';
     default:
       throw new Error(`Unknown LLM protocol: ${protocol}`);
   }

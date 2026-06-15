@@ -2404,10 +2404,10 @@ audit_log
 | 部署 | Web 部署平台 | ✅ 已确认：Vercel（D1） |
 | 后端 | 后端框架选型 | ✅ 已确认：Next.js 15 Route Handlers + tRPC v11（D2/D5） |
 | 数据库 | DB / 缓存 | ✅ 已确认：PostgreSQL 16（Neon）+ Redis 7（Upstash）+ Prisma 6（D3） |
-| AI 服务 | LLM 服务选型 | ✅ 已确认：Webex LLM Proxy 双 Provider（gemini-3.1-pro / gemini-3-pro-image），自写抽象层（D5） |
+| AI 服务 | LLM 服务选型 | ✅ 已确认：LLM Proxy 多 Provider（OpenAI-compatible / Google GenerateContent / Bedrock Converse），自写抽象层（D5） |
 | 域名 | 学生 / 运营隔离 | ✅ 已确认：不同子域 `app.*` vs `admin.*`（D4） |
 | 合规 | 监护人同意页面文案与法律审阅 | 待确认（线下流程） |
-| 安全 | `WEBEX_LLM_TOKEN` 轮换 | ⚠️ 待执行（旧 token 已在对话历史中暴露） |
+| 安全 | `LLM_PROXY_API_KEY` 轮换 | ⚠️ 待执行（旧 token 已在对话历史中暴露） |
 
 > 完整技术栈、仓库结构、env、风险对策、交付组件清单 M0–M10 见 [`docs/Tech_Stack_MVP_v0.1.md`](../Tech_Stack_MVP_v0.1.md)。
 

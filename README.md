@@ -23,7 +23,7 @@ hao-hao-study/
 ├── packages/
 │   ├── db/                 # Prisma schema + client（@hao/db）
 │   ├── shared/             # 跨端共享业务逻辑（@hao/shared）
-│   ├── llm/                # Webex LLM 抽象层（@hao/llm）
+│   ├── llm/                # LLM Proxy 抽象层（@hao/llm）
 │   └── ui/                 # 共享 React 组件（@hao/ui）
 ├── docs/                   # PRD + Tech Stack + 协作协议
 ├── scripts/                # worktree 初始化与同步脚本

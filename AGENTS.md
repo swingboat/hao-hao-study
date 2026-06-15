@@ -42,13 +42,13 @@
 
 6. **`max_output_tokens` / `default_params.max_tokens` 设置规则**（thinking 模型友好）：
 
-   背景：Webex proxy 上的 Gemini 3.x（pro / flash）是 thinking 模型——每次回答前先在内部"想"一段（计入 `usage.completion_tokens_details.reasoning_tokens`），再吐 visible content。请求里的 `max_tokens` 是**两者共享的硬预算**：
+   背景：LLM Proxy 上的 Gemini 3.x（pro / flash）是 thinking 模型——每次回答前先在内部"想"一段（计入 `usage.completion_tokens_details.reasoning_tokens`），再吐 visible content。请求里的 `max_tokens` 是**两者共享的硬预算**：
 
    ```
    reasoning_tokens + completion_tokens(visible) ≤ max_tokens
    ```
 
-   `reasoning_tokens` 量级依 prompt 复杂度和 schema 嵌套深度变化（F3 questions 实测 3.5k–5.4k，KP 实测低很多）。设小了 → reasoning 把预算烧光 → visible 被切到一两百字符 → `finish_reason="length"` + 半截 JSON（`results/probe-questions-extract/.../2026-06-10T06-41-27-908_webex-gemini-3.1-pro_ppc2_strict/` 实测）。
+   `reasoning_tokens` 量级依 prompt 复杂度和 schema 嵌套深度变化（F3 questions 实测 3.5k–5.4k，KP 实测低很多）。设小了 → reasoning 把预算烧光 → visible 被切到一两百字符 → `finish_reason="length"` + 半截 JSON（历史 F3 抽题探针实测）。
 
    规则：
    - **未实测过真实输出上限时**，`max_output_tokens` 留 `null`，且 `default_params.max_tokens` **也不要设**，让上游用自己的默认值。

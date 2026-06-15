@@ -51,7 +51,7 @@
 - **系统执行** 持久化默认绑定（每个 task_kind 仅 1 个默认 Provider），后续上传文件若不显式指定，自动使用该 Provider，
 - **界面显示** 顶部三行下拉："题目解析默认 / 知识点解析默认 / Goal Template 解析默认"，保存时 toast "已更新"。
 
-> v0.1 内置 Provider 至少 2 条：`webex-gemini-3.1-pro`（OpenAI 协议）、`webex-gemini-3-pro-image`（Google 协议）。Token 仅从 `WEBEX_LLM_TOKEN` env var 读取，不入库、不出现在前端。
+> v0.1 内置 Provider 至少 4 条：`openai-chat-gemini-3.1-pro`、`openai-chat-claude-opus-4.7`、`google-generate-content-gemini-3-pro-image`、`bedrock-converse-claude-opus-4.7`。Provider id 使用 `<protocol-slug>-<model-slug>` 命名；Token 仅从 `LLM_PROXY_API_KEY` env var 读取，不入库、不出现在前端。
 
 ---
 
@@ -223,7 +223,7 @@
 > 总耗时目标：**单一运营人员 ≤ 4 小时**完成。
 
 1. 管理员通过 F1.1 登录后台。
-2. 在 `/admin/settings/llm` 通过 F2.1 / F2.2 确认 2 个 Webex Provider 已启用，将"题目解析默认"绑定为 `webex-gemini-3-pro-image`，"知识点解析默认"绑定为 `webex-gemini-3.1-pro`。
+2. 在 `/admin/settings/llm` 通过 F2.1 / F2.2 确认所需 LLM Provider 已启用，将"题目解析默认"绑定为 `openai-chat-gemini-3.1-pro`，"知识点解析默认"绑定为 `openai-chat-gemini-3.1-pro` 或 `bedrock-converse-claude-opus-4.7`。
 3. 在 `/admin/kps` 通过 F4.2 手动建立 1 条 subject（如 `math`）和 30–50 条 KP（或走 F4.3 上传教材 PDF 解析后批量接受）。
 4. 在 `/admin/questions/import` 通过 F3.1 上传题集 PDF，通过 F3.2 触发 LLM 解析。
 5. 在 staging 列表（F3.3）逐题打开 diff 抽屉（F3.4），通过 F3.5 把 LLM 给出的 `kp_hints` 映射到第 3 步建好的正式 KP。对置信度低的题用 F3.6 换模型重跑。
@@ -301,25 +301,34 @@
 
 ## §7 LLM Provider 初始注册（v0.1 内置）
 
-> v0.1 通过启动脚本写入 `llm_provider` 表的 2 条记录。
+> v0.1 通过启动脚本写入 `llm_provider` 表的内置记录。真实 endpoint 只从环境变量读取，不写入代码仓库。
 
 ```yaml
-- id: webex-gemini-3.1-pro
+- id: openai-chat-gemini-3.1-pro
   protocol: openai_chat
-  endpoint: https://llm-proxy.us-east-2.int.infra.intelligence.webex.com/openai/v1/chat/completions
+  endpoint_env: LLM_PROXY_OPENAI_CHAT_ENDPOINT
   model: google.gemini-3.1-pro-global
   capabilities: { text: true, vision: true, pdf: true, structured_output: true }
-  auth_env_var: WEBEX_LLM_TOKEN
-  default_params: { temperature: 0.2, max_tokens: 8192 }
+  auth_env_var: LLM_PROXY_API_KEY
+  default_params: { temperature: 0.2 }
   enabled: true
 
-- id: webex-gemini-3-pro-image
+- id: google-generate-content-gemini-3-pro-image
   protocol: google_generate_content
-  endpoint: https://llm-proxy.us-east-2.int.infra.intelligence.webex.com/google/v1/models/google.gemini-3-pro-image-preview:generateContent
+  endpoint_env: LLM_PROXY_GOOGLE_GENERATE_CONTENT_GEMINI_3_PRO_IMAGE_ENDPOINT
   model: google.gemini-3-pro-image-preview
   capabilities: { text: true, vision: true, pdf: false, structured_output: true }
-  auth_env_var: WEBEX_LLM_TOKEN
+  auth_env_var: LLM_PROXY_API_KEY
   default_params: { temperature: 0.7, max_tokens: 1024 }
+  enabled: true
+
+- id: bedrock-converse-claude-opus-4.7
+  protocol: bedrock_converse
+  endpoint_env: LLM_PROXY_BEDROCK_CONVERSE_CLAUDE_OPUS_4_7_ENDPOINT
+  model: anthropic.claude-opus-4-7
+  capabilities: { text: true, vision: true, pdf: false, structured_output: true }
+  auth_env_var: LLM_PROXY_API_KEY
+  default_params: { max_tokens: 16384 }
   enabled: true
 ```
 

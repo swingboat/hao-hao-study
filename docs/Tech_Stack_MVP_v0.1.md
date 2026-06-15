@@ -16,7 +16,7 @@
 | **D2** | 仓库结构 | **monorepo**（pnpm workspaces，学生端 / 运营端共仓） | 共享数据模型（14 张表）与三池凑题逻辑，monorepo 减少同步成本 |
 | **D3** | ORM | **Prisma 6** | 迁移工具完备，jsonb / uuid[] / 复合主键原生支持，团队上手成本低 |
 | **D4** | 学生 / 运营域名分离 | **不同子域**：`app.*`（学生）vs `admin.*`（运营） | cookie 完全隔离，安全审计省事，避免路径前缀的鉴权中间件复杂度 |
-| **D5** | LLM 抽象层 | **自写 fetch + 协议适配**，不引入 SDK | Webex Proxy 是非标端点，SDK 反而碍事；自写 ≤ 200 行，易维护 |
+| **D5** | LLM 抽象层 | **自写 fetch + 协议适配**，不引入 SDK | LLM Proxy 端点形态多样，SDK 反而碍事；自写适配层易维护 |
 
 ---
 
@@ -51,10 +51,11 @@
 | 同步层 | **`packages/llm/src/business|documents|llm|types|display`** | 与 `how-to-use-llm-proxy/src` 同名目录/文件保持一致；承载 prompt、文档渲染、LLM 调用和解析逻辑 |
 | 当前项目适配层 | **`packages/llm/src/adapter`** | `providerId → llmTarget/apiKey`，对外只暴露 `analyzeKnowledgePoints` / `analyzeQuestions` |
 | 教育解析编排 | **`analyzeKnowledgePoints` / `analyzeQuestions`**（packages/llm） | LLM 业务解析能力先在 `how-to-use-llm-proxy` 验证通过，再同步到本包；业务侧不要直接拼 prompt / schema / PDF 渲染 / LLM 循环 |
-| Provider 1 | `webex-gemini-3.1-pro`（OpenAI 协议） | 文本 KP / Goal Template 解析 |
-| Provider 2 | `webex-gemini-3-pro-image`（Google 协议） | 图片 / 题集 vision 解析（默认 question 解析） |
-| Provider 3 | `webex-claude-opus-4.7`（OpenAI 协议） | 纯文本 KP 抽取生产首选（探针 113/113 通过） |
-| Token 管理 | env var `WEBEX_LLM_TOKEN`，运行时读取 | 不入库、不出现在前端、不打日志 |
+| Provider 1 | `openai-chat-gemini-3.1-pro` | OpenAI-compatible 协议；文本 KP / Goal Template 解析 |
+| Provider 2 | `google-generate-content-gemini-3-pro-image` | Google GenerateContent 协议；图片 / 题集 vision 解析 |
+| Provider 3 | `openai-chat-claude-opus-4.7` | OpenAI-compatible 协议；纯文本 KP 抽取生产首选（探针 113/113 通过） |
+| Provider 4 | `bedrock-converse-claude-opus-4.7` | Bedrock Converse 协议；Claude Opus 4.7 备用接入 |
+| Token 管理 | env var `LLM_PROXY_API_KEY`，运行时读取 | 不入库、不出现在前端、不打日志 |
 | 日志脱敏 | `how-to-use-llm-proxy` 同步层 `payload-log` | payload 日志能力随同步层演进；业务侧不自行记录明文 token |
 
 ### §2.4 测试与质量
@@ -153,7 +154,10 @@ R2_BUCKET=hao-hao-uploads
 R2_PUBLIC_URL=https://...
 
 # ─── LLM ───
-WEBEX_LLM_TOKEN=...                  # ⚠️ 仅运行时读取，禁止入库 / 入日志 / 入前端 bundle
+LLM_PROXY_API_KEY=...                # ⚠️ 仅运行时读取，禁止入库 / 入日志 / 入前端 bundle
+LLM_PROXY_OPENAI_CHAT_ENDPOINT=...
+LLM_PROXY_GOOGLE_GENERATE_CONTENT_GEMINI_3_PRO_IMAGE_ENDPOINT=...
+LLM_PROXY_BEDROCK_CONVERSE_CLAUDE_OPUS_4_7_ENDPOINT=...
 
 # ─── 鉴权 ───
 AUTH_SECRET=...                      # Auth.js 签名密钥
@@ -179,7 +183,7 @@ NEXT_PUBLIC_ADMIN_URL=https://admin.example.com
 |---|---|---|
 | **G3.3 事务原子性**：跨 6 步，默认隔离级别可能不够 | Prisma `$transaction({ isolationLevel: 'Serializable' })` + 失败重试 1 次 | 学生端 T5（故障注入） |
 | **PARSE_JOB 大文件**：PDF 单次可能超 LLM token 上限 | 上传时按页切片，每页一个 PARSE_JOB；UI 合并 staging 展示 | 运营端 §5.2 Q2 延迟 P95 ≤ 60s |
-| **Webex LLM Proxy 不稳定**：内部代理 5xx 概率 | 同步层逐页解析支持 retry；失败落 `PARSE_JOB.status='failed'`；运营端 F3.6 单条重跑兜底 | 运营端 T10（mock 5xx） |
+| **LLM Proxy 不稳定**：代理 5xx 概率 | 同步层逐页解析支持 retry；失败落 `PARSE_JOB.status='failed'`；运营端 F3.6 单条重跑兜底 | 运营端 T10（mock 5xx） |
 | **学生端 unlocked 过滤漏判**：任何漏过滤即数据泄漏 | tRPC middleware 注入 student context；DB 查询统一通过 `withUnlockedFilter()` helper | 学生端 T3 / T9 |
 | **Auth.js 单管理员账号防爆破** | Upstash Ratelimit：错误 5 次 → 锁 IP 15 分钟 | 单测 + 手动渗透测试 |
 | **Vercel serverless 冷启动** | DB / Redis 同区域；关键路径预热 cron 每 5 min ping `/api/health` | RUM 监控 P95 |
@@ -237,7 +241,7 @@ NEXT_PUBLIC_ADMIN_URL=https://admin.example.com
 
 实施 M10 前必须全部 ✅：
 
-- [ ] `WEBEX_LLM_TOKEN` 已轮换（旧 token 在对话历史中已暴露）
+- [ ] `LLM_PROXY_API_KEY` 已轮换（旧 token 在对话历史中已暴露）
 - [ ] CI grep 全代码库无明文 token / password / secret
 - [ ] `.env` 不在 Git 历史中
 - [ ] PARSE_JOB.request_payload 入库前已脱敏（运营端 T9 单测覆盖）

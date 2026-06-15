@@ -13,12 +13,12 @@ vi.mock('@hao/db', () => ({
 const { analyzeKnowledgePoints, analyzeQuestions } = await import('./index');
 
 const OPENAI_PROVIDER = {
-  id: 'webex-gemini-3.1-pro',
+  id: 'openai-chat-gemini-3.1-pro',
   protocol: 'openai_chat',
   endpoint: 'https://example.com/openai/v1/chat/completions',
   model: 'google.gemini-3.1-pro-global',
   capabilities: { text: true, vision: true },
-  auth_env_var: 'WEBEX_LLM_TOKEN',
+  auth_env_var: 'LLM_PROXY_API_KEY',
   default_params: { temperature: 0.2 },
   max_output_tokens: null,
   quirks: {},
@@ -27,12 +27,12 @@ const OPENAI_PROVIDER = {
 };
 
 beforeEach(() => {
-  process.env.WEBEX_LLM_TOKEN = 'test-token-xyz';
+  process.env.LLM_PROXY_API_KEY = 'test-token-xyz';
   findUnique.mockReset();
 });
 
 afterEach(() => {
-  delete process.env.WEBEX_LLM_TOKEN;
+  process.env.LLM_PROXY_API_KEY = undefined;
 });
 
 describe('@hao/llm adapter education analysis API', () => {
@@ -48,7 +48,7 @@ describe('@hao/llm adapter education analysis API', () => {
       });
       expect(request.llmTarget).toEqual(
         expect.objectContaining({
-          id: 'webex-gemini-3.1-pro',
+          id: 'openai-chat-gemini-3.1-pro',
           provider: 'openai_chat',
           api_shape: 'openai-chat-completions',
           model: 'google.gemini-3.1-pro-global',
@@ -93,7 +93,7 @@ describe('@hao/llm adapter education analysis API', () => {
     });
 
     const result = await analyzeKnowledgePoints({
-      providerId: 'webex-gemini-3.1-pro',
+      providerId: 'openai-chat-gemini-3.1-pro',
       file: {
         type: 'pdf',
         name: 'textbook.pdf',
@@ -102,12 +102,12 @@ describe('@hao/llm adapter education analysis API', () => {
       parsePdfKnowledgePointsImpl,
     });
 
-    expect(findUnique).toHaveBeenCalledWith({ where: { id: 'webex-gemini-3.1-pro' } });
+    expect(findUnique).toHaveBeenCalledWith({ where: { id: 'openai-chat-gemini-3.1-pro' } });
     expect(parsePdfKnowledgePointsImpl).toHaveBeenCalledTimes(1);
     expect(result.kind).toBe('knowledge_points');
     expect(result.llm).toEqual({
-      llm_target_id: 'webex-gemini-3.1-pro',
-      target_id: 'webex-gemini-3.1-pro',
+      llm_target_id: 'openai-chat-gemini-3.1-pro',
+      target_id: 'openai-chat-gemini-3.1-pro',
       provider: 'openai_chat',
       model: 'google.gemini-3.1-pro-global',
       api_shape: 'openai-chat-completions',
@@ -126,7 +126,7 @@ describe('@hao/llm adapter education analysis API', () => {
         name: 'questions.docx',
         path: '/tmp/questions.docx',
       });
-      expect(request.llmTarget.id).toBe('webex-gemini-3.1-pro');
+      expect(request.llmTarget.id).toBe('openai-chat-gemini-3.1-pro');
       expect(request.pagePrompt({ pageNumber: 1, totalPages: 1 })).toContain('id=ks1-kp-1');
 
       return {
@@ -156,7 +156,7 @@ describe('@hao/llm adapter education analysis API', () => {
     });
 
     const result = await analyzeQuestions({
-      providerId: 'webex-gemini-3.1-pro',
+      providerId: 'openai-chat-gemini-3.1-pro',
       file: {
         type: 'word',
         name: 'questions.docx',
@@ -176,7 +176,7 @@ describe('@hao/llm adapter education analysis API', () => {
     expect(parsePdfQuestionsImpl).not.toHaveBeenCalled();
     expect(parseWordQuestionsImpl).toHaveBeenCalledTimes(1);
     expect(result.kind).toBe('questions');
-    expect(result.llm.target_id).toBe('webex-gemini-3.1-pro');
+    expect(result.llm.target_id).toBe('openai-chat-gemini-3.1-pro');
     expect(result.questions[0]?.id).toBe(9);
   });
 });

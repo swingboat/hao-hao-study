@@ -2,8 +2,8 @@
  * 种子数据 — v0.1 MVP 启动时的最小冷启动数据。
  *
  * 已实现：
- *   - llm_provider × 5（Webex 代理上的 Gemini 3.1 Pro / Gemini 3.5 Flash /
- *     Claude Opus 4.7 / GPT-5.4 / Gemini 3 Pro Image）
+ *   - llm_provider × 6（Gemini 3.1 Pro / Gemini 3.5 Flash / Claude Opus 4.7 /
+ *     GPT-5.4 / Gemini 3 Pro Image / Claude Opus 4.7 Bedrock Converse）
  *     来源：docs/PRD/Operator_Console_MVP_PRD.md §7 + 2026-06-05 KP 探针实测结果
  *   - subject × 3（math_primary / math_junior / math_senior）—— v0.1 学生注册仅 senior，
  *     另外两条预留 v0.2+；命名遵循 "<discipline>_<stage>" 约定，与 packages/shared/labels
@@ -11,7 +11,7 @@
  *
  * 模型族行为差异由 packages/llm 的 adapter/provider-target.ts 映射到 how-to-use
  * 同步层 llmTarget；业务层调用方仍然只用 analyzeKnowledgePoints/analyzeQuestions，
- * 看不到 Gemini / Claude / GPT 的协议差别。
+ * 看不到 OpenAI-compatible / Google GenerateContent / Bedrock Converse 的协议差别。
  *
  * 待补：
  *   - knowledge_point 冷启动包 — 待运营端 F4 真实教材解析后注入
@@ -20,24 +20,32 @@ import { type Prisma, PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-/**
- * Webex LLM Proxy host —— 代理转发 OpenAI / Google / Anthropic 三种协议。
- * 鉴权统一走 `Authorization: Bearer $WEBEX_LLM_TOKEN`。
- */
-const WEBEX_HOST = 'https://llm-proxy.us-east-2.int.infra.intelligence.webex.com';
-const WEBEX_OPENAI_CHAT = `${WEBEX_HOST}/openai/v1/chat/completions`;
-
 type ProviderSeed = Omit<Prisma.llm_providerCreateInput, 'created_at'>;
+
+const LLM_PROXY_API_KEY_ENV = 'LLM_PROXY_API_KEY';
+const OPENAI_CHAT_ENDPOINT_ENV = 'LLM_PROXY_OPENAI_CHAT_ENDPOINT';
+const GOOGLE_GEMINI_3_PRO_IMAGE_ENDPOINT_ENV =
+  'LLM_PROXY_GOOGLE_GENERATE_CONTENT_GEMINI_3_PRO_IMAGE_ENDPOINT';
+const BEDROCK_CLAUDE_OPUS_4_7_ENDPOINT_ENV =
+  'LLM_PROXY_BEDROCK_CONVERSE_CLAUDE_OPUS_4_7_ENDPOINT';
+
+function endpointFromEnv(envVar: string): string {
+  return process.env[envVar]?.trim() || `env:${envVar}`;
+}
+
+function enabledWhenEndpointConfigured(defaultEnabled: boolean, envVar: string): boolean {
+  return defaultEnabled && Boolean(process.env[envVar]?.trim());
+}
 
 const PROVIDERS: ProviderSeed[] = [
   // ── Gemini 3.1 Pro：thinking 模型，max_tokens 留给上游 ──────────────────
   {
-    id: 'webex-gemini-3.1-pro',
+    id: 'openai-chat-gemini-3.1-pro',
     protocol: 'openai_chat',
-    endpoint: WEBEX_OPENAI_CHAT,
+    endpoint: endpointFromEnv(OPENAI_CHAT_ENDPOINT_ENV),
     model: 'google.gemini-3.1-pro-global',
     capabilities: { text: true, vision: true, pdf: true, structured_output: true },
-    auth_env_var: 'WEBEX_LLM_TOKEN',
+    auth_env_var: LLM_PROXY_API_KEY_ENV,
     // 不要写 max_tokens：详见 AGENTS.md §通用规则·5。
     // Gemini 3.x 是 thinking 模型，max_tokens 是 reasoning_tokens + visible 共享预算；
     // 探针 results/probe-questions-extract/...mtnone/ 实测：F3 抽题 reasoning 烧 3.5k-5.4k，
@@ -49,18 +57,18 @@ const PROVIDERS: ProviderSeed[] = [
     max_output_tokens: null,
     quirks: {},
     output_normalizers: [],
-    enabled: true,
+    enabled: enabledWhenEndpointConfigured(true, OPENAI_CHAT_ENDPOINT_ENV),
   },
 
   // ── Gemini 3.5 Flash：thinking 模型，同 3.1-pro 处理 ───────────────────
   {
-    id: 'webex-gemini-3.5-flash',
+    id: 'openai-chat-gemini-3.5-flash',
     protocol: 'openai_chat',
-    endpoint: WEBEX_OPENAI_CHAT,
+    endpoint: endpointFromEnv(OPENAI_CHAT_ENDPOINT_ENV),
     model: 'google.gemini-3.5-flash-global',
     capabilities: { text: true, vision: false, pdf: false, structured_output: true },
-    auth_env_var: 'WEBEX_LLM_TOKEN',
-    // 同 webex-gemini-3.1-pro，不设 max_tokens（Flash 同样是 thinking 模型，
+    auth_env_var: LLM_PROXY_API_KEY_ENV,
+    // 同 openai-chat-gemini-3.1-pro，不设 max_tokens（Flash 同样是 thinking 模型，
     // 探针实测 reasoning_tokens=1920 / max_tokens=2000 → visible 被完全吞掉）
     default_params: { temperature: 0.2 },
     max_output_tokens: null,
@@ -71,35 +79,35 @@ const PROVIDERS: ProviderSeed[] = [
 
   // ── Claude Opus 4.7：F4 KP 解析生产首选；Q3 + Q4 两个 quirks ────────────
   {
-    id: 'webex-claude-opus-4.7',
+    id: 'openai-chat-claude-opus-4.7',
     protocol: 'openai_chat',
-    endpoint: WEBEX_OPENAI_CHAT,
+    endpoint: endpointFromEnv(OPENAI_CHAT_ENDPOINT_ENV),
     model: 'anthropic.claude-opus-4-7',
     capabilities: { text: true, vision: true, pdf: false, structured_output: true },
-    auth_env_var: 'WEBEX_LLM_TOKEN',
+    auth_env_var: LLM_PROXY_API_KEY_ENV,
     // 不放 temperature：Claude 4.7 拒收 temperature 字段，发了 400
     default_params: { max_tokens: 16384 },
     max_output_tokens: null, // 未实测真上限；探针 113 条全本 KP 输出未触顶
     quirks: {
       // Q3：Claude 4.7 deprecated temperature
       supports_temperature: false,
-      // Q4：Webex proxy 见 response_format 会注入 temperature → 同上 400；
+      // Q4：该协议路径见 response_format 会注入 temperature → 同上 400；
       // how-to-use 同步层不直接暴露 response_format；结构化约束由公共 prompt/schema 演进。
       // 探针实测 Claude Opus 4.7 对 prompt-引导 JSON 输出服从性极高（113/113 schema 通过）。
       supports_response_format: false,
     },
     output_normalizers: [], // Claude 输出已规范，无需后处理
-    enabled: true,
+    enabled: enabledWhenEndpointConfigured(true, OPENAI_CHAT_ENDPOINT_ENV),
   },
 
   // ── GPT-5.4：max_completion_tokens + 全角点号 normalize ────────────────
   {
-    id: 'webex-gpt-5.4',
+    id: 'openai-chat-gpt-5.4',
     protocol: 'openai_chat',
-    endpoint: WEBEX_OPENAI_CHAT,
+    endpoint: endpointFromEnv(OPENAI_CHAT_ENDPOINT_ENV),
     model: 'gpt-5.4',
     capabilities: { text: true, vision: true, pdf: false, structured_output: true },
-    auth_env_var: 'WEBEX_LLM_TOKEN',
+    auth_env_var: LLM_PROXY_API_KEY_ENV,
     default_params: { temperature: 0.2, max_tokens: 16384 },
     max_output_tokens: null,
     quirks: {
@@ -110,26 +118,93 @@ const PROVIDERS: ProviderSeed[] = [
       'zh_punct_to_ascii', // Q6 之 1：1．1 → 1.1
       'prefix_chapter_with_section_sign', // Q6 之 2：1.1 → §1.1
     ],
-    enabled: true,
+    enabled: enabledWhenEndpointConfigured(true, OPENAI_CHAT_ENDPOINT_ENV),
   },
 
   // ── Gemini 3 Pro Image（已有，保留；Google 协议） ──────────────────────
   {
-    id: 'webex-gemini-3-pro-image',
+    id: 'google-generate-content-gemini-3-pro-image',
     protocol: 'google_generate_content',
-    endpoint: `${WEBEX_HOST}/google/v1/models/google.gemini-3-pro-image-preview:generateContent`,
+    endpoint: endpointFromEnv(GOOGLE_GEMINI_3_PRO_IMAGE_ENDPOINT_ENV),
     model: 'google.gemini-3-pro-image-preview',
     capabilities: { text: true, vision: true, pdf: false, structured_output: true },
-    auth_env_var: 'WEBEX_LLM_TOKEN',
+    auth_env_var: LLM_PROXY_API_KEY_ENV,
     default_params: { temperature: 0.7, max_tokens: 1024 },
     max_output_tokens: null,
     quirks: {},
     output_normalizers: [],
-    enabled: true,
+    enabled: enabledWhenEndpointConfigured(true, GOOGLE_GEMINI_3_PRO_IMAGE_ENDPOINT_ENV),
+  },
+
+  // ── Claude Opus 4.7（Bedrock Converse 协议）────────────────────────────
+  {
+    id: 'bedrock-converse-claude-opus-4.7',
+    protocol: 'bedrock_converse',
+    endpoint: endpointFromEnv(BEDROCK_CLAUDE_OPUS_4_7_ENDPOINT_ENV),
+    model: 'anthropic.claude-opus-4-7',
+    capabilities: { text: true, vision: true, pdf: false, structured_output: true },
+    auth_env_var: LLM_PROXY_API_KEY_ENV,
+    default_params: { max_tokens: 16384 },
+    max_output_tokens: null,
+    quirks: {
+      supports_temperature: false,
+      supports_response_format: false,
+    },
+    output_normalizers: [],
+    enabled: enabledWhenEndpointConfigured(true, BEDROCK_CLAUDE_OPUS_4_7_ENDPOINT_ENV),
   },
 ];
 
+const LEGACY_PROVIDER_RENAMES = [
+  {
+    from: ['we', 'bex-gemini-3.1-pro'].join(''),
+    to: 'openai-chat-gemini-3.1-pro',
+  },
+  {
+    from: ['we', 'bex-gemini-3.5-flash'].join(''),
+    to: 'openai-chat-gemini-3.5-flash',
+  },
+  {
+    from: ['we', 'bex-claude-opus-4.7'].join(''),
+    to: 'openai-chat-claude-opus-4.7',
+  },
+  {
+    from: ['we', 'bex-gpt-5.4'].join(''),
+    to: 'openai-chat-gpt-5.4',
+  },
+  {
+    from: ['we', 'bex-gemini-3-pro-image'].join(''),
+    to: 'google-generate-content-gemini-3-pro-image',
+  },
+];
+
+async function renameLegacyProviderIds() {
+  for (const { from, to } of LEGACY_PROVIDER_RENAMES) {
+    const legacy = await prisma.llm_provider.findUnique({ where: { id: from } });
+    if (!legacy) continue;
+
+    const current = await prisma.llm_provider.findUnique({ where: { id: to } });
+    if (current) {
+      await prisma.$transaction([
+        prisma.llm_parse_job.updateMany({
+          where: { provider_id: from },
+          data: { provider_id: to },
+        }),
+        prisma.llm_provider.delete({ where: { id: from } }),
+      ]);
+      continue;
+    }
+
+    await prisma.llm_provider.update({
+      where: { id: from },
+      data: { id: to },
+    });
+  }
+}
+
 async function seedLLMProviders() {
+  await renameLegacyProviderIds();
+
   for (const p of PROVIDERS) {
     // upsert 时 update 全部字段，保证后续修 quirks / max_output_tokens 时重跑 seed 能落库
     await prisma.llm_provider.upsert({
