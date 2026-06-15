@@ -61,7 +61,6 @@ enum QuestionType {
 enum LLMProtocol {
   openai_chat /// OpenAI /v1/chat/completions 协议
   google_generate_content /// Google /v1/models/*:generateContent 协议
-  bedrock_converse /// AWS Bedrock Converse 协议（Webex proxy 上 Claude Opus 4.7 走此路径，原生支持 PDF document part）
 }
 
 /// LLM 解析任务种类（运营端 F2.2 默认 Provider 绑定维度）
@@ -431,13 +430,13 @@ model audit_log {
 /// MVP 通过 seed 写入：webex-gemini-3.1-pro / webex-gemini-3.5-flash /
 /// webex-claude-opus-4.7 / webex-gpt-5.4 / webex-gemini-3-pro-image
 ///
-/// 模型族行为差异（quirks / max_output_tokens / output_normalizers）由 adapter 按
-/// 字段值装请求 / 后处理输出，业务层调用方仍然只用 callLLM(providerId, prompt, schema?)，
-/// 看不出 Gemini / Claude / GPT 的差别。
+/// 模型族行为差异由 packages/llm adapter/provider-target.ts 映射到 how-to-use 同步层
+/// llmTarget；业务层调用方仍然只用 analyzeKnowledgePoints/analyzeQuestions，
+/// 看不出 Gemini / Claude / GPT 的协议差别。
 model llm_provider {
   /// 主键，运营自定义 slug
   id                 String      @id
-  /// 协议类型（决定 callLLM 适配器走哪条分支）
+  /// 协议类型（决定 llm-client 走哪条请求构造 / 响应解析分支）
   protocol           LLMProtocol
   /// HTTPS 端点完整 URL
   endpoint           String
@@ -449,16 +448,17 @@ model llm_provider {
   auth_env_var       String
   /// 默认调用参数 { temperature?, max_tokens?, top_p? ... }
   default_params     Json        @default("{}")
-  /// 输出 token 真实可达值。可能远小于模型文档值（例如 Webex proxy 对 Gemini 实测 cap ~2000）。
-  /// callLLM 据此决定要不要分批 / 给 prompt 加输出量提示。null = 未知，按模型文档默认值。
+  /// 输出 token 真实可达值。adapter 可据此向同步层传 maxPageTokens / maxFinalTokens。
+  /// null = 未知，按同步层 / 上游默认值。
   max_output_tokens  Int?
-  /// 模型族行为开关。adapter 按这里的值决定 body 怎么写。已知键：
+  /// 模型族行为开关。adapter 当前只消费 supports_temperature 与 max_tokens_param_name。
+  /// 已知键：
   ///   - supports_temperature       (default true)
   ///   - supports_response_format   (default true)
   ///   - max_tokens_param_name      (default "max_tokens")
-  /// 未知键按 default 行为走。新增 quirk 时同步更新 adapter 实现。
+  /// 未知键按 default 行为走。新增 quirk 时先在 how-to-use 验证，再同步 adapter。
   quirks             Json        @default("{}")
-  /// 输出后处理 normalizer key 列表。adapter 收到 rawText 后顺序执行。
+  /// 输出后处理 normalizer key 列表。保留为 Provider 元数据；业务解析优先在 how-to-use 同步层处理。
   /// 已知 key：
   ///   - zh_punct_to_ascii                  全角点号/逗号 → 半角（U+FF0E → U+002E、U+FF0C → U+002C）
   ///   - prefix_chapter_with_section_sign   章节号没有 § 前缀的自动加上
@@ -529,7 +529,7 @@ model llm_parse_job {
   prompt_version  String
   /// 任务状态
   status          ParseJobStatus @default(queued)
-  /// 实际发出的 body（脱敏后入库；运营端 T9 redactAuthHeaders 强约束）
+  /// 实际发出的 body（如记录 payload，必须由调用侧保证不含明文 token）
   request_payload Json?
   /// LLM 原始返回
   raw_response    Json?

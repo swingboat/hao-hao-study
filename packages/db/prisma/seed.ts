@@ -2,22 +2,21 @@
  * 种子数据 — v0.1 MVP 启动时的最小冷启动数据。
  *
  * 已实现：
- *   - llm_provider × 6（Webex 代理上的 Gemini 3.1 Pro / Gemini 3.5 Flash /
- *     Claude Opus 4.7 / GPT-5.4 / Gemini 3 Pro Image / Claude Opus 4.7 Converse）
- *     来源：docs/PRD/Operator_Console_MVP_PRD.md §7 + 2026-06-05 KP 探针实测结果 +
- *     2026-06-07 PDF Converse 接入
+ *   - llm_provider × 5（Webex 代理上的 Gemini 3.1 Pro / Gemini 3.5 Flash /
+ *     Claude Opus 4.7 / GPT-5.4 / Gemini 3 Pro Image）
+ *     来源：docs/PRD/Operator_Console_MVP_PRD.md §7 + 2026-06-05 KP 探针实测结果
  *   - subject × 3（math_primary / math_junior / math_senior）—— v0.1 学生注册仅 senior，
  *     另外两条预留 v0.2+；命名遵循 "<discipline>_<stage>" 约定，与 packages/shared/labels
  *     的 STAGE_LABEL 字典对齐
  *
- * 模型族行为差异（quirks / max_output_tokens / output_normalizers）由 adapter 按字段值
- * 处理，业务层调用方仍然只用 callLLM(providerId, prompt, schema?)，看不到 Gemini /
- * Claude / GPT 的差别。
+ * 模型族行为差异由 packages/llm 的 adapter/provider-target.ts 映射到 how-to-use
+ * 同步层 llmTarget；业务层调用方仍然只用 analyzeKnowledgePoints/analyzeQuestions，
+ * 看不到 Gemini / Claude / GPT 的协议差别。
  *
  * 待补：
  *   - knowledge_point 冷启动包 — 待运营端 F4 真实教材解析后注入
  */
-import { PrismaClient, type Prisma } from '@prisma/client';
+import { type Prisma, PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -27,7 +26,6 @@ const prisma = new PrismaClient();
  */
 const WEBEX_HOST = 'https://llm-proxy.us-east-2.int.infra.intelligence.webex.com';
 const WEBEX_OPENAI_CHAT = `${WEBEX_HOST}/openai/v1/chat/completions`;
-const WEBEX_BEDROCK_CONVERSE = (model: string) => `${WEBEX_HOST}/bedrock/v1/model/${model}/converse`;
 
 type ProviderSeed = Omit<Prisma.llm_providerCreateInput, 'created_at'>;
 
@@ -86,7 +84,7 @@ const PROVIDERS: ProviderSeed[] = [
       // Q3：Claude 4.7 deprecated temperature
       supports_temperature: false,
       // Q4：Webex proxy 见 response_format 会注入 temperature → 同上 400；
-      // 改为把 schema JSON shape 注入 prompt 末尾，靠 callLLM 后置 zod 校验兜底。
+      // how-to-use 同步层不直接暴露 response_format；结构化约束由公共 prompt/schema 演进。
       // 探针实测 Claude Opus 4.7 对 prompt-引导 JSON 输出服从性极高（113/113 schema 通过）。
       supports_response_format: false,
     },
@@ -129,27 +127,6 @@ const PROVIDERS: ProviderSeed[] = [
     output_normalizers: [],
     enabled: true,
   },
-
-  // ── Claude Opus 4.7 Converse：原生 PDF 解析路径（packages/llm analyzePdf）─────
-  // 与 webex-claude-opus-4.7（openai_chat 协议、纯文本 KP 抽取）并存：KP 文本路径走老 provider，
-  // 教材 / 讲义 / 试卷 PDF 整本分析走本 provider。Converse body 形态：
-  //   {messages:[{role,content:[{text}, {document:{format:'pdf',name,source:{bytes:base64}}}]}],
-  //    inferenceConfig:{maxTokens, temperature?}}
-  // 复用 supports_temperature=false quirk（Claude 4.7 拒收 temperature）；schema 走 prompt
-  // 注入路径（Converse 没有原生 response_format）。
-  {
-    id: 'webex-claude-opus-4.7-converse',
-    protocol: 'bedrock_converse',
-    endpoint: WEBEX_BEDROCK_CONVERSE('anthropic.claude-opus-4-7'),
-    model: 'anthropic.claude-opus-4-7',
-    capabilities: { text: true, vision: true, pdf: true, structured_output: true },
-    auth_env_var: 'WEBEX_LLM_TOKEN',
-    default_params: { max_tokens: 16384 },
-    max_output_tokens: null,
-    quirks: { supports_temperature: false },
-    output_normalizers: [],
-    enabled: true,
-  },
 ];
 
 async function seedLLMProviders() {
@@ -172,7 +149,7 @@ async function seedLLMProviders() {
       create: p,
     });
   }
-  console.log(`🌱 llm_provider seeded: ${PROVIDERS.map((p) => p.id).join(' / ')}`);
+  console.info(`🌱 llm_provider seeded: ${PROVIDERS.map((p) => p.id).join(' / ')}`);
 }
 
 async function seedSubjects() {
@@ -191,7 +168,7 @@ async function seedSubjects() {
       create: s,
     });
   }
-  console.log(`🌱 subject seeded: ${SUBJECTS.map((s) => s.id).join(' / ')}`);
+  console.info(`🌱 subject seeded: ${SUBJECTS.map((s) => s.id).join(' / ')}`);
 }
 
 async function main() {

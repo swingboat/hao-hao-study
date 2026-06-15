@@ -1,8 +1,8 @@
 /**
  * 知识点（KP）解析输出 zod schema — LLM → admin 审核流程契约
  *
- * 用途：admin route 把教材 PDF / 章节文本喂给 LLM，要求 LLM 输出严格符合本 schema 的
- * JSON。callLLM 内部会用本 schema 做 structured-output 校验；不通过则 retry 1 次。
+ * 用途：admin route 接收 @hao/llm 公共解析入口输出后，用本 schema 约束进入 staging
+ * 的知识点候选。LLM prompt/schema 调整必须先在 how-to-use-llm-proxy 验证并同步。
  *
  * 字段对齐策略（与 packages/db/prisma/schema.prisma model knowledge_point 保持收敛）：
  *   - name        必填，对应 knowledge_point.name（min 2 / max 50，约束放在 LLM 这层早 fail）

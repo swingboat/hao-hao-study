@@ -1,142 +1,114 @@
-/**
- * @hao/llm — Webex LLM Proxy 抽象层（Tech Stack D5 / 运营端 PRD §7）
- *
- * 对外契约：
- *   - callLLM(providerId, prompt, schema?, attachments?) → { data, rawText, tokenUsage,
- *     latencyMs, requestPayload, retries }
- *   - analyzePdf({providerId, pdfPath, ...}) → 整本 PDF 分片解析（bedrock_converse 路径）
- *   - analyzeImages({providerId, images, ...}) → 图片 batch 视觉抽题（openai_chat 路径，
- *     默认 webex-gemini-3.1-pro；含 figure bbox）
- *   - cropFiguresToStorage({...}) → bbox 裁切 + 落 ObjectStore + derived_asset 候选
- *   - rasterizePdf(pdfPath, opts) → pdftoppm 渲染每页 PNG（与 analyzeImages 配套）
- *
- * caller 流程：拿到 result.requestPayload → redactAuthHeaders → 落 llm_parse_job
- *
- * 模块清单：
- *   - callLLM.ts                            统一入口（DB 查 provider + dispatch + retry + schema 校验 + 429 退避）
- *   - providers/openai-chat.ts              OpenAI Chat Completions 协议（支持 image attachment）
- *   - providers/google-generate-content.ts  Google generateContent 协议
- *   - providers/bedrock-converse.ts         AWS Bedrock Converse 协议（原生 PDF）—— @deprecated 429 频发，软弃用
- *   - providers/types.ts                    ProviderAdapter 接口 + Attachment 类型（pdf | image）
- *   - pdf/qpdf.ts                           qpdf 命令封装（页数 + 切片）
- *   - pdf/rasterize.ts                      pdftoppm 命令封装（PDF → 每页 PNG）
- *   - pdf/analyze-pdf.ts                    PDF 分片 + 循环 callLLM + 终审整合（bedrock_converse 路径）—— @deprecated 见文件头
- *   - vision/analyze-image-batch.ts         L3 原语：一次 callLLM 喂 N 张图（多 image_url）
- *   - vision/analyze-images.ts              图片 batch 视觉抽题（openai_chat 路径，Gemini vision）
- *   - vision/analyze-images-to-storage.ts   analyzeImages + cropFigures + token 汇总（PDF/image 共用）
- *   - vision/extract-questions-from-pdf.ts      L2 教材抽题：chunked + 完整性自检 + 边界重抽 + dedup
- *   - vision/crop-figures.ts                按 bbox 裁切 + 落 storage + derived_asset 候选
- *   - analyze-file.ts                       L0 文件解析公共层（傻瓜入口：file + prompt → text）
- *   - json-schema.ts                        极简 zod → JSON Schema（structured output 用）
- *   - redact.ts                             请求 body 脱敏（PARSE_JOB.request_payload 入库前必经）
- */
-export {
-  callLLM,
-  extractJsonBlock,
-  LLMHttpError,
-  LLMSchemaError,
-  parseRetryDelaySeconds,
-  type Attachment,
-  type CallLLMOptions,
-  type CallLLMResult,
-} from './callLLM';
-export {
-  /** @deprecated bedrock_converse 路径 429 频发已软弃用，新业务请走 analyzePdfWithVision */
-  analyzePdf,
-  type AnalyzePdfOptions,
-  type AnalyzePdfResult,
-  type AnalyzedChunk,
-  type AnalyzeProgressEvent,
-  type ChunkPromptCtx,
-  type FinalPromptCtx,
-} from './pdf/analyze-pdf';
-export {
-  buildPageRanges,
-  extractPdfChunk,
-  getPdfPageCount,
-  QpdfFailedError,
-  QpdfMissingError,
-} from './pdf/qpdf';
-export {
-  rasterizePdf,
-  PdftoppmFailedError,
-  PdftoppmMissingError,
-  type RasterizePdfOptions,
-  type RasterizedPage,
-} from './pdf/rasterize';
-export {
-  analyzeImages,
-  type AnalyzeImagesOptions,
-  type AnalyzeImagesPromptCtx,
-  type AnalyzeImagesProgressEvent,
-  type AnalyzeImagesResult,
-  type AnalyzedImage,
-  type AnalyzeImagesInputImage,
-  type ExtractedQuestion,
-  type ExtractedResource,
-  type Figure,
-} from './vision/analyze-images';
-export {
-  cropFiguresToStorage,
-  type CropFiguresOptions,
-  type CropFiguresResult,
-  type CroppedFigure,
-} from './vision/crop-figures';
-export {
-  analyzeImagesToStorage,
-  type AnalyzeImagesToStorageOptions,
-  type AnalyzeImagesToStorageEvent,
-  type AnalyzeImagesToStorageResult,
-} from './vision/analyze-images-to-storage';
-export {
-  analyzeImageBatch,
-  type AnalyzeImageBatchInputImage,
-  type AnalyzeImageBatchOptions,
-  type AnalyzeImageBatchResult,
-} from './vision/analyze-image-batch';
-export {
-  runConcurrentPool,
-  callWithSplitFallback,
-  type ConcurrentPoolOpts,
-  type PoolResult,
-  type CallWithSplitFallbackOpts,
-  type CallWithSplitFallbackResult,
-} from './pdf-vision';
-export {
-  extractQuestionsFromPdf,
-  type ExtractQuestionsFromPdfOptions,
-  type ExtractQuestionsFromPdfResult,
-  type ExtractQuestionsProgressEvent,
-} from './vision/extract-questions-from-pdf';
-export {
-  analyzeFile,
-  type AnalyzeFileBaseOptions,
-  type AnalyzeFileImageOptions,
-  type AnalyzeFileImageResult,
-  type AnalyzeFilePdfOptions,
-  type AnalyzeFilePdfResult,
-  type AnalyzeFilePdfPageGroup,
-} from './analyze-file';
-export {
-  analyzePdfWithVision,
-  type AnalyzePdfWithVisionOptions,
-  type AnalyzePdfWithVisionResult,
-  type AnalyzePdfWithVisionEvent,
-} from './pdf/analyze-pdf-with-vision';
-export {
-  analyzeKnowledgePoints,
-  analyzeQuestions,
-  type AnalyzeKnowledgePointsOptions,
-  type AnalyzeQuestionsOptions,
-  type EducationAnalysisFile,
-  type EducationDocumentResult,
-  type EducationPageResult,
-  type EducationProgressEvent,
-  type KnowledgePointAnalysisParserResult,
-  type QuestionAnalysisParserResult,
-} from './education-analysis';
-export { redactAuthHeaders } from './redact';
-export { zodToJsonSchema } from './json-schema';
-export type { ProviderAdapter } from './providers/types';
+import {
+  analyzeKnowledgePoints as analyzeKnowledgePointsImpl,
+  analyzeQuestions as analyzeQuestionsImpl
+} from "./business/education-analysis.ts";
+import {
+  buildFinalDocumentPrompt as buildFinalDocumentPromptImpl,
+  buildImagePrompt as buildImagePromptImpl,
+  buildPagePrompt as buildPagePromptImpl,
+  buildPdfPrompt as buildPdfPromptImpl,
+  buildWordPrompt as buildWordPromptImpl,
+  convertWordToPdf as convertWordToPdfImpl,
+  parseDocumentPages as parseDocumentPagesImpl,
+  parseImage as parseImageImpl,
+  parsePdf as parsePdfImpl,
+  parsePdfDirect as parsePdfDirectImpl,
+  parsePdfPages as parsePdfPagesImpl,
+  parseWord as parseWordImpl,
+  parseWordDirect as parseWordDirectImpl,
+  parseWordPages as parseWordPagesImpl,
+  renderPdfToPageImages as renderPdfToPageImagesImpl
+} from "./documents/document-parser.ts";
+import {
+  buildLlmRequest as buildLlmRequestImpl,
+  callLlm as callLlmImpl,
+  extractLlmText as extractLlmTextImpl,
+  extractLlmUsage as extractLlmUsageImpl
+} from "./llm/llm-client.ts";
+import {
+  buildDisplayTextFormatterBrowserScript as buildDisplayTextFormatterBrowserScriptImpl,
+  formatDisplayText as formatDisplayTextImpl,
+  formatExamText as formatExamTextImpl,
+  formatQuestionText as formatQuestionTextImpl
+} from "./display/display-text-format.ts";
+import { createFileSystemDocumentCache as createFileSystemDocumentCacheImpl } from "./documents/document-cache.ts";
 
-export const LLM_VERSION = '0.1.0';
+import type {
+  AnalyzeKnowledgePoints,
+  AnalyzeQuestions,
+  BuildLlmRequest,
+  CallLlm,
+  DocumentCache,
+  FileSystemDocumentCacheOptions,
+  ParseDocumentPages,
+  ParseImage,
+  ParsePdf,
+  ParseWord
+} from "./types/public-types.ts";
+
+export type {
+  AnalyzeKnowledgePointsRequest,
+  AnalyzeQuestionsRequest,
+  BuiltLlmRequest,
+  CommonParserOptions,
+  DocumentCache,
+  DocumentParseResult,
+  FileSystemDocumentCacheOptions,
+  JsonObject,
+  KnowledgeChapter,
+  KnowledgePoint,
+  KnowledgePointsAnalysisResult,
+  KnowledgeSection,
+  LlmConfig,
+  LlmAttachment,
+  LlmCallRequest,
+  LlmInfo,
+  LlmMessage,
+  LlmResult,
+  LlmTarget,
+  PageImage,
+  ParseDocumentPagesRequest,
+  ParseImageRequest,
+  ParsePdfRequest,
+  ParseWordRequest,
+  ParserProgressEvent,
+  Question,
+  QuestionAnalysisResult,
+  RelatedKnowledgePoint,
+  SourceFile,
+  TargetConfig
+} from "./types/public-types.ts";
+
+export const analyzeKnowledgePoints = analyzeKnowledgePointsImpl as unknown as AnalyzeKnowledgePoints;
+export const analyzeQuestions = analyzeQuestionsImpl as unknown as AnalyzeQuestions;
+
+export const parseImage = parseImageImpl as unknown as ParseImage;
+export const parsePdf = parsePdfImpl as unknown as ParsePdf;
+export const parsePdfDirect = parsePdfDirectImpl as unknown as ParsePdf;
+export const parsePdfPages = parsePdfPagesImpl as unknown as ParsePdf;
+export const parseWord = parseWordImpl as unknown as ParseWord;
+export const parseWordDirect = parseWordDirectImpl as unknown as ParseWord;
+export const parseWordPages = parseWordPagesImpl as unknown as ParseWord;
+export const parseDocumentPages = parseDocumentPagesImpl as unknown as ParseDocumentPages;
+
+export const callLlm = callLlmImpl as unknown as CallLlm;
+export const buildLlmRequest = buildLlmRequestImpl as unknown as BuildLlmRequest;
+export const extractLlmText = extractLlmTextImpl as unknown as (body: any, apiShape?: string) => string;
+export const extractLlmUsage = extractLlmUsageImpl as unknown as (body: any, apiShape?: string) => Record<string, any> | null;
+
+export const formatDisplayText = formatDisplayTextImpl as (value: unknown) => string;
+export const formatQuestionText = formatQuestionTextImpl as (value: unknown) => string;
+export const formatExamText = formatExamTextImpl as (value: unknown) => string;
+export const buildDisplayTextFormatterBrowserScript = buildDisplayTextFormatterBrowserScriptImpl as () => string;
+
+export const buildImagePrompt = buildImagePromptImpl as () => string;
+export const buildPdfPrompt = buildPdfPromptImpl as () => string;
+export const buildWordPrompt = buildWordPromptImpl as () => string;
+export const buildPagePrompt = buildPagePromptImpl as (input: { documentType?: string; pageNumber?: number }) => string;
+export const buildFinalDocumentPrompt = buildFinalDocumentPromptImpl as (input: { documentType?: string; pageResults: any[] }) => string;
+
+export const convertWordToPdf = convertWordToPdfImpl as (input: any) => Promise<any>;
+export const renderPdfToPageImages = renderPdfToPageImagesImpl as (input: any) => Promise<any[]>;
+export const createFileSystemDocumentCache = createFileSystemDocumentCacheImpl as (
+  options: FileSystemDocumentCacheOptions
+) => DocumentCache;

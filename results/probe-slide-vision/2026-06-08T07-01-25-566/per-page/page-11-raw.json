@@ -1,9 +1,0 @@
-{
-  "rawText": "{\n  \"items\": [],\n  \"resources\": [\n    {\n      \"kp_hint\": \"环形染色\",\n      \"resource_kind\": \"summary\",\n      \"title\": \"环形染色m色涂n区域公式\",\n      \"content\": \"在排列组合的环形染色问题中，若有 $n$ 个区域排成一个环形，要求相邻区域颜色不同，且有 $m$ 种颜色可供选择，则总的涂色方法数公式为：$(m-1)^n + (-1)^n(m-1)$。此公式可用于快速求解此类环形染色问题。\"\n    }\n  ]\n}",
-  "tokenUsage": {
-    "input": 1718,
-    "output": 150
-  },
-  "retries": 0,
-  "latencyMs": 21994
-}

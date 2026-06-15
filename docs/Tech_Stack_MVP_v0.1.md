@@ -48,14 +48,14 @@
 
 | 层 | 选型 | 用途 |
 |---|---|---|
-| 抽象层 | **自写 `callLLM(providerId, prompt, schema?, attachments?)`**（packages/llm） | 统一 OpenAI Chat + Google generateContent + Bedrock Converse 三种协议；内置 schema 校验、429 Retry-After 退避、5xx 重试 |
-| PDF 编排 | **`analyzePdf({providerId, pdfPath, ...})`**（packages/llm/src/pdf） | 大 PDF qpdf 切片 + 逐片送 Converse + 间隔 sleep（默认 60s）+ 终审整合；callLLM 单元的高阶封装 |
+| 同步层 | **`packages/llm/src/business|documents|llm|types|display`** | 与 `how-to-use-llm-proxy/src` 同名目录/文件保持一致；承载 prompt、文档渲染、LLM 调用和解析逻辑 |
+| 当前项目适配层 | **`packages/llm/src/adapter`** | `providerId → llmTarget/apiKey`，对外只暴露 `analyzeKnowledgePoints` / `analyzeQuestions` |
+| 教育解析编排 | **`analyzeKnowledgePoints` / `analyzeQuestions`**（packages/llm） | LLM 业务解析能力先在 `how-to-use-llm-proxy` 验证通过，再同步到本包；业务侧不要直接拼 prompt / schema / PDF 渲染 / LLM 循环 |
 | Provider 1 | `webex-gemini-3.1-pro`（OpenAI 协议） | 文本 KP / Goal Template 解析 |
 | Provider 2 | `webex-gemini-3-pro-image`（Google 协议） | 图片 / 题集 vision 解析（默认 question 解析） |
 | Provider 3 | `webex-claude-opus-4.7`（OpenAI 协议） | 纯文本 KP 抽取生产首选（探针 113/113 通过） |
-| Provider 4 | `webex-claude-opus-4.7-converse`（Bedrock Converse 协议） | 整本 PDF 原生解析（document part 直读 base64，保留图表/版式信息）；运行环境必装 qpdf |
 | Token 管理 | env var `WEBEX_LLM_TOKEN`，运行时读取 | 不入库、不出现在前端、不打日志 |
-| 脱敏 | `redactAuthHeaders()` | PARSE_JOB.request_payload 入库前必经 |
+| 日志脱敏 | `how-to-use-llm-proxy` 同步层 `payload-log` | payload 日志能力随同步层演进；业务侧不自行记录明文 token |
 
 ### §2.4 测试与质量
 
@@ -113,17 +113,17 @@ hao-hao-study/
 │   │   └── package.json
 │   ├── llm/                           ← LLM 抽象层
 │   │   ├── src/
-│   │   │   ├── callLLM.ts
-│   │   │   ├── providers/openai-chat.ts
-│   │   │   ├── providers/google-generate-content.ts
-│   │   │   ├── redact.ts
-│   │   │   └── types.ts
+│   │   │   ├── adapter/               ← 当前项目薄适配层，对外包入口
+│   │   │   ├── business/              ← 从 how-to-use-llm-proxy 同步
+│   │   │   ├── documents/             ← 从 how-to-use-llm-proxy 同步
+│   │   │   ├── llm/                   ← 从 how-to-use-llm-proxy 同步
+│   │   │   ├── types/                 ← 从 how-to-use-llm-proxy 同步
+│   │   │   └── display/               ← 从 how-to-use-llm-proxy 同步
 │   │   └── package.json
 │   ├── shared/                        ← 跨端共享业务逻辑
 │   │   ├── src/
-│   │   │   ├── recommender/           ← 三池凑题
-│   │   │   ├── session-commit/        ← G3.3 提交事务
-│   │   │   ├── mastery/               ← Mastery 增减规则
+│   │   │   ├── labels/                ← 年级 / 学段展示标签
+│   │   │   ├── prompts/               ← LLM prompt 模板
 │   │   │   └── schemas/               ← zod schemas
 │   │   └── package.json
 │   └── ui/                            ← shadcn 组件公用层
@@ -179,11 +179,11 @@ NEXT_PUBLIC_ADMIN_URL=https://admin.example.com
 |---|---|---|
 | **G3.3 事务原子性**：跨 6 步，默认隔离级别可能不够 | Prisma `$transaction({ isolationLevel: 'Serializable' })` + 失败重试 1 次 | 学生端 T5（故障注入） |
 | **PARSE_JOB 大文件**：PDF 单次可能超 LLM token 上限 | 上传时按页切片，每页一个 PARSE_JOB；UI 合并 staging 展示 | 运营端 §5.2 Q2 延迟 P95 ≤ 60s |
-| **Webex LLM Proxy 不稳定**：内部代理 5xx 概率 | callLLM 内置 1 次重试 + 失败落 `PARSE_JOB.status='failed'`；运营端 F3.6 单条重跑兜底 | 运营端 T10（mock 5xx） |
+| **Webex LLM Proxy 不稳定**：内部代理 5xx 概率 | 同步层逐页解析支持 retry；失败落 `PARSE_JOB.status='failed'`；运营端 F3.6 单条重跑兜底 | 运营端 T10（mock 5xx） |
 | **学生端 unlocked 过滤漏判**：任何漏过滤即数据泄漏 | tRPC middleware 注入 student context；DB 查询统一通过 `withUnlockedFilter()` helper | 学生端 T3 / T9 |
 | **Auth.js 单管理员账号防爆破** | Upstash Ratelimit：错误 5 次 → 锁 IP 15 分钟 | 单测 + 手动渗透测试 |
 | **Vercel serverless 冷启动** | DB / Redis 同区域；关键路径预热 cron 每 5 min ping `/api/health` | RUM 监控 P95 |
-| **Token 泄漏到日志或响应** | `redactAuthHeaders()` 单测覆盖；CI grep 全代码库无明文 token | 运营端 T2 / T9 |
+| **Token 泄漏到日志或响应** | adapter 只从 env 读取 token 并注入同步层调用；业务侧不记录明文 token | 运营端 T2 / T9 |
 | **Prisma 客户端在 serverless 冷启动慢** | 使用 `@prisma/adapter-neon` + connection pooling | RUM 监控 |
 
 ---
@@ -196,7 +196,7 @@ NEXT_PUBLIC_ADMIN_URL=https://admin.example.com
 |---|---|---|---|---|
 | **M0** | Monorepo 骨架 | 根目录 + apps/* + packages/* | `pnpm install && pnpm build` 全绿 | — |
 | **M1** | Prisma schema + 迁移 + seed | packages/db | `pnpm db:migrate && pnpm db:seed` 在空 PG 一次成功，14 张表齐 | M0 |
-| **M2** | LLM 抽象层 | packages/llm | `callLLM` 对 2 个 Webex Provider 单测通过；`redactAuthHeaders` 单测通过 | M0 |
+| **M2** | LLM 抽象层 | packages/llm | 同步层与 `how-to-use-llm-proxy/src` 对齐；adapter 的 `providerId → llmTarget/apiKey` 单测通过 | M0 |
 | **M3** | Auth.js 双角色 + 子域路由 | apps/web + apps/admin | app.* / admin.* cookie 隔离；未登录跳各自 login | M0 |
 | **M4** | 三池凑题逻辑 | packages/shared/recommender | 主 PRD §G3.1 三池合并去重 + unlocked 过滤纯函数 + 集成测试覆盖 T3/T4 | M1 |
 | **M5** | G3.3 提交事务 | packages/shared/session-commit | 6 步事务 + Serializable + 故障注入测试 T5/T6/T7/T8/T12 全过 | M1, M4 |
@@ -221,8 +221,8 @@ NEXT_PUBLIC_ADMIN_URL=https://admin.example.com
 | Mastery 增减规则 | 主 PRD §10.2 + §5.1 | `packages/shared/mastery/` |
 | ERROR_LOG 连续 2 次对自动 resolve | 主 PRD 决议 S2-N=2 | `packages/shared/session-commit/` |
 | Layer 3 触发器 A / B（仅这两个） | 学生端 G3.3 | `packages/shared/session-commit/` |
-| LLM Provider 协议适配 | 运营端 §7 | `packages/llm/providers/` |
-| Token 脱敏 | 运营端 T9 | `packages/llm/redact.ts` |
+| LLM Provider 协议适配 | 运营端 §7 | `packages/llm/src/adapter/provider-target.ts` + `packages/llm/src/llm/llm-client.ts` |
+| Token 处理 | 运营端 T9 | `llm_provider.auth_env_var` + `packages/llm/src/adapter/provider-target.ts` |
 | unlocked_kp_ids 过滤 | 学生端 T3 / T9 | `packages/shared/db-helpers/` |
 
 任何 PRD 中未声明、本文件未约束的实现细节，由开发自行决定，但需符合：

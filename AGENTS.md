@@ -12,31 +12,35 @@
    | 关注点 | 必须经过 | 禁止直连 | 实现文档 |
    |---|---|---|---|
    | 写/读文件、生成派生资产 | `@hao/storage` 的 `ObjectStore`（`createStore()` 获取实例，路径走 `StoragePaths`） | `node:fs` 直接读写"业务文件"（上传、派生 PNG、LLM 中间产物、figure 切片） | `docs/File_Storage_v0.1.md` |
-   | 访问 LLM | `@hao/llm` 的 `callLLM()` 或其高层封装（`analyzeImages` / `analyzeImagesToStorage` / `analyzePdfWithVision` / `cropFiguresToStorage` …）；provider 元数据走 `llm_provider` 表 | `fetch()` 直连 LLM 端点、硬编码 endpoint / model / token；新业务**不要**再用 `analyzePdf`（bedrock_converse 路径，已软弃用，见下） | `docs/Tech_Stack_MVP_v0.1.md` §2.3 + `packages/llm/src/callLLM.ts` |
-   | F4.3 KP 解析 | `apps/admin/lib/kp-pipeline-vision.ts`（pdftoppm + Gemini vision；webex-gemini-3.1-pro 默认） | `apps/admin/lib/kp-pipeline.ts` —— Converse 路径已 `@deprecated`，仅作回滚保底 | commit `a1f4865` + 本次 vision 切换 |
-   | 文件解析（轻量场景）—— file + prompt → text | `@hao/llm` 的 `analyzeFile.{image,pdf}()` 傻瓜入口（L0） | 手动 `rasterize` + 自己写循环 | `packages/llm/src/analyze-file.ts` |
-   | PDF 教材/试卷抽题（"不丢题"硬指标） | `@hao/llm` 的 `extractQuestionsFromPdf()`（L2，含完整性自检 + 边界重抽 + dedup + figure crop） | `analyzeFile.pdf` 或 `analyzeImagesToStorage`（这两者不解决跨页题问题） | `packages/llm/src/vision/extract-questions-from-pdf.ts` |
-   | PDF 抽题（无跨页要求） | `@hao/llm` 的 `analyzePdfWithVision()`（自动 rasterize → 调 LLM → bbox 裁切 → 落 storage + 汇总 derived_asset 候选） | 业务里自己拼 `rasterizePdf` + `analyzeImages` + `cropFiguresToStorage`（如要细控可用低层 API，但需在调用处注释原因） | `packages/llm/src/pdf/analyze-pdf-with-vision.ts` |
+   | 访问 LLM | 只通过 `@hao/llm` adapter 暴露的业务入口（当前为 `analyzeKnowledgePoints` / `analyzeQuestions`）；provider 元数据走 `llm_provider` 表，LLM 解析实现来自 `how-to-use-llm-proxy` 同步层 | `fetch()` 直连 LLM 端点、硬编码 endpoint / model / token；业务里自己拼 prompt / schema / PDF 渲染 / LLM 循环；直接调用同步层 `llm-client` / `document-parser` 等内部原语实现业务解析 | `docs/Tech_Stack_MVP_v0.1.md` §2.3 + `packages/llm/src/adapter/index.ts` |
+   | KP 解析 | `@hao/llm` 的 `analyzeKnowledgePoints()` | admin / web / 运营端自己维护 KP prompt、schema、chunk、vision pipeline | `packages/llm/src/adapter/index.ts` + `packages/llm/src/business/knowledge-parser.ts` |
+   | 试题解析 | `@hao/llm` 的 `analyzeQuestions()` | admin / web / 运营端自己维护试题 prompt、schema、chunk、vision pipeline | `packages/llm/src/adapter/index.ts` + `packages/llm/src/business/question-parser.ts` |
 
-   **`@hao/llm` 分层速查**（v0.1）：
-   - **L0**（傻瓜入口）`analyzeFile.{image, pdf}` — file + prompt → `{text, perPage}`；单图问答、PDF 内容总结。**不**做 figure / storage / 跨页修复。
-   - **L1**（端到端 PDF 入口）`analyzePdfWithVision` — rasterize → 抽题 + figure crop + derived_asset。**不**修跨页题。
-   - **L2**（教材抽题流水线）`extractQuestionsFromPdf` — chunked + 完整性自检 + 边界重抽 + dedup + figure crop。教材/试卷不丢题硬指标走这里。
-   - **L2-中间**（公共子流程）`analyzeImagesToStorage` — image batch → 抽题 + figure crop；L1 内部调它，独立 image batch 抽题也可用。
-   - **L3**（原语）`callLLM` / `rasterizePdf` / `analyzeImages`（每图一次）/ `analyzeImageBatch`（一次多图）/ `cropFiguresToStorage`。
-
-   **bedrock_converse 路径软弃用**（v0.1 阶段决策）：`analyzePdf`（Bedrock Converse 原生 PDF）在 Webex proxy 上 429 触发率过高，已加 `@deprecated` 注释。代码与测试保留作高精度 baseline 备选，但**新业务一律走 vision 路径**（L0/L1/L2 都是），DB 里 `protocol=bedrock_converse` 的 provider 不要选。
+   **`@hao/llm` 业务入口速查**（v0.1）：
+   - `analyzeKnowledgePoints` — 从教材/资料文件生成知识点。
+   - `analyzeQuestions` — 从 PDF / Word 试题文件生成试题，可接收知识点上下文。
+   - `packages/llm/src/business|documents|llm|types|display` 为从 `how-to-use-llm-proxy/src` 同步来的代码，保持同名目录和文件；不要在当前仓库直接改这些文件来研发 LLM 能力。
+   - `packages/llm/src/adapter` 是当前项目自己的薄适配层，负责 `providerId → llmTarget/apiKey` 和对外导出；业务代码只调 adapter 暴露的包入口。
 
    **例外**（允许直连底层，不需要走抽象层）：
-   - 抽象层自身的实现（`packages/storage/src/fs-store.ts` 用 `fs`、`packages/llm/src/callLLM.ts` 用 `fetch`）
+   - 抽象层自身的实现（`packages/storage/src/fs-store.ts` 用 `fs`、同步层 `packages/llm/src/llm/llm-client.ts` 用 `fetch`）
    - `scripts/probe-*.ts` 这类一次性探针/实验脚本（结果落到 `results/` 即 throwaway）
    - 单元测试 / 集成测试
 
    **新加抽象层时**：先扩接口（如 `ObjectStore.copy()`），再在所有实现里支持，最后业务调用。不要在业务代码里写 "if fs then ... else if s3 then ..." 分支。
 
-   **新加 LLM provider 时**：通过 `llm_provider` 表落库（`packages/db/prisma/seed.ts`），让 `callLLM(providerId)` 自动 dispatch；不要在业务代码里 import 具体 adapter。
+   **新加 LLM provider 时**：通过 `llm_provider` 表落库（`packages/db/prisma/seed.ts`），让 `packages/llm/src/adapter/provider-target.ts` 统一映射到同步层 `llmTarget`；不要在业务代码里 import / 实现具体协议细节。
 
-5. **`max_output_tokens` / `default_params.max_tokens` 设置规则**（thinking 模型友好）：
+5. **LLM 分析能力研发边界**：
+
+   本规则适用于主目录公共层、运营端 `apps/admin`、学生端 `apps/web` 以及所有 worktree。凡是需要通过 LLM 做新的分析能力、解析策略、prompt/schema 调整、模型/Provider 选择、质量评测或样例探针的需求，**不要直接在本仓库实现或试验**，也不要由代理自行调用 LLM 去完成验证。处理方式统一为：
+
+   - 先把需求、输入样例、期望输出、质量标准和失败边界整理出来，交给 `how-to-use-llm-proxy` 项目验证。
+   - 在 `how-to-use-llm-proxy` 中测试通过并沉淀为稳定公共方法 / schema / prompt 后，再同步到当前项目使用。
+   - 当前项目只接入已经验证通过的公共方法；业务代码不得在本仓库临时新增 LLM 探针、一次性 prompt、私有解析循环或未验证 provider 分支。
+   - 允许做的工作仅限于接线、类型适配、存储/DB 落库、UI/工作流集成，以及对已同步公共方法的常规单测。
+
+6. **`max_output_tokens` / `default_params.max_tokens` 设置规则**（thinking 模型友好）：
 
    背景：Webex proxy 上的 Gemini 3.x（pro / flash）是 thinking 模型——每次回答前先在内部"想"一段（计入 `usage.completion_tokens_details.reasoning_tokens`），再吐 visible content。请求里的 `max_tokens` 是**两者共享的硬预算**：
 

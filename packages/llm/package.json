@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./src/adapter/index.ts",
+  "types": "./src/adapter/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/adapter/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -14,10 +14,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@hao/db": "workspace:*",
-    "@hao/storage": "workspace:*",
-    "sharp": "^0.34.5",
-    "zod": "^3.24.1"
+    "@hao/db": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

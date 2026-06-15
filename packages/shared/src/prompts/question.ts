@@ -1,9 +1,8 @@
 /**
  * 题目（question）LLM 抽取 prompt 模板
  *
- * 用途：admin F3.1–F3.2 调 analyzePdf 时作为 chunkPromptBuilder / finalPromptBuilder 传入。
- *      callLLM 内部会把 QuestionBatchSchema 注入 prompt 末尾（bedrock_converse adapter
- *      的 schemaInPrompt 路径），LLM 输出后端会用 zod 兜底校验。
+ * 用途：保留试题 prompt 历史版本，供后续在 how-to-use-llm-proxy
+ *      重新验证公共试题解析入口时参考。
  *
  * 版本：QUESTION_PROMPT_VERSION 写到 llm_parse_job.prompt_version，方便审计追溯
  *      某次 staging 是哪个 prompt 版本产出的。改 prompt 时务必 bump 版本号。
@@ -42,12 +41,12 @@ export interface QuestionFinalPromptCtx {
 }
 
 /**
- * 单 chunk prompt：让 LLM 从 PDF 切片里抽出本片所有题目，输出 QuestionBatchSchema
- * 形状。analyzePdf 会把 PDF 切片本身作为 attachment 直接附在 prompt 后。
+ * 单 chunk prompt：让 LLM 从 PDF 渲染页图里抽出本片所有题目，输出 QuestionBatchSchema
+ * 形状。上层会把对应页图作为 image attachment 附在 prompt 后。
  *
  * 关键约束写进 prompt（schema 兜底再校一次，但 prompt 引导能减少 retry）：
  *   1. 仅抽 choice / fill_in；essay 整道丢弃
- *   2. content 含图时用 `[图片描述: ...]` 标注（Claude Converse 能看到原图）
+ *   2. content 含图时用 `[图片描述: ...]` 标注（vision 模型能看到原图）
  *   3. kp_hints 用学科领域内的标准术语（如"集合的运算"而非"集合"或"集合运算"）
  *   4. answer 形态严格：choice 用大写字母拼接，fill_in 多空用分号
  *   5. solution_text 抽不到给空串，不要编
@@ -101,7 +100,7 @@ export function buildQuestionChunkPrompt(ctx: QuestionChunkPromptCtx): string {
  *   - 终审不带 PDF attachment，纯文本聚合
  *
  * 注意：终审是可选的。admin 也可以直接用 chunk 结果合并，跳过终审 LLM 调用以省 token。
- *      analyzePdf 当前固定有终审；后续如果加 `skipFinalSynthesis` 选项 admin 可以关掉。
+ *      公共试题解析入口负责按完整性/去重策略控制是否需要额外合并。
  */
 export function buildQuestionFinalPrompt(ctx: QuestionFinalPromptCtx): string {
   const chunkBlocks = ctx.chunkSummaries

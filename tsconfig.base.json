@@ -15,6 +15,7 @@
     "useUnknownInCatchVariables": true,
 
     "esModuleInterop": true,
+    "allowImportingTsExtensions": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -30,7 +31,7 @@
       "@hao/db/*": ["packages/db/src/*"],
       "@hao/shared": ["packages/shared/src/index.ts"],
       "@hao/shared/*": ["packages/shared/src/*"],
-      "@hao/llm": ["packages/llm/src/index.ts"],
+      "@hao/llm": ["packages/llm/src/adapter/index.ts"],
       "@hao/llm/*": ["packages/llm/src/*"],
       "@hao/ui": ["packages/ui/src/index.ts"],
       "@hao/ui/*": ["packages/ui/src/*"]

@@ -294,7 +294,7 @@
 约束：
 
 - `llm_provider.auth_env_var` 仅记录 env var **名字**，不记录值；token 仅运行时从环境读取。
-- `llm_parse_job.request_payload` 写入前必须经过 `redactAuthHeaders()` 脱敏。
+- `llm_parse_job.request_payload` 如记录请求摘要，必须保证不含明文 token；token 只允许从 `llm_provider.auth_env_var` 指向的环境变量读取。
 - `llm_parse_staging.review_status='accepted'` 时 `published_id` 必须非空且指向正式表（question / knowledge_point）。
 
 ---
@@ -323,12 +323,13 @@
   enabled: true
 ```
 
-调用层契约（实现细节由开发自定义，但**对外接口形态固定**）：
+调用层契约（实现细节由公共层决定，但**业务侧对外接口形态固定**）：
 
 ```
-callLLM(providerId, prompt, schema?) -> { payload, usage, raw }
-  - 自动按 protocol 翻译 prompt 到 body
-  - schema 给定时强制 structured output（OpenAI 协议走 response_format / Google 协议走 responseSchema）
+analyzeKnowledgePoints({ providerId, file }) -> knowledge_points result
+analyzeQuestions({ providerId, file, knowledge }) -> questions result
+  - providerId 由 @hao/llm adapter 映射为 how-to-use-llm-proxy 同步层需要的 llmTarget/apiKey
+  - prompt、schema、PDF/Word 渲染和 LLM 循环先在 how-to-use-llm-proxy 验证，再同步到 @hao/llm
   - 失败按 §5.1 T10 落 llm_parse_job.status=failed
 ```
 

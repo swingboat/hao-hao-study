@@ -26,7 +26,6 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
-    "pdfjs-dist": "^6.0.227",
     "typescript": "^5.7.3"
   }
 }

@@ -1,9 +1,8 @@
 /**
  * 题目（question）解析输出 zod schema — LLM → admin 审核流程契约
  *
- * 用途：admin 在 F3.1–F3.2 把题集 PDF / 图片喂给 LLM（通过 analyzePdf 或单次 callLLM），
- *      要求 LLM 输出严格符合本 schema 的 JSON。callLLM 内部会做 structured-output 校验；
- *      不通过则 retry 1 次。
+ * 用途：试题解析结果的共享 schema。LLM 业务解析入口必须先在
+ *      how-to-use-llm-proxy 验证通过，再同步到 @hao/llm。
  *
  * 字段对齐策略（与 packages/db/prisma/schema.prisma model question 收敛）：
  *   - content         必填，题干正文；图片题在末尾用 `[图片描述: ...]` 标注
@@ -143,8 +142,7 @@ export type QuestionParsed = z.infer<typeof QuestionParsedSchema>;
  *
  * 上限 300：一份题集 PDF 100 页约 200-300 题；超过即视为重复抽取 / 提示词失控。
  * 与 KP 的 500 上限不同的是，题目体量本身更大（含 options/solution），单次给太多容易
- * 触 LLM 输出 token 上限被截断 —— analyzePdf 的 chunk 切片机制已经处理这点，单 chunk
- * 实际产 5-30 题更常见。
+ * 触 LLM 输出 token 上限被截断 —— 公共解析入口负责处理分片与合并。
  */
 export const QuestionBatchSchema = z.object({
   questions: z
