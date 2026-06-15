@@ -34,6 +34,11 @@ import {
   tokenUsageTotal,
 } from '../../../../../lib/education-analysis-adapter';
 import {
+  documentAnalysisProtocolLabel,
+  getLlmProviderById,
+  isDocumentAnalysisProvider,
+} from '../../../../../lib/llm-providers';
+import {
   QUESTION_PROMPT_VERSION,
   type QuestionProgressSnapshot,
   runQuestionAnalysis,
@@ -294,13 +299,11 @@ export async function rerunStagingAction(
     return { error: '该 staging 不是 question' };
   }
 
-  const provider = await prisma.llm_provider.findUnique({ where: { id: providerId } });
+  const provider = await getLlmProviderById(providerId);
   if (!provider || !provider.enabled) return { error: `provider ${providerId} 不存在 / 未启用` };
-  if (provider.protocol !== 'openai_chat') {
-    return { error: `rerun 只支持 protocol=openai_chat 的 provider；当前 ${provider.id}` };
+  if (!isDocumentAnalysisProvider(provider)) {
+    return { error: `rerun 只支持 ${documentAnalysisProtocolLabel()} 的 provider；当前 ${provider.id}` };
   }
-  const caps = (provider.capabilities ?? {}) as { vision?: boolean };
-  if (!caps.vision) return { error: 'rerun 只支持 vision provider' };
   const llmPayload = staging.llm_payload as {
     source_hint?: { page?: number | null; question_no?: string | null };
     content?: string;

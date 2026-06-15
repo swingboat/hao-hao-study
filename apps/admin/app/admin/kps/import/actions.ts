@@ -21,6 +21,11 @@ import {
   tokenUsageFromEducationUsage,
   tokenUsageTotal,
 } from '../../../../lib/education-analysis-adapter';
+import {
+  documentAnalysisProtocolLabel,
+  getLlmProviderById,
+  isDocumentAnalysisProvider,
+} from '../../../../lib/llm-providers';
 
 const KP_PROMPT_VERSION = 'knowledge_points/common/analyzeKnowledgePoints';
 
@@ -103,15 +108,11 @@ async function runParse(
     const subject = await prisma.subject.findUnique({ where: { id: subjectId } });
     if (!subject) throw new Error(`subject ${subjectId} 不存在`);
 
-    const provider = await prisma.llm_provider.findUnique({ where: { id: providerId } });
+    const provider = await getLlmProviderById(providerId);
     if (!provider) throw new Error(`llm_provider ${providerId} 不存在`);
     if (!provider.enabled) throw new Error(`llm_provider ${providerId} 已禁用`);
-    if (provider.protocol !== 'openai_chat') {
-      throw new Error(`KP 解析只支持 protocol=openai_chat 的 Provider；当前 ${provider.id}`);
-    }
-    const providerCaps = (provider.capabilities ?? {}) as { vision?: boolean };
-    if (providerCaps.vision !== true) {
-      throw new Error(`KP 解析只支持 capabilities.vision=true 的 Provider；当前 ${provider.id}`);
+    if (!isDocumentAnalysisProvider(provider)) {
+      throw new Error(`KP 解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}`);
     }
 
     await prisma.llm_parse_job.update({
@@ -315,15 +316,11 @@ export async function uploadAndParseAction(
   if (!subjectId) return { error: '请选择学科' };
   if (!providerId) return { error: '请选择 LLM Provider' };
 
-  const provider = await prisma.llm_provider.findUnique({ where: { id: providerId } });
+  const provider = await getLlmProviderById(providerId);
   if (!provider || !provider.enabled)
     return { error: `LLM Provider ${providerId} 不存在 / 未启用` };
-  if (provider.protocol !== 'openai_chat') {
-    return { error: `KP 解析只支持 protocol=openai_chat 的 Provider；当前 ${provider.id}` };
-  }
-  const caps = (provider.capabilities ?? {}) as { vision?: boolean };
-  if (caps.vision !== true) {
-    return { error: `KP 解析只支持 capabilities.vision=true 的 Provider；当前 ${provider.id}` };
+  if (!isDocumentAnalysisProvider(provider)) {
+    return { error: `KP 解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}` };
   }
 
   const store = createStore();
@@ -391,15 +388,11 @@ export async function reparseUploadAction(
   const subjectId = String(formData.get('subject_id') ?? '');
   if (!uploadId || !providerId || !subjectId) return { error: '参数不全' };
 
-  const provider = await prisma.llm_provider.findUnique({ where: { id: providerId } });
+  const provider = await getLlmProviderById(providerId);
   if (!provider || !provider.enabled)
     return { error: `LLM Provider ${providerId} 不存在 / 未启用` };
-  if (provider.protocol !== 'openai_chat') {
-    return { error: `KP 解析只支持 protocol=openai_chat 的 Provider；当前 ${provider.id}` };
-  }
-  const caps = (provider.capabilities ?? {}) as { vision?: boolean };
-  if (caps.vision !== true) {
-    return { error: `KP 解析只支持 capabilities.vision=true 的 Provider；当前 ${provider.id}` };
+  if (!isDocumentAnalysisProvider(provider)) {
+    return { error: `KP 解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}` };
   }
 
   await reapZombieJobs(uploadId);

@@ -10,6 +10,10 @@
  */
 import { prisma } from '@hao/db';
 import Link from 'next/link';
+import {
+  isDocumentAnalysisProvider,
+  listLlmProviders,
+} from '../../../../../lib/llm-providers';
 import { reparseUploadAction } from '../actions';
 import { BulkAcceptButton } from './bulk-accept-button';
 import type { LlmQuestionPayload } from './diff-drawer';
@@ -50,15 +54,9 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
 
   const [subjects, providers] = await Promise.all([
     prisma.subject.findMany(),
-    prisma.llm_provider.findMany({
-      where: { enabled: true },
-      orderBy: { id: 'asc' },
-    }),
+    listLlmProviders({ enabledOnly: true }),
   ]);
-  const visionProviders = providers.filter((p) => {
-    const caps = p.capabilities as { vision?: boolean } | null;
-    return caps?.vision === true;
-  });
+  const visionProviders = providers.filter(isDocumentAnalysisProvider);
   const subjectMap = new Map(subjects.map((s) => [s.id, s]));
 
   const lastJob = upload.llm_parse_jobs[0];

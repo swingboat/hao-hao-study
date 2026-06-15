@@ -8,6 +8,11 @@
  */
 import { prisma } from '@hao/db';
 import Link from 'next/link';
+import {
+  documentAnalysisProtocolLabel,
+  isDocumentAnalysisProvider,
+  listLlmProviders,
+} from '../../../../lib/llm-providers';
 import { ImportForm } from './import-form';
 
 export const dynamic = 'force-dynamic';
@@ -18,10 +23,7 @@ export default async function KpImportPage() {
   const [subjects, providers, recent] = await Promise.all([
     prisma.subject.findMany({ orderBy: { id: 'asc' } }),
     // 只列启用的 provider；下面再收敛到 analyzeKnowledgePoints 可用的协议与能力。
-    prisma.llm_provider.findMany({
-      where: { enabled: true },
-      orderBy: { id: 'asc' },
-    }),
+    listLlmProviders({ enabledOnly: true }),
     prisma.content_upload.findMany({
       where: { purpose: 'knowledge_point' },
       orderBy: { created_at: 'desc' },
@@ -37,10 +39,7 @@ export default async function KpImportPage() {
     }),
   ]);
 
-  const visionProviders = providers.filter((p) => {
-    const caps = p.capabilities as { vision?: boolean } | null;
-    return p.protocol === 'openai_chat' && caps?.vision === true;
-  });
+  const visionProviders = providers.filter(isDocumentAnalysisProvider);
 
   // env 值必须在 visionProviders 名单内；否则 select.defaultValue 不匹配任何 option →
   // React 把 selectedIndex 置 -1 → required 校验静默失败 → 用户点提交无反应。
@@ -72,8 +71,7 @@ export default async function KpImportPage() {
           ) : null}
           {visionProviders.length === 0 ? (
             <p className="text-amber-700">
-              没有 openai_chat + capabilities.vision=true 且启用的 LLM Provider；请去
-              /admin/settings/llm 检查。
+              没有启用的{documentAnalysisProtocolLabel()} LLM Provider；请去 /admin/settings/llm 检查。
             </p>
           ) : null}
         </section>

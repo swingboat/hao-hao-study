@@ -25,6 +25,11 @@ import { StoragePaths, createStore, extOf, sha256OfBuffer } from '@hao/storage';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { SESSION_COOKIE, verifySession } from '../../../../lib/auth';
+import {
+  documentAnalysisProtocolLabel,
+  getLlmProviderById,
+  isDocumentAnalysisProvider,
+} from '../../../../lib/llm-providers';
 import { QUESTION_PROMPT_VERSION } from '../../../../lib/question-pipeline';
 import { runQuestionParse } from '../../../../lib/question-runner';
 
@@ -66,16 +71,12 @@ export async function uploadAndParseAction(
   if (!subjectId) return { error: '请选择学科' };
   if (!providerId) return { error: '请选择 LLM Provider' };
 
-  const provider = await prisma.llm_provider.findUnique({ where: { id: providerId } });
+  const provider = await getLlmProviderById(providerId);
   if (!provider || !provider.enabled) {
     return { error: `LLM Provider ${providerId} 不存在 / 未启用` };
   }
-  if (provider.protocol !== 'openai_chat') {
-    return { error: `试题解析只支持 protocol=openai_chat 的 Provider；当前 ${provider.id}` };
-  }
-  const caps = (provider.capabilities ?? {}) as { vision?: boolean };
-  if (!caps.vision) {
-    return { error: `Provider ${providerId} 不支持 vision；请改选有 vision 能力的 provider` };
+  if (!isDocumentAnalysisProvider(provider)) {
+    return { error: `试题解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}` };
   }
 
   // CAS：按 sha256 寻址，同份文件多次上传只存一份
@@ -155,16 +156,12 @@ export async function reparseUploadAction(
   const subjectId = String(formData.get('subject_id') ?? '');
   if (!uploadId || !providerId || !subjectId) return { error: '参数不全' };
 
-  const provider = await prisma.llm_provider.findUnique({ where: { id: providerId } });
+  const provider = await getLlmProviderById(providerId);
   if (!provider || !provider.enabled) {
     return { error: `LLM Provider ${providerId} 不存在 / 未启用` };
   }
-  if (provider.protocol !== 'openai_chat') {
-    return { error: `试题解析只支持 protocol=openai_chat 的 Provider；当前 ${provider.id}` };
-  }
-  const caps = (provider.capabilities ?? {}) as { vision?: boolean };
-  if (caps.vision !== true) {
-    return { error: `试题解析只支持 capabilities.vision=true 的 Provider；当前 ${provider.id}` };
+  if (!isDocumentAnalysisProvider(provider)) {
+    return { error: `试题解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}` };
   }
 
   await reapZombieJobs(uploadId);

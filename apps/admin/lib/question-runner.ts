@@ -14,6 +14,11 @@ import {
   tokenUsageFromEducationUsage,
   tokenUsageTotal,
 } from './education-analysis-adapter';
+import {
+  documentAnalysisProtocolLabel,
+  getLlmProviderById,
+  isDocumentAnalysisProvider,
+} from './llm-providers';
 import { type QuestionProgressSnapshot, runQuestionAnalysis } from './question-pipeline';
 
 const jobWriteQueues = new Map<string, Promise<void>>();
@@ -47,15 +52,11 @@ export async function runQuestionParse(
     if (!upload) throw new Error('content_upload 不存在');
     const subject = await prisma.subject.findUnique({ where: { id: subjectId } });
     if (!subject) throw new Error(`subject ${subjectId} 不存在`);
-    const provider = await prisma.llm_provider.findUnique({ where: { id: providerId } });
+    const provider = await getLlmProviderById(providerId);
     if (!provider) throw new Error(`llm_provider ${providerId} 不存在`);
     if (!provider.enabled) throw new Error(`llm_provider ${providerId} 已禁用`);
-    if (provider.protocol !== 'openai_chat') {
-      throw new Error(`试题解析只支持 protocol=openai_chat 的 Provider；当前 ${provider.id}`);
-    }
-    const providerCaps = (provider.capabilities ?? {}) as { vision?: boolean };
-    if (providerCaps.vision !== true) {
-      throw new Error(`试题解析只支持 capabilities.vision=true 的 Provider；当前 ${provider.id}`);
+    if (!isDocumentAnalysisProvider(provider)) {
+      throw new Error(`试题解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}`);
     }
 
     await prisma.llm_parse_job.update({
