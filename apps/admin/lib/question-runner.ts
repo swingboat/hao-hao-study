@@ -19,6 +19,11 @@ import {
   getLlmProviderById,
   isDocumentAnalysisProvider,
 } from './llm-providers';
+import {
+  createQuestionAnalysisCache,
+  questionParseJobStatus,
+  resolveQuestionAnalysisRuntime,
+} from './question-analysis-runtime';
 import { type QuestionProgressSnapshot, runQuestionAnalysis } from './question-pipeline';
 
 const jobWriteQueues = new Map<string, Promise<void>>();
@@ -98,11 +103,15 @@ export async function runQuestionParse(
       orderBy: [{ chapter_no: 'asc' }, { name: 'asc' }],
     });
 
+    const runtime = resolveQuestionAnalysisRuntime();
     const result = await runQuestionAnalysis({
       providerId: provider.db_id,
       file: analysisFile,
       subject,
       knowledge: knowledgeRowsForQuestionContext(existingKps),
+      concurrency: runtime.concurrency,
+      maxRetries: runtime.maxRetries,
+      cache: createQuestionAnalysisCache(),
       onProgress: (snap) => {
         void patchProgress(jobId, snap).catch((e) =>
           console.warn(`[analyzeQuestions job=${jobId}] progress patch fail:`, e),
@@ -115,6 +124,11 @@ export async function runQuestionParse(
     const stagingPayloads = result.questions.map((question) =>
       questionToStagingPayload(question, subjectId),
     );
+    const jobStatus = questionParseJobStatus(result.status);
+    const errorMessage =
+      result.status === 'ok'
+        ? null
+        : (result.diagnostics?.parse_error ?? `analyzeQuestions returned ${result.status}`);
 
     await prisma.$transaction([
       prisma.llm_parse_staging.createMany({
@@ -128,7 +142,7 @@ export async function runQuestionParse(
       prisma.llm_parse_job.update({
         where: { id: jobId },
         data: {
-          status: 'succeeded',
+          status: jobStatus,
           request_payload: {
             entry: 'analyzeQuestions',
             provider_id: provider.id,
@@ -148,7 +162,7 @@ export async function runQuestionParse(
             : (Prisma.JsonNull as unknown as Prisma.InputJsonValue),
           latency_ms: typeof result.latency_ms === 'number' ? result.latency_ms : null,
           finished_at: new Date(),
-          error_message: result.status === 'ok' ? null : (result.diagnostics?.parse_error ?? null),
+          error_message: errorMessage,
         },
       }),
       prisma.content_upload.update({

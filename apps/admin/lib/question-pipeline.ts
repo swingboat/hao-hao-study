@@ -4,6 +4,11 @@ import {
   type EducationProgressEvent,
   analyzeQuestions,
 } from '@hao/llm';
+import {
+  type AdminDocumentCache,
+  createQuestionAnalysisCache,
+  resolveQuestionAnalysisRuntime,
+} from './question-analysis-runtime';
 
 export const QUESTION_PROMPT_VERSION = 'questions/common/analyzeQuestions';
 
@@ -33,10 +38,14 @@ export interface QuestionPipelineOptions {
   file: EducationAnalysisFile;
   subject: subject;
   knowledge?: unknown;
+  concurrency?: number;
+  maxRetries?: number;
+  cache?: AdminDocumentCache;
   onProgress?: (snap: QuestionProgressSnapshot) => void;
 }
 
 export type QuestionPipelineResult = Awaited<ReturnType<typeof analyzeQuestions>>;
+export type QuestionAnalyzeRequest = Parameters<typeof analyzeQuestions>[0];
 
 export async function runQuestionAnalysis(
   opts: QuestionPipelineOptions,
@@ -66,11 +75,8 @@ export async function runQuestionAnalysis(
 
   emit({ phase: 'preparing', lastEvent: 'started analyzeQuestions' });
 
-  const result = await analyzeQuestions({
-    providerId: opts.providerId,
-    file: opts.file,
-    knowledge: opts.knowledge,
-    onProgress: (event) => {
+  const result = await analyzeQuestions(
+    buildQuestionAnalyzeRequest(opts, (event) => {
       const snapshot = progressToSnapshot(event);
       if (event.stage === 'pdf_to_pages_done') {
         totalPages = event.total_pages;
@@ -79,8 +85,8 @@ export async function runQuestionAnalysis(
         pagesDone += 1;
       }
       emit(snapshot);
-    },
-  });
+    }),
+  );
 
   emit({
     phase: 'done',
@@ -129,4 +135,20 @@ export async function runQuestionAnalysis(
         };
     }
   }
+}
+
+export function buildQuestionAnalyzeRequest(
+  opts: QuestionPipelineOptions,
+  onProgress: (event: EducationProgressEvent) => void,
+): QuestionAnalyzeRequest {
+  const runtime = resolveQuestionAnalysisRuntime();
+  return {
+    providerId: opts.providerId,
+    file: opts.file,
+    knowledge: opts.knowledge,
+    concurrency: opts.concurrency ?? runtime.concurrency,
+    maxRetries: opts.maxRetries ?? runtime.maxRetries,
+    cache: opts.cache ?? createQuestionAnalysisCache(),
+    onProgress,
+  };
 }

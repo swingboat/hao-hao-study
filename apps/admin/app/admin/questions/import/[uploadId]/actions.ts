@@ -39,6 +39,11 @@ import {
   isDocumentAnalysisProvider,
 } from '../../../../../lib/llm-providers';
 import {
+  createQuestionAnalysisCache,
+  questionParseJobStatus,
+  resolveQuestionAnalysisRuntime,
+} from '../../../../../lib/question-analysis-runtime';
+import {
   QUESTION_PROMPT_VERSION,
   type QuestionProgressSnapshot,
   runQuestionAnalysis,
@@ -353,11 +358,15 @@ export async function rerunStagingAction(
       orderBy: [{ chapter_no: 'asc' }, { name: 'asc' }],
     });
 
+    const runtime = resolveQuestionAnalysisRuntime();
     const result = await runQuestionAnalysis({
       providerId: provider.db_id,
       file: analysisFile,
       subject,
       knowledge: knowledgeRowsForQuestionContext(existingKps),
+      concurrency: runtime.concurrency,
+      maxRetries: runtime.maxRetries,
+      cache: createQuestionAnalysisCache(),
     });
 
     // 匹配：先按 question_no（不空），再按 content 前 60 字归一相似（startsWith / includes 兜底）
@@ -384,6 +393,11 @@ export async function rerunStagingAction(
 
     const matchedPayload = questionToStagingPayload(matched, subjectId);
     const tokenUsage = tokenUsageTotal(tokenUsageFromEducationUsage(result.usage));
+    const jobStatus = questionParseJobStatus(result.status);
+    const errorMessage =
+      result.status === 'ok'
+        ? null
+        : (result.diagnostics?.parse_error ?? `analyzeQuestions returned ${result.status}`);
 
     await prisma.$transaction([
       prisma.llm_parse_staging.update({
@@ -409,7 +423,7 @@ export async function rerunStagingAction(
       prisma.llm_parse_job.update({
         where: { id: job.id },
         data: {
-          status: 'succeeded',
+          status: jobStatus,
           parsed_output: { questions: result.questions } as unknown as Prisma.InputJsonValue,
           token_usage: tokenUsage
             ? (tokenUsage as Prisma.InputJsonValue)
@@ -421,6 +435,7 @@ export async function rerunStagingAction(
             questionCount: result.questions.length,
             rerun_source_page: srcPage,
           } as unknown as Prisma.InputJsonValue,
+          error_message: errorMessage,
           finished_at: new Date(),
         },
       }),
