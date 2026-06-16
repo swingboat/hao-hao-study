@@ -8,6 +8,8 @@
  *   - subject × 3（math_primary / math_junior / math_senior）—— v0.1 学生注册仅 senior，
  *     另外两条预留 v0.2+；命名遵循 "<discipline>_<stage>" 约定，与 packages/shared/labels
  *     的 STAGE_LABEL 字典对齐
+ *   - student × 1（niki）—— 第一轮 MVP 只做 F5.1 学生列表，先提供可展示的种子学生；
+ *     不提供真实登录凭据。
  *
  * 模型族行为差异由 packages/llm 的 adapter/provider-target.ts 映射到 how-to-use
  * 同步层 llmTarget；业务层调用方仍然只用 analyzeKnowledgePoints/analyzeQuestions，
@@ -272,8 +274,32 @@ async function seedSubjects() {
   console.info(`🌱 subject seeded: ${SUBJECTS.map((s) => s.id).join(' / ')}`);
 }
 
+async function seedDemoStudents() {
+  const DEMO_STUDENT = {
+    username: 'niki',
+    password_hash: 'disabled-seed-only',
+    name: 'Niki',
+    stage: 'senior' as const,
+    grade: 'g11' as const,
+    primary_subject_id: 'math_senior',
+    target_exam: '高考 2027',
+    parent_consent_at: new Date('2026-06-16T00:00:00.000+08:00'),
+    cold_start_mode: true,
+    unlocked_kp_ids: [],
+    soft_deleted_at: null,
+  };
+
+  await prisma.student.upsert({
+    where: { username: DEMO_STUDENT.username },
+    update: DEMO_STUDENT,
+    create: DEMO_STUDENT,
+  });
+  console.info(`🌱 student seeded: ${DEMO_STUDENT.username}`);
+}
+
 async function main() {
   await seedSubjects();
+  await seedDemoStudents();
   await seedLLMProviders();
   // TODO: knowledge_point 冷启动包待运营端 F4 上线后由真实数据填充
 }

@@ -5,6 +5,7 @@
 > | 版本 | 日期 | 说明 |
 > |---|---|---|
 > | v0.1 | 2026-06-02 | 首次发布；范围对齐主 PRD §10 v0.1 MVP |
+> | v0.1.1 | 2026-06-16 | 明确第一轮 MVP 范围：F5.2/F5.3/F5.4/F6/F7 延后；F5.1 仅做只读学生列表 |
 
 ---
 
@@ -24,6 +25,8 @@
 ## §2 原子化 MVP 功能列表（TAV 格式）
 
 > 共 **18 个原子功能**，分 7 组。每条独立可测，LLM 拿到任意一条即可开工。
+>
+> **第一轮 MVP 范围**：交付 F1、F2、F3、F4、F5.1。F5.2/F5.3/F5.4/F6/F7 保留为后续任务，不作为第一轮验收项。
 
 ### F1 组：认证与会话
 
@@ -121,20 +124,20 @@
 
 **F5.1 学生列表**
 - **当** 管理员进入 `/admin/students` **时**，
-- **系统执行** 读取 `student` 全表，
-- **界面显示** 表格列：`name / grade / target_exam / parent_consent_at / unlocked_kp_ids 数量 / created_at`；顶部"+ 开新账户"按钮。
+- **系统执行** 读取 `student` 全表；第一轮 MVP 通过 seed 初始化 1 个学生（username=`niki`，name=`Niki`，grade=`g11`，target_exam=`高考 2027`），
+- **界面显示** 只读表格列：`username / name / grade / target_exam / parent_consent_at / unlocked_kp_ids 数量 / created_at`；第一轮 MVP 不显示"+ 开新账户"按钮。
 
-**F5.2 开新学生账户**
+**F5.2 开新学生账户（第一轮 MVP 延后）**
 - **当** 管理员点击"+ 开新账户"并填写表单 **时**，
 - **系统执行** 写入 `student`（必填：name / grade / target_exam / parent_consent_at；`unlocked_kp_ids[]` 通过多选 KP 获得），生成初始登录凭据，
 - **界面显示** 表单含 KP 多选器（按 chapter_no 树形分组）；保存后弹窗显示该学生的初始登录账号 + 一次性密码，提示"请告知用户后关闭"。
 
-**F5.3 学生数据导出**
+**F5.3 学生数据导出（第一轮 MVP 延后）**
 - **当** 管理员在某学生详情页点击"导出数据"**时**，
 - **系统执行** 打包该学生的 student / question_attempt / knowledge_point_mastery / mistake_book_entry / spaced_review / learning_session 为 JSON ZIP，写一条 `audit_log`（action=`export_data`），
 - **界面显示** 浏览器下载文件 + toast "导出已记录"。
 
-**F5.4 学生账户注销**
+**F5.4 学生账户注销（第一轮 MVP 延后）**
 - **当** 管理员在某学生详情页点击"注销账户"且二次确认 **时**，
 - **系统执行** 删除该学生的所有学习数据（student 软删 + 上述 5 张表硬删），写 `audit_log`（action=`delete_student`），
 - **界面显示** 红色确认对话框（输入学生姓名才可继续）；完成后跳回列表 + toast "已注销"。
@@ -143,7 +146,7 @@
 
 ### F6 组：基础数据看板
 
-**F6.1 概览页**
+**F6.1 概览页（第一轮 MVP 延后）**
 - **当** 管理员进入 `/admin` 首页 **时**，
 - **系统执行** 计算并返回 4 个核心数字：`在册学生数 / 今日 Session 数 / 7 日整体答题正确率 / 错题热度 Top 10 KP`，
 - **界面显示** 4 张卡片 + Top 10 KP 横向条形图（标题：错题数、关联学生数）。
@@ -154,7 +157,7 @@
 
 ### F7 组：审计追溯
 
-**F7.1 LLM 解析任务日志查询**
+**F7.1 LLM 解析任务日志查询（第一轮 MVP 延后）**
 - **当** 管理员进入 `/admin/audit/parse-jobs` **时**，
 - **系统执行** 读取 `llm_parse_job` 表（默认按 created_at 倒序，前 100 条），
 - **界面显示** 表格列：`created_at / task_kind / provider_id / prompt_version / status / latency_ms / token_usage.total / 错误摘要`，每行可点击查看完整 `request_payload + raw_response`（JSON 格式化展示，敏感字段已脱敏）。
@@ -228,17 +231,16 @@
 4. 在 `/admin/questions/import` 通过 F3.1 上传题集 PDF，通过 F3.2 触发 LLM 解析。
 5. 在 staging 列表（F3.3）逐题打开 diff 抽屉（F3.4），通过 F3.5 把 LLM 给出的 `kp_hints` 映射到第 3 步建好的正式 KP。对置信度低的题用 F3.6 换模型重跑。
 6. 通过 F3.7 逐题"接受并发布"，直到该 upload 下所有题目处理完毕（目标：每 KP ≥ 5 题）。
-7. 在 `/admin/students` 通过 F5.2 开第一个学生账户，把第 3 步的 KP 全部勾入 `unlocked_kp_ids[]`，记下生成的登录凭据告知学生。
-8. 学生使用凭据登录学生端完成首个 Session，管理员回到 `/admin` 首页通过 F6.1 看到"在册学生数=1 / 今日 Session 数 ≥ 1"。**闭环达成。**
+7. 在 `/admin/students` 通过 F5.1 确认 seed 学生 `niki / Niki` 可见。第一轮 MVP 到此完成运营端内容冷启动和学生列表展示闭环；学生开户、学生登录首个 Session 与看板展示进入后续轮次。
 
 ### §4.2 辅助旅程 U2 — 日常题库扩充
 
 1. 管理员登录（F1.1）。
 2. 上传新题集（F3.1 → F3.2）。
 3. 批量过审（F3.3 全选 → F3.7 批量接受），仅对 staging 标"必填字段缺失"的题进入 diff 抽屉单独处理（F3.4 / F3.5）。
-4. 在 `/admin/audit/parse-jobs`（F7.1）抽查最近一次 llm_parse_job 的延迟与 token 消耗，若异常则在 F2.2 切换默认 Provider。
+4. 第一轮 MVP 暂不提供 `/admin/audit/parse-jobs`；异常排查先通过 DB / 日志完成，F7.1 后续补齐。
 
-### §4.3 辅助旅程 U3 — 合规工单处理
+### §4.3 辅助旅程 U3 — 合规工单处理（第一轮 MVP 延后）
 
 1. 管理员登录（F1.1）。
 2. 在 `/admin/students` 找到目标学生，进入详情页。
@@ -259,11 +261,11 @@
 | T2 | LLM Provider token 不出现在任何 API 响应或前端 bundle | 静态扫描：grep token 字符串 = 0 命中；E2E：抓所有 `/admin/api/*` 响应体扫描 |
 | T3 | F3.7 发布的 question 必满足 `question_type ∈ {choice, fill_in}` 且 `kp_ids[].length ≥ 1` 且 `primary_kp_id ∈ kp_ids` | DB 约束 + 后端校验单元测试 |
 | T4 | F3.7 写入 question 时同步写 audit_log，二者 `question_id` 一致 | 集成测试：发布 1 题后查两表 |
-| T5 | F5.4 注销学生后，该 student_id 在 student 软删，而 question_attempt/knowledge_point_mastery/mistake_book_entry/spaced_review/learning_session 全部硬删 | 集成测试：开户→产生数据→注销→断言 6 张表状态 |
-| T6 | F5.3 导出的 ZIP 解压后包含 6 个 JSON 文件，且 student.json 主键与请求 student_id 一致 | E2E：调用导出接口，断言 ZIP 结构 |
+| T5 | F5.1 学生列表能展示 seed 学生 `niki / Niki / g11 / 高考 2027`，且不展示开户、导出、注销操作入口 | E2E：访问 `/admin/students`，断言表格内容与操作入口 |
+| T6 | F5.4 注销学生后，该 student_id 在 student 软删，而 question_attempt/knowledge_point_mastery/mistake_book_entry/spaced_review/learning_session 全部硬删 | 后续轮次集成测试：开户→产生数据→注销→断言 6 张表状态 |
 | T7 | F3.6 单条重跑后，staging 行 `llm_payload` 已更新且 `parse_job_id` 指向新 llm_parse_job | 集成测试 |
 | T8 | F2.2 修改默认 Provider 后，下一次 F3.2 触发的 llm_parse_job.provider_id 与新默认一致 | 集成测试 |
-| T9 | F7.1 列表页的 `request_payload` JSON 中不含 `Authorization` header / Bearer token 字符串 | 单元测试：脱敏函数；E2E：抓接口返回扫描 |
+| T9 | F7.1 列表页的 `request_payload` JSON 中不含 `Authorization` header / Bearer token 字符串 | 后续轮次单元测试：脱敏函数；E2E：抓接口返回扫描 |
 | T10 | F3.2 解析失败（LLM 5xx）时 llm_parse_job.status=`failed` 且 staging 不写入 | 集成测试：mock LLM 返回 500 |
 
 ### §5.2 质量水位（灰度后达标）
@@ -346,9 +348,10 @@ analyzeQuestions({ providerId, file, knowledge }) -> questions result
 
 ## §8 验收清单（开发交付前自检）
 
-- [ ] 18 个 TAV 功能（F1.1 – F7.1）逐条可演示
-- [ ] §5.1 全部 10 条 CI 测试通过
-- [ ] 主旅程 U1 一次性走通，耗时 ≤ 4 小时
+- [ ] 第一轮 MVP 功能（F1.1–F4.3、F5.1）逐条可演示
+- [ ] F5.2/F5.3/F5.4/F6/F7 未出现在第一轮可点击入口中
+- [ ] §5.1 第一轮适用 CI 测试通过
+- [ ] 主旅程 U1 第一轮范围一次性走通，耗时 ≤ 4 小时
 - [ ] LLM token 不在前端 bundle / API 响应 / DB 任意位置出现
 - [ ] §3 排他边界中标 ❌ 的功能在代码里不存在路由 / 不存在表字段
 - [ ] `llm_provider` 初始 2 条记录已通过启动脚本写入
