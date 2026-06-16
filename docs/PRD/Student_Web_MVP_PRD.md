@@ -74,6 +74,7 @@
   - 池 B 间隔复习：`spaced_review.next_review_at <= now() AND student_id=?`
   - 池 C 新题：`mastery_score < 0.5 AND kp_id ∈ unlocked_kp_ids` 的 KP 内随机取题
   - 三池统一加过滤 `kp_id ∈ unlocked_kp_ids`（决议 S2-A），同 KP 多池命中**合并去重**只取 1 题（决议 S2-衍生 2）
+- **Planner 设计** 详见 `docs/Student_Question_Planner_v0.1.md`。第一版固定 `daily_mixed / chapter_focus / mistake_focus` 三种模式，AI 只在单个题位内生成题目，不参与全局调度。
 - **界面显示** 进入答题页，顶部 25 分钟番茄钟开始倒计时 + 题目进度"1 / 12"。
 
 **G3.2 单题作答**
