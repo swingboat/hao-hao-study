@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./labels": "./src/labels/index.ts",
+    "./question-planner": "./src/question-planner/index.ts",
     "./schemas": "./src/schemas/index.ts",
     "./prompts": "./src/prompts/index.ts"
   },
