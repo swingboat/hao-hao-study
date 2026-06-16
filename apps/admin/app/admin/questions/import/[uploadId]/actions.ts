@@ -676,6 +676,21 @@ export async function bulkAcceptAllAction(
   let accepted = 0;
   const skipReasons: string[] = [];
 
+  function skipReasonLabel(
+    payload: {
+      content?: string;
+      source_hint?: { page?: number | null; question_no?: string | null };
+    },
+    fallbackId: string,
+  ): string {
+    const sourceParts: string[] = [];
+    if (payload.source_hint?.page) sourceParts.push(`p${payload.source_hint.page}`);
+    if (payload.source_hint?.question_no) sourceParts.push(payload.source_hint.question_no);
+    if (sourceParts.length > 0) return `原文 ${sourceParts.join(' · ')}`;
+    const summary = (payload.content ?? '').replace(/\s+/g, ' ').slice(0, 30);
+    return summary || `staging:${fallbackId.slice(0, 8)}`;
+  }
+
   for (const s of stagings) {
     const payload = s.llm_payload as {
       content?: string;
@@ -685,10 +700,11 @@ export async function bulkAcceptAllAction(
       solution_text?: string;
       difficulty?: number;
       kp_hints?: string[];
+      source_hint?: { page?: number | null; question_no?: string | null };
       _subject_id?: string;
     };
 
-    const label = (payload.content ?? s.id).replace(/\s+/g, ' ').slice(0, 30);
+    const label = skipReasonLabel(payload, s.id);
     const subjectId = payload._subject_id ?? '';
     const questionType = payload.question_type ?? 'choice';
     const content = (payload.content ?? '').trim();

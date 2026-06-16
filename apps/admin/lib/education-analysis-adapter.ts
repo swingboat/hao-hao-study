@@ -59,9 +59,15 @@ export function questionToStagingPayload(question: unknown, subjectId: string): 
     content,
     question_type: inferQuestionType(record.type ?? record.question_type, options),
     options,
-    answer: firstNonEmptyString(record.answer) ?? '',
+    answer: questionAnswer(record),
     solution_text:
-      firstNonEmptyString(record.analysis, record.solution_text, record.solution) ?? '',
+      firstNonEmptyString(record.analysis, record.solution_text, record.solution) ??
+      subQuestionJoinedField(record.sub_questions, [
+        'analysis',
+        'solution_text',
+        'solution',
+        'explanation',
+      ]),
     difficulty: numberOrNull(record.difficulty) ?? 3,
     kp_hints: related.map((kp) => kp.name).filter((name): name is string => Boolean(name)),
     source_hint: {
@@ -102,13 +108,64 @@ export function analysisFileTypeFromName(name: string | null | undefined): 'pdf'
 }
 
 function questionContent(record: JsonRecord): string {
-  const base = firstNonEmptyString(record.stem, record.content, record.raw_text) ?? '';
+  const base =
+    firstNonEmptyString(
+      record.stem,
+      record.content,
+      record.question,
+      record.text,
+      record.raw_text,
+    ) ?? '';
   const subQuestions = Array.isArray(record.sub_questions)
     ? record.sub_questions
-        .map((item, index) => `${index + 1}. ${stringValue(item)}`.trim())
+        .map((item, index) => {
+          const text = subQuestionStem(item);
+          return text ? `${index + 1}. ${text}` : '';
+        })
         .filter(Boolean)
     : [];
   return [base, ...subQuestions].filter(Boolean).join('\n');
+}
+
+function questionAnswer(record: JsonRecord): string {
+  return (
+    firstNonEmptyString(
+      record.answer,
+      record.answer_text,
+      record.correct_answer,
+      record.correctAnswer,
+      record.answers,
+    ) ?? subQuestionJoinedField(record.sub_questions, ['answer', 'answer_text', 'correct_answer'])
+  );
+}
+
+function subQuestionStem(value: unknown): string {
+  const record = asRecord(value);
+  if (!record) return firstNonEmptyString(value) ?? '';
+  return (
+    firstNonEmptyString(
+      record.stem,
+      record.content,
+      record.question,
+      record.text,
+      record.prompt,
+      record.title,
+      record.raw_text,
+    ) ?? ''
+  );
+}
+
+function subQuestionJoinedField(value: unknown, keys: string[]): string {
+  if (!Array.isArray(value)) return '';
+  return value
+    .map((item, index) => {
+      const record = asRecord(item);
+      if (!record) return '';
+      const text = firstNonEmptyString(...keys.map((key) => record[key]));
+      return text ? `${index + 1}. ${text}` : '';
+    })
+    .filter(Boolean)
+    .join('\n');
 }
 
 function normalizeOptions(value: unknown): Array<{ label: string; text: string }> {
@@ -169,7 +226,7 @@ function normalizeNumberArray(value: unknown): number[] {
 function firstNonEmptyString(...values: unknown[]): string | null {
   for (const value of values) {
     if (value == null) continue;
-    const text = String(value).trim();
+    const text = stringValue(value).trim();
     if (text) return text;
   }
   return null;
@@ -181,11 +238,48 @@ function numberOrNull(value: unknown): number | null {
 }
 
 function stringValue(value: unknown): string {
-  return value == null ? '' : String(value);
+  return textFromValue(value) ?? '';
 }
 
 function asRecord(value: unknown): JsonRecord | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as JsonRecord)
     : null;
+}
+
+const TEXT_KEYS = [
+  'text',
+  'content',
+  'stem',
+  'question',
+  'prompt',
+  'title',
+  'name',
+  'value',
+  'answer',
+  'label',
+];
+
+function textFromValue(value: unknown, seen = new Set<object>()): string | null {
+  if (value == null) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    const text = value
+      .map((item) => textFromValue(item, seen)?.trim() ?? '')
+      .filter(Boolean)
+      .join('\n');
+    return text || null;
+  }
+  const record = asRecord(value);
+  if (!record) return null;
+  if (seen.has(record)) return null;
+  seen.add(record);
+  for (const key of TEXT_KEYS) {
+    const text = textFromValue(record[key], seen)?.trim();
+    if (text) return text;
+  }
+  return null;
 }
