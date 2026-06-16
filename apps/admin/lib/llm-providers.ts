@@ -2,6 +2,7 @@ import { prisma } from '@hao/db';
 
 export interface AdminLlmProvider {
   id: string;
+  db_id: string;
   protocol: string;
   endpoint: string;
   model: string;
@@ -30,27 +31,124 @@ const PROVIDER_COLUMNS = `
   created_at
 `;
 
+const CURRENT_PROVIDER_PREFIXES = ['openai-chat-', 'bedrock-converse-', 'google-generate-content-'];
+
+function hasCurrentProviderPrefix(id: string): boolean {
+  return CURRENT_PROVIDER_PREFIXES.some((prefix) => id.startsWith(prefix));
+}
+
+function providerPrefixForProtocol(protocol: string): string | null {
+  switch (protocol) {
+    case 'openai_chat':
+      return 'openai-chat';
+    case 'bedrock_converse':
+      return 'bedrock-converse';
+    case 'google_generate_content':
+      return 'google-generate-content';
+    default:
+      return null;
+  }
+}
+
+function modelSlugForProvider(model: string): string {
+  const namespaced =
+    model.startsWith('google.') || model.startsWith('anthropic.')
+      ? model.slice(model.indexOf('.') + 1)
+      : model;
+  return namespaced
+    .replace(/-global$/, '')
+    .replace(/-preview$/, '')
+    .replace(/opus-4-7$/, 'opus-4.7');
+}
+
+function publicProviderIdForRow(row: Pick<AdminLlmProvider, 'id' | 'protocol' | 'model'>): string {
+  if (hasCurrentProviderPrefix(row.id)) return row.id;
+
+  const prefix = providerPrefixForProtocol(row.protocol);
+  if (!prefix) return row.id;
+
+  return `${prefix}-${modelSlugForProvider(row.model)}`;
+}
+
+export function resolveLlmProviderId(
+  id: string,
+  providers: Array<Pick<AdminLlmProvider, 'id' | 'db_id'>>,
+): string | null {
+  if (!id) return null;
+
+  const matchedProvider = providers.find((provider) => provider.id === id || provider.db_id === id);
+  if (matchedProvider) return matchedProvider.id;
+
+  return hasCurrentProviderPrefix(id) ? id : null;
+}
+
+export function displayLlmProviderId(
+  id: string,
+  providers: Array<Pick<AdminLlmProvider, 'id' | 'db_id'>> = [],
+): string {
+  const resolved = resolveLlmProviderId(id, providers);
+  if (resolved) return resolved;
+
+  if (!id) return '';
+  return '旧 Provider（请更新 env / seed）';
+}
+
+function toPublicProvider(row: Omit<AdminLlmProvider, 'db_id'>): AdminLlmProvider {
+  return {
+    ...row,
+    db_id: row.id,
+    id: publicProviderIdForRow(row),
+  };
+}
+
+function dedupeProviders(rows: AdminLlmProvider[]): AdminLlmProvider[] {
+  const byId = new Map<string, AdminLlmProvider>();
+  for (const row of rows) {
+    const existing = byId.get(row.id);
+    if (!existing || (existing.db_id !== existing.id && row.db_id === row.id)) {
+      byId.set(row.id, row);
+    }
+  }
+  return Array.from(byId.values()).sort((a, b) => a.id.localeCompare(b.id));
+}
+
+async function selectLlmProviderRows(
+  whereSql = '',
+  ...params: unknown[]
+): Promise<AdminLlmProvider[]> {
+  const rows = await prisma.$queryRawUnsafe<Array<Omit<AdminLlmProvider, 'db_id'>>>(
+    `SELECT ${PROVIDER_COLUMNS} FROM llm_provider ${whereSql} ORDER BY id ASC`,
+    ...params,
+  );
+  return rows.map(toPublicProvider);
+}
+
+async function selectLlmProviders(
+  whereSql = '',
+  ...params: unknown[]
+): Promise<AdminLlmProvider[]> {
+  return dedupeProviders(await selectLlmProviderRows(whereSql, ...params));
+}
+
 export async function listLlmProviders(opts: { enabledOnly?: boolean } = {}) {
   if (opts.enabledOnly) {
-    return prisma.$queryRawUnsafe<AdminLlmProvider[]>(
-      `SELECT ${PROVIDER_COLUMNS} FROM llm_provider WHERE enabled = true ORDER BY id ASC`,
-    );
+    return selectLlmProviders('WHERE enabled = true');
   }
-  return prisma.$queryRawUnsafe<AdminLlmProvider[]>(
-    `SELECT ${PROVIDER_COLUMNS} FROM llm_provider ORDER BY id ASC`,
-  );
+  return selectLlmProviders();
 }
 
 export async function getLlmProviderById(id: string): Promise<AdminLlmProvider | null> {
-  const rows = await prisma.$queryRawUnsafe<AdminLlmProvider[]>(
-    `SELECT ${PROVIDER_COLUMNS} FROM llm_provider WHERE id = $1 LIMIT 1`,
-    id,
-  );
-  return rows[0] ?? null;
+  const rows = await selectLlmProviderRows();
+  return rows.find((row) => row.id === id || row.db_id === id) ?? null;
 }
 
 export async function setLlmProviderEnabled(id: string, enabled: boolean): Promise<void> {
-  await prisma.$executeRawUnsafe('UPDATE llm_provider SET enabled = $1 WHERE id = $2', enabled, id);
+  const provider = await getLlmProviderById(id);
+  await prisma.$executeRawUnsafe(
+    'UPDATE llm_provider SET enabled = $1 WHERE id = $2',
+    enabled,
+    provider?.db_id ?? id,
+  );
 }
 
 const DOCUMENT_ANALYSIS_PROTOCOLS = new Set(['openai_chat', 'bedrock_converse']);

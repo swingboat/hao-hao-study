@@ -59,7 +59,11 @@ interface SubjectGroup {
   kpTotal: number;
 }
 
-function groupKps(kps: KpRow[], subjectIdToName: Map<string, string>): SubjectGroup[] {
+function groupKps(
+  kps: KpRow[],
+  subjectIdToName: Map<string, string>,
+  subjectIdToOrder: Map<string, number>,
+): SubjectGroup[] {
   const bySubject = new Map<string, Map<string, KpRow[]>>();
   for (const k of kps) {
     const chapKey = k.chapter_no && k.chapter_no.trim() !== '' ? k.chapter_no : UNGROUPED_KEY;
@@ -96,7 +100,12 @@ function groupKps(kps: KpRow[], subjectIdToName: Map<string, string>): SubjectGr
       kpTotal,
     });
   }
-  result.sort((a, b) => a.subjectId.localeCompare(b.subjectId));
+  result.sort((a, b) => {
+    const bySubjectOrder =
+      (subjectIdToOrder.get(a.subjectId) ?? 9999) - (subjectIdToOrder.get(b.subjectId) ?? 9999);
+    if (bySubjectOrder !== 0) return bySubjectOrder;
+    return a.subjectId.localeCompare(b.subjectId);
+  });
   return result;
 }
 
@@ -162,7 +171,8 @@ export interface KpTreeViewProps {
 
 export function KpTreeView({ kps, subjects, filteredSubject, chapterTitles }: KpTreeViewProps) {
   const subjectIdToName = new Map(subjects.map((s) => [s.id, s.name]));
-  const groups = groupKps(kps, subjectIdToName);
+  const subjectIdToOrder = new Map(subjects.map((s, index) => [s.id, index]));
+  const groups = groupKps(kps, subjectIdToName, subjectIdToOrder);
 
   // 单 subject 直接展平：用户已经选了学科，再嵌一层 subject 节点冗余
   if (filteredSubject && groups.length <= 1) {

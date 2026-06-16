@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Prisma, prisma } from '@hao/db';
 import { createStore, extOf } from '@hao/storage';
+import { buildStoredAnalysisFile } from './analysis-file';
 import {
-  analysisFileTypeFromName,
   knowledgeRowsForQuestionContext,
   questionToStagingPayload,
   tokenUsageFromEducationUsage,
@@ -56,7 +56,9 @@ export async function runQuestionParse(
     if (!provider) throw new Error(`llm_provider ${providerId} 不存在`);
     if (!provider.enabled) throw new Error(`llm_provider ${providerId} 已禁用`);
     if (!isDocumentAnalysisProvider(provider)) {
-      throw new Error(`试题解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}`);
+      throw new Error(
+        `试题解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}`,
+      );
     }
 
     await prisma.llm_parse_job.update({
@@ -83,6 +85,12 @@ export async function runQuestionParse(
     const originalName = upload.original_name ?? `${jobId}.pdf`;
     tmpPath = path.join(tmpDir, `${jobId}${extOf(originalName) || '.pdf'}`);
     await writeFile(tmpPath, buf);
+    const analysisFile = buildStoredAnalysisFile({
+      bytes: buf,
+      name: originalName,
+      path: tmpPath,
+      mimeType: upload.file_type,
+    });
 
     const existingKps = await prisma.knowledge_point.findMany({
       where: { subject_id: subjectId },
@@ -91,13 +99,8 @@ export async function runQuestionParse(
     });
 
     const result = await runQuestionAnalysis({
-      providerId,
-      file: {
-        type: analysisFileTypeFromName(originalName),
-        name: originalName,
-        path: tmpPath,
-        mimeType: upload.file_type,
-      },
+      providerId: provider.db_id,
+      file: analysisFile,
       subject,
       knowledge: knowledgeRowsForQuestionContext(existingKps),
       onProgress: (snap) => {
@@ -128,7 +131,8 @@ export async function runQuestionParse(
           status: 'succeeded',
           request_payload: {
             entry: 'analyzeQuestions',
-            file_type: analysisFileTypeFromName(originalName),
+            provider_id: provider.id,
+            file_type: analysisFile.type,
             knowledge_count: existingKps.length,
           } as Prisma.InputJsonValue,
           raw_response: {

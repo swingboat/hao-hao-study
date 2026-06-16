@@ -14,6 +14,7 @@ import { type EducationProgressEvent, analyzeKnowledgePoints } from '@hao/llm';
 import { StoragePaths, createStore, extOf, sha256OfBuffer } from '@hao/storage';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { buildStoredAnalysisFile } from '../../../../lib/analysis-file';
 import { SESSION_COOKIE, verifySession } from '../../../../lib/auth';
 import {
   type TokenUsage,
@@ -26,6 +27,7 @@ import {
   getLlmProviderById,
   isDocumentAnalysisProvider,
 } from '../../../../lib/llm-providers';
+import { deleteUploadHistory } from '../../../../lib/upload-history';
 
 const KP_PROMPT_VERSION = 'knowledge_points/common/analyzeKnowledgePoints';
 
@@ -112,7 +114,9 @@ async function runParse(
     if (!provider) throw new Error(`llm_provider ${providerId} 不存在`);
     if (!provider.enabled) throw new Error(`llm_provider ${providerId} 已禁用`);
     if (!isDocumentAnalysisProvider(provider)) {
-      throw new Error(`KP 解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}`);
+      throw new Error(
+        `KP 解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}`,
+      );
     }
 
     await prisma.llm_parse_job.update({
@@ -139,16 +143,17 @@ async function runParse(
     const originalName = upload.original_name ?? `${jobId}.pdf`;
     tmpPath = path.join(tmpDir, `${jobId}${extOf(originalName) || '.pdf'}`);
     await writeFile(tmpPath, pdfBuf);
+    const analysisFile = buildStoredAnalysisFile({
+      bytes: pdfBuf,
+      name: originalName,
+      path: tmpPath,
+      mimeType: 'application/pdf',
+    });
 
     let pagesDone = 0;
     const result = await analyzeKnowledgePoints({
-      providerId,
-      file: {
-        type: 'pdf',
-        name: originalName,
-        path: tmpPath,
-        mimeType: 'application/pdf',
-      },
+      providerId: provider.db_id,
+      file: analysisFile,
       onProgress: (event) => {
         if (event.stage === 'page_done') pagesDone += 1;
         void patchProgress(jobId, kpProgressFromEvent(event, pagesDone)).catch((e) =>
@@ -182,6 +187,7 @@ async function runParse(
           status: 'succeeded',
           request_payload: {
             entry: 'analyzeKnowledgePoints',
+            provider_id: provider.id,
             file_type: 'pdf',
           } as Prisma.InputJsonValue,
           raw_response: {
@@ -320,7 +326,9 @@ export async function uploadAndParseAction(
   if (!provider || !provider.enabled)
     return { error: `LLM Provider ${providerId} 不存在 / 未启用` };
   if (!isDocumentAnalysisProvider(provider)) {
-    return { error: `KP 解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}` };
+    return {
+      error: `KP 解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}`,
+    };
   }
 
   const store = createStore();
@@ -348,13 +356,13 @@ export async function uploadAndParseAction(
     data: {
       upload_id: upload.id,
       task_kind: 'knowledge_point',
-      provider_id: providerId,
+      provider_id: provider.db_id,
       prompt_version: KP_PROMPT_VERSION,
       status: 'queued',
     },
   });
 
-  void runParse(job.id, upload.id, providerId, subjectId);
+  void runParse(job.id, upload.id, provider.id, subjectId);
   redirect(`/admin/kps/import/${upload.id}`);
 }
 
@@ -392,7 +400,9 @@ export async function reparseUploadAction(
   if (!provider || !provider.enabled)
     return { error: `LLM Provider ${providerId} 不存在 / 未启用` };
   if (!isDocumentAnalysisProvider(provider)) {
-    return { error: `KP 解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}` };
+    return {
+      error: `KP 解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}`,
+    };
   }
 
   await reapZombieJobs(uploadId);
@@ -401,12 +411,23 @@ export async function reparseUploadAction(
     data: {
       upload_id: uploadId,
       task_kind: 'knowledge_point',
-      provider_id: providerId,
+      provider_id: provider.db_id,
       prompt_version: KP_PROMPT_VERSION,
       status: 'queued',
     },
   });
 
-  void runParse(job.id, uploadId, providerId, subjectId);
+  void runParse(job.id, uploadId, provider.id, subjectId);
   redirect(`/admin/kps/import/${uploadId}`);
+}
+
+export async function deleteUploadHistoryAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const uploadId = String(formData.get('upload_id') ?? '');
+  if (!uploadId) throw new Error('upload_id 缺失');
+  const result = await deleteUploadHistory(uploadId, 'knowledge_point');
+  if (!result.ok && result.reason === 'wrong_purpose') {
+    throw new Error('只能删除 KP 上传历史');
+  }
+  redirect('/admin/kps/import');
 }
