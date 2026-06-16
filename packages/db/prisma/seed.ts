@@ -28,8 +28,7 @@ const LLM_PROXY_API_KEY_ENV = 'LLM_PROXY_API_KEY';
 const OPENAI_CHAT_ENDPOINT_ENV = 'LLM_PROXY_OPENAI_CHAT_ENDPOINT';
 const GOOGLE_GEMINI_3_PRO_IMAGE_ENDPOINT_ENV =
   'LLM_PROXY_GOOGLE_GENERATE_CONTENT_GEMINI_3_PRO_IMAGE_ENDPOINT';
-const BEDROCK_CLAUDE_OPUS_4_7_ENDPOINT_ENV =
-  'LLM_PROXY_BEDROCK_CONVERSE_CLAUDE_OPUS_4_7_ENDPOINT';
+const BEDROCK_CLAUDE_OPUS_4_7_ENDPOINT_ENV = 'LLM_PROXY_BEDROCK_CONVERSE_CLAUDE_OPUS_4_7_ENDPOINT';
 
 function endpointEnvRef(envVar: string): string {
   return `env:${envVar}`;
@@ -46,7 +45,7 @@ const PROVIDERS: ProviderSeed[] = [
     protocol: 'openai_chat',
     endpoint: endpointEnvRef(OPENAI_CHAT_ENDPOINT_ENV),
     model: 'google.gemini-3.1-pro-global',
-    capabilities: { text: true, vision: true, pdf: true, structured_output: true },
+    capabilities: { text: true, vision: true, pdf: false, structured_output: true },
     auth_env_var: LLM_PROXY_API_KEY_ENV,
     // 不要写 max_tokens：详见 AGENTS.md §通用规则·5。
     // Gemini 3.x 是 thinking 模型，max_tokens 是 reasoning_tokens + visible 共享预算；
@@ -68,7 +67,7 @@ const PROVIDERS: ProviderSeed[] = [
     protocol: 'openai_chat',
     endpoint: endpointEnvRef(OPENAI_CHAT_ENDPOINT_ENV),
     model: 'google.gemini-3.5-flash-global',
-    capabilities: { text: true, vision: false, pdf: false, structured_output: true },
+    capabilities: { text: true, vision: true, pdf: false, structured_output: true },
     auth_env_var: LLM_PROXY_API_KEY_ENV,
     // 同 openai-chat-gemini-3.1-pro，不设 max_tokens（Flash 同样是 thinking 模型，
     // 探针实测 reasoning_tokens=1920 / max_tokens=2000 → visible 被完全吞掉）
@@ -129,7 +128,7 @@ const PROVIDERS: ProviderSeed[] = [
     protocol: 'google_generate_content',
     endpoint: endpointEnvRef(GOOGLE_GEMINI_3_PRO_IMAGE_ENDPOINT_ENV),
     model: 'google.gemini-3-pro-image-preview',
-    capabilities: { text: true, vision: true, pdf: false, structured_output: true },
+    capabilities: { text: true, vision: true, pdf: true, structured_output: true },
     auth_env_var: LLM_PROXY_API_KEY_ENV,
     default_params: { temperature: 0.7, max_tokens: 1024 },
     max_output_tokens: null,
@@ -144,7 +143,7 @@ const PROVIDERS: ProviderSeed[] = [
     protocol: 'bedrock_converse',
     endpoint: endpointEnvRef(BEDROCK_CLAUDE_OPUS_4_7_ENDPOINT_ENV),
     model: 'anthropic.claude-opus-4-7',
-    capabilities: { text: true, vision: true, pdf: false, structured_output: true },
+    capabilities: { text: true, vision: true, pdf: true, structured_output: true },
     auth_env_var: LLM_PROXY_API_KEY_ENV,
     default_params: { max_tokens: 16384 },
     max_output_tokens: null,

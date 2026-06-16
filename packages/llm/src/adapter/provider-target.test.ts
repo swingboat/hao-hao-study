@@ -12,8 +12,7 @@ const BASE_PROVIDER = {
 
 beforeEach(() => {
   process.env.LLM_PROXY_API_KEY = 'test-token-xyz';
-  process.env.LLM_PROXY_OPENAI_CHAT_ENDPOINT =
-    'https://example.com/openai/v1/chat/completions';
+  process.env.LLM_PROXY_OPENAI_CHAT_ENDPOINT = 'https://example.com/openai/v1/chat/completions';
 });
 
 afterEach(() => {
@@ -64,6 +63,52 @@ describe('providerToTarget', () => {
     });
   });
 
+  it('does not invent maxTokens for thinking Gemini providers with null token defaults', () => {
+    const result = providerToTarget({
+      ...BASE_PROVIDER,
+      id: 'openai-chat-gemini-3.1-pro',
+      model: 'google.gemini-3.1-pro-global',
+      default_params: { temperature: 0.2 },
+      max_output_tokens: null,
+      quirks: {},
+    });
+
+    expect(result.defaults).toEqual({
+      temperature: 0.2,
+      maxTokens: undefined,
+    });
+  });
+
+  it('maps Google GenerateContent provider records to the synced llmTarget api shape', () => {
+    const result = providerToTarget({
+      ...BASE_PROVIDER,
+      id: 'google-generate-content-gemini-3-pro-image',
+      protocol: 'google_generate_content',
+      endpoint:
+        'https://example.com/google/v1/models/google.gemini-3-pro-image-preview:generateContent',
+      model: 'google.gemini-3-pro-image-preview',
+      default_params: { temperature: 0.7, max_tokens: 1024 },
+      max_output_tokens: null,
+      quirks: {},
+    });
+
+    expect(result.llmTarget).toEqual({
+      id: 'google-generate-content-gemini-3-pro-image',
+      provider: 'google_generate_content',
+      api_shape: 'google-generate-content',
+      model: 'google.gemini-3-pro-image-preview',
+      path: 'https://example.com/google/v1/models/google.gemini-3-pro-image-preview:generateContent',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ${LLM_PROXY_API_KEY}',
+      },
+    });
+    expect(result.defaults).toEqual({
+      temperature: 0.7,
+      maxTokens: 1024,
+    });
+  });
+
   it('resolves endpoint env references at runtime', () => {
     const result = providerToTarget({
       ...BASE_PROVIDER,
@@ -81,8 +126,7 @@ describe('providerToTarget', () => {
       ...BASE_PROVIDER,
       id: 'bedrock-converse-claude-opus-4.7',
       protocol: 'bedrock_converse',
-      endpoint:
-        'https://example.com/bedrock/v1/model/anthropic.claude-opus-4-7/converse',
+      endpoint: 'https://example.com/bedrock/v1/model/anthropic.claude-opus-4-7/converse',
       model: 'anthropic.claude-opus-4-7',
       default_params: { max_tokens: 16384 },
       max_output_tokens: null,

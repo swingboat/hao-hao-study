@@ -97,6 +97,7 @@ export async function callLlm({
     const raw = parseMaybeJson(responseText);
     const httpStatus = response.status;
     const latencyMs = now() - startedAt;
+    const responseHeaders = headersToObject(response.headers);
     await appendPayloadLog({
       payloadLogPath,
       requestLabel: requestLabel ?? resolvedLlmTarget.id,
@@ -105,7 +106,7 @@ export async function callLlm({
         index: 1,
         http_status: httpStatus,
         latency_ms: latencyMs,
-        headers: headersToObject(response.headers),
+        headers: responseHeaders,
         body: raw
       },
       limit: payloadLogLimit
@@ -119,6 +120,7 @@ export async function callLlm({
       model: resolvedLlmTarget.model ?? null,
       api_shape: resolvedLlmTarget.api_shape,
       http_status: httpStatus,
+      headers: responseHeaders,
       latency_ms: latencyMs,
       usage: extractLlmUsage(raw, resolvedLlmTarget.api_shape),
       text: extractLlmText(raw, resolvedLlmTarget.api_shape),

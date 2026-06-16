@@ -11,6 +11,9 @@ import {
 } from "./document-cache.ts";
 import { callLlm } from "../llm/llm-client.ts";
 
+const DEFAULT_RETRY_BACKOFF_MS = 10_000;
+const MAX_RETRY_BACKOFF_MS = 60_000;
+
 export async function parseImage({
   llmConfig,
   llmTarget,
@@ -277,6 +280,9 @@ export async function parseDocumentPages({
   synthesize = true,
   concurrency = 2,
   maxRetries = 2,
+  retryBackoffInitialMs = DEFAULT_RETRY_BACKOFF_MS,
+  retryBackoffMaxMs = MAX_RETRY_BACKOFF_MS,
+  retrySleepImpl = sleep,
   includePageImages = false,
   onProgress,
   cache,
@@ -320,6 +326,24 @@ export async function parseDocumentPages({
     });
     const response = await callPageWithRetries({
       maxRetries,
+      retryBackoffInitialMs,
+      retryBackoffMaxMs,
+      sleepImpl: retrySleepImpl,
+      onRetryWait: ({ attempt, nextAttempt, delayMs, delaySource, response }) => {
+        onProgress?.({
+          stage: "page_retry_wait",
+          progress_percent: progressForPages(completedPages, normalizedPages.length),
+          page_number: page.pageNumber,
+          total_pages: normalizedPages.length,
+          http_status: response?.http_status ?? null,
+          retry_after_ms: delayMs,
+          retry_delay_ms: delayMs,
+          retry_delay_source: delaySource,
+          attempt,
+          next_attempt: nextAttempt,
+          message: `第 ${page.pageNumber}/${normalizedPages.length} 页解析遇到限流或临时错误，等待 ${Math.ceil(delayMs / 1000)} 秒后重试`
+        });
+      },
       operation: () => callLlmWithCache({
         cache,
         layer: "page_llm",
@@ -902,7 +926,14 @@ async function mapConcurrent(items, concurrency, worker) {
   return results;
 }
 
-async function callPageWithRetries({ operation, maxRetries }) {
+async function callPageWithRetries({
+  operation,
+  maxRetries,
+  retryBackoffInitialMs = DEFAULT_RETRY_BACKOFF_MS,
+  retryBackoffMaxMs = MAX_RETRY_BACKOFF_MS,
+  sleepImpl = sleep,
+  onRetryWait
+}) {
   let attempt = 0;
   let lastResponse = null;
   while (attempt <= maxRetries) {
@@ -921,6 +952,24 @@ async function callPageWithRetries({ operation, maxRetries }) {
         error_message: error.message
       };
     }
+    if (attempt >= maxRetries) break;
+
+    const retryDelay = resolveRetryDelay({
+      response: lastResponse,
+      attempt,
+      retryBackoffInitialMs,
+      retryBackoffMaxMs
+    });
+    onRetryWait?.({
+      attempt: attempt + 1,
+      nextAttempt: attempt + 2,
+      delayMs: retryDelay.delayMs,
+      delaySource: retryDelay.source,
+      response: lastResponse
+    });
+    if (retryDelay.delayMs > 0) {
+      await sleepImpl(retryDelay.delayMs);
+    }
     attempt += 1;
   }
   return lastResponse;
@@ -929,6 +978,82 @@ async function callPageWithRetries({ operation, maxRetries }) {
 function isRetryableResponse(response) {
   if (response?.ok) return false;
   return response?.http_status == null || response.http_status === 429 || response.http_status >= 500;
+}
+
+function resolveRetryDelay({
+  response,
+  attempt,
+  retryBackoffInitialMs,
+  retryBackoffMaxMs
+}) {
+  const retryAfterMs = parseRetryAfterHeaderMs(getHeader(response?.headers, "retry-after"));
+  if (retryAfterMs != null) {
+    return { delayMs: retryAfterMs, source: "retry_after_header" };
+  }
+
+  const detailDelayMs = parseRetryAfterDetailMs(response);
+  if (detailDelayMs != null) {
+    return { delayMs: detailDelayMs, source: "response_detail" };
+  }
+
+  const initial = normalizeDelayMs(retryBackoffInitialMs, DEFAULT_RETRY_BACKOFF_MS);
+  const max = normalizeDelayMs(retryBackoffMaxMs, MAX_RETRY_BACKOFF_MS);
+  return {
+    delayMs: Math.min(initial * 2 ** Math.max(0, attempt), max),
+    source: "backoff"
+  };
+}
+
+function parseRetryAfterHeaderMs(value) {
+  if (value == null || value === "") return null;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric >= 0) {
+    return Math.ceil(numeric * 1000);
+  }
+
+  const timestamp = Date.parse(String(value));
+  if (Number.isFinite(timestamp)) {
+    return Math.max(0, timestamp - Date.now());
+  }
+
+  return null;
+}
+
+function parseRetryAfterDetailMs(response) {
+  const detailText = [
+    response?.raw?.detail,
+    response?.raw?.message,
+    response?.raw?.error?.message,
+    response?.error_message,
+    response?.text
+  ]
+    .filter((value) => value != null)
+    .join("\n");
+  const match = detailText.match(/retry after\s+([\d.]+)\s*(?:seconds?|s)?/i);
+  if (!match) return null;
+
+  const seconds = Number(match[1]);
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  return Math.ceil(seconds) * 1000;
+}
+
+function getHeader(headers, name) {
+  if (!headers) return null;
+  if (typeof headers.get === "function") return headers.get(name);
+  const entries = Object.entries(headers);
+  const lowerName = name.toLowerCase();
+  const match = entries.find(([key]) => key.toLowerCase() === lowerName);
+  return match ? match[1] : null;
+}
+
+function normalizeDelayMs(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return parsed;
+}
+
+function sleep(delayMs) {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 function resolvePagePrompt({ pagePrompt, documentType, page, totalPages }) {

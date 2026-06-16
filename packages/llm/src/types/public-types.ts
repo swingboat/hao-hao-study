@@ -50,6 +50,8 @@ export interface ParserProgressEvent {
 export interface CommonParserOptions {
   concurrency?: number;
   maxRetries?: number;
+  retryBackoffInitialMs?: number;
+  retryBackoffMaxMs?: number;
   maxTokens?: number;
   maxPageTokens?: number;
   maxFinalTokens?: number;
@@ -316,6 +318,7 @@ export interface LlmResult {
   model: string | null;
   api_shape: string;
   http_status: number | null;
+  headers?: Record<string, string>;
   latency_ms: number;
   usage: JsonObject | null;
   text: string;

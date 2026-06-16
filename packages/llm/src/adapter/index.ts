@@ -37,7 +37,25 @@ export type EducationProgressEvent =
       total_pages: number;
       message: string;
     }
-  | { stage: 'synthesis_started' | 'synthesis_done'; progress_percent: number; message: string; total_pages: number };
+  | {
+      stage: 'page_retry_wait';
+      progress_percent: number;
+      page_number: number;
+      total_pages: number;
+      message: string;
+      http_status: number | null;
+      retry_after_ms: number;
+      retry_delay_ms: number;
+      retry_delay_source: string;
+      attempt: number;
+      next_attempt: number;
+    }
+  | {
+      stage: 'synthesis_started' | 'synthesis_done';
+      progress_percent: number;
+      message: string;
+      total_pages: number;
+    };
 
 export interface AnalyzeKnowledgePointsOptions extends AdapterCommonOptions {
   providerId: string;
@@ -68,7 +86,9 @@ export async function analyzeKnowledgePoints(
   });
 }
 
-export async function analyzeQuestions(opts: AnalyzeQuestionsOptions): Promise<QuestionAnalysisResult> {
+export async function analyzeQuestions(
+  opts: AnalyzeQuestionsOptions,
+): Promise<QuestionAnalysisResult> {
   const { providerId, ...commonOptions } = opts;
   const provider = await resolveProviderTarget(providerId);
   return callCommonQuestionAnalysis({
