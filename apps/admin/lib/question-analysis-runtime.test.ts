@@ -78,10 +78,7 @@ test('createStorageDocumentCache stores JSON through ObjectStore derived paths',
   await cache.setJson(cacheKey, { ok: true, nested: { count: 2 } });
 
   const storageKey = Array.from(store.writes.keys())[0];
-  assert.equal(
-    storageKey,
-    `derived/${cacheKey}/llm-cache-v1/question-analysis-test.json`,
-  );
+  assert.equal(storageKey, `derived/${cacheKey}/llm-cache-v1/question-analysis-test.json`);
   assert.deepEqual(await cache.getJson(cacheKey), { ok: true, nested: { count: 2 } });
 });
 

@@ -1,4 +1,4 @@
-import { StoragePaths, type ObjectStore, createStore } from '@hao/storage';
+import { type ObjectStore, StoragePaths, createStore } from '@hao/storage';
 
 const DEFAULT_CONCURRENCY = 1;
 const DEFAULT_MAX_RETRIES = 2;

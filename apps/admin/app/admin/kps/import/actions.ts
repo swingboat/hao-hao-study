@@ -286,6 +286,12 @@ function kpProgressFromEvent(
         pagesDone,
         lastEvent: event.message,
       };
+    case 'page_retry_wait':
+      return {
+        phase: 'analyzing',
+        pageCount: event.total_pages,
+        lastEvent: retryWaitMessage(event.retry_after_ms),
+      };
     case 'synthesis_started':
     case 'synthesis_done':
       return {
@@ -294,6 +300,11 @@ function kpProgressFromEvent(
         lastEvent: event.message,
       };
   }
+}
+
+function retryWaitMessage(retryAfterMs: number): string {
+  const seconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+  return `遇到限流/临时错误，等待 ${seconds} 秒后重试`;
 }
 
 export interface UploadFormState {
