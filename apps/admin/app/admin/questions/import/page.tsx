@@ -8,7 +8,10 @@ import {
   documentAnalysisProtocolLabel,
   isDocumentAnalysisProvider,
   listLlmProviders,
+  resolveLlmProviderId,
 } from '../../../../lib/llm-providers';
+import { sortSubjectsByStage } from '../../../../lib/subjects';
+import { deleteUploadHistoryAction } from './actions';
 import { ImportForm } from './import-form';
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +20,7 @@ const TASK_KIND_DEFAULT_ENV = 'DEFAULT_PROVIDER_QUESTION';
 
 export default async function QuestionsImportPage() {
   const [subjects, providers, recent] = await Promise.all([
-    prisma.subject.findMany({ orderBy: { id: 'asc' } }),
+    prisma.subject.findMany().then(sortSubjectsByStage),
     listLlmProviders({ enabledOnly: true }),
     prisma.content_upload.findMany({
       where: { purpose: 'question' },
@@ -37,14 +40,14 @@ export default async function QuestionsImportPage() {
   // analyzeQuestions 当前只开放已接入公共文档解析能力的 vision provider。
   const visionProviders = providers.filter(isDocumentAnalysisProvider);
 
-  const envDefault = process.env[TASK_KIND_DEFAULT_ENV];
+  const envDefault = resolveLlmProviderId(process.env[TASK_KIND_DEFAULT_ENV] ?? '', providers);
   const defaultProvider =
     envDefault && visionProviders.some((p) => p.id === envDefault)
       ? envDefault
       : (visionProviders[0]?.id ?? '');
 
   return (
-    <main className="p-8 max-w-4xl mx-auto space-y-8">
+    <main className="p-8 max-w-6xl mx-auto space-y-8">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">题集文件上传 → 解析试题（F3.1–F3.2）</h1>
@@ -64,7 +67,8 @@ export default async function QuestionsImportPage() {
           ) : null}
           {visionProviders.length === 0 ? (
             <p className="text-amber-700">
-              没有启用的{documentAnalysisProtocolLabel()} LLM Provider；请去 /admin/settings/llm 检查。
+              没有启用的{documentAnalysisProtocolLabel()} LLM Provider；请去 /admin/settings/llm
+              检查。
             </p>
           ) : null}
         </section>
@@ -90,7 +94,7 @@ export default async function QuestionsImportPage() {
                   <th className="p-2 text-right">大小</th>
                   <th className="p-2">状态</th>
                   <th className="p-2 text-right">staging 数</th>
-                  <th className="p-2 text-right">操作</th>
+                  <th className="p-2 text-right w-32">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -136,13 +140,24 @@ export default async function QuestionsImportPage() {
                         ) : null}
                       </td>
                       <td className="p-2 text-right tabular-nums">{u._count.llm_parse_stagings}</td>
-                      <td className="p-2 text-right">
-                        <Link
-                          href={`/admin/questions/import/${u.id}`}
-                          className="px-2 py-1 rounded border text-xs hover:bg-black/5 dark:hover:bg-white/10"
-                        >
-                          查看
-                        </Link>
+                      <td className="p-2 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-2">
+                          <Link
+                            href={`/admin/questions/import/${u.id}`}
+                            className="inline-flex h-7 items-center rounded border px-2 text-xs leading-none whitespace-nowrap hover:bg-black/5 dark:hover:bg-white/10"
+                          >
+                            查看
+                          </Link>
+                          <form action={deleteUploadHistoryAction}>
+                            <input type="hidden" name="upload_id" value={u.id} />
+                            <button
+                              type="submit"
+                              className="inline-flex h-7 items-center rounded border border-red-300 px-2 text-xs leading-none text-red-600 whitespace-nowrap hover:bg-red-50 dark:hover:bg-red-950/30"
+                            >
+                              删除
+                            </button>
+                          </form>
+                        </div>
                       </td>
                     </tr>
                   );

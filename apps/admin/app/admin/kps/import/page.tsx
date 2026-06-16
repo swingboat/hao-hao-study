@@ -12,7 +12,10 @@ import {
   documentAnalysisProtocolLabel,
   isDocumentAnalysisProvider,
   listLlmProviders,
+  resolveLlmProviderId,
 } from '../../../../lib/llm-providers';
+import { sortSubjectsByStage } from '../../../../lib/subjects';
+import { deleteUploadHistoryAction } from './actions';
 import { ImportForm } from './import-form';
 
 export const dynamic = 'force-dynamic';
@@ -21,7 +24,7 @@ const TASK_KIND_DEFAULT_ENV = 'DEFAULT_PROVIDER_KNOWLEDGE_POINT';
 
 export default async function KpImportPage() {
   const [subjects, providers, recent] = await Promise.all([
-    prisma.subject.findMany({ orderBy: { id: 'asc' } }),
+    prisma.subject.findMany().then(sortSubjectsByStage),
     // 只列启用的 provider；下面再收敛到 analyzeKnowledgePoints 可用的协议与能力。
     listLlmProviders({ enabledOnly: true }),
     prisma.content_upload.findMany({
@@ -44,14 +47,14 @@ export default async function KpImportPage() {
   // env 值必须在 visionProviders 名单内；否则 select.defaultValue 不匹配任何 option →
   // React 把 selectedIndex 置 -1 → required 校验静默失败 → 用户点提交无反应。
   // 默认用 visionProviders[0].id，永远确保 defaultProvider 在 options 里。
-  const envDefault = process.env[TASK_KIND_DEFAULT_ENV];
+  const envDefault = resolveLlmProviderId(process.env[TASK_KIND_DEFAULT_ENV] ?? '', providers);
   const defaultProvider =
     envDefault && visionProviders.some((p) => p.id === envDefault)
       ? envDefault
       : (visionProviders[0]?.id ?? '');
 
   return (
-    <main className="p-8 max-w-4xl mx-auto space-y-8">
+    <main className="p-8 max-w-6xl mx-auto space-y-8">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">教材 PDF 上传 → 解析 KP（F4.3）</h1>
@@ -71,7 +74,8 @@ export default async function KpImportPage() {
           ) : null}
           {visionProviders.length === 0 ? (
             <p className="text-amber-700">
-              没有启用的{documentAnalysisProtocolLabel()} LLM Provider；请去 /admin/settings/llm 检查。
+              没有启用的{documentAnalysisProtocolLabel()} LLM Provider；请去 /admin/settings/llm
+              检查。
             </p>
           ) : null}
         </section>
@@ -97,7 +101,7 @@ export default async function KpImportPage() {
                   <th className="p-2 text-right">大小</th>
                   <th className="p-2">状态</th>
                   <th className="p-2 text-right">staging 数</th>
-                  <th className="p-2 text-right">操作</th>
+                  <th className="p-2 text-right w-32">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -143,13 +147,24 @@ export default async function KpImportPage() {
                         ) : null}
                       </td>
                       <td className="p-2 text-right tabular-nums">{u._count.llm_parse_stagings}</td>
-                      <td className="p-2 text-right">
-                        <Link
-                          href={`/admin/kps/import/${u.id}`}
-                          className="px-2 py-1 rounded border text-xs hover:bg-black/5 dark:hover:bg-white/10"
-                        >
-                          查看
-                        </Link>
+                      <td className="p-2 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-2">
+                          <Link
+                            href={`/admin/kps/import/${u.id}`}
+                            className="inline-flex h-7 items-center rounded border px-2 text-xs leading-none whitespace-nowrap hover:bg-black/5 dark:hover:bg-white/10"
+                          >
+                            查看
+                          </Link>
+                          <form action={deleteUploadHistoryAction}>
+                            <input type="hidden" name="upload_id" value={u.id} />
+                            <button
+                              type="submit"
+                              className="inline-flex h-7 items-center rounded border border-red-300 px-2 text-xs leading-none text-red-600 whitespace-nowrap hover:bg-red-50 dark:hover:bg-red-950/30"
+                            >
+                              删除
+                            </button>
+                          </form>
+                        </div>
                       </td>
                     </tr>
                   );

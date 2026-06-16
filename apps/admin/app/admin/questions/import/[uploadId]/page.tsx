@@ -11,9 +11,12 @@
 import { prisma } from '@hao/db';
 import Link from 'next/link';
 import {
+  displayLlmProviderId,
   isDocumentAnalysisProvider,
   listLlmProviders,
+  resolveLlmProviderId,
 } from '../../../../../lib/llm-providers';
+import { sortSubjectsByStage } from '../../../../../lib/subjects';
 import { reparseUploadAction } from '../actions';
 import { BulkAcceptButton } from './bulk-accept-button';
 import type { LlmQuestionPayload } from './diff-drawer';
@@ -52,14 +55,21 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
     );
   }
 
-  const [subjects, providers] = await Promise.all([
-    prisma.subject.findMany(),
+  const [subjects, providers, allProviders] = await Promise.all([
+    prisma.subject.findMany().then(sortSubjectsByStage),
     listLlmProviders({ enabledOnly: true }),
+    listLlmProviders(),
   ]);
   const visionProviders = providers.filter(isDocumentAnalysisProvider);
   const subjectMap = new Map(subjects.map((s) => [s.id, s]));
 
   const lastJob = upload.llm_parse_jobs[0];
+  const lastJobProviderId = lastJob
+    ? resolveLlmProviderId(lastJob.provider_id, allProviders)
+    : null;
+  const lastJobProviderLabel = lastJob
+    ? displayLlmProviderId(lastJob.provider_id, allProviders)
+    : null;
   const pending = upload.llm_parse_stagings.filter((s) => s.review_status === 'pending');
   const processed = upload.llm_parse_stagings.filter((s) => s.review_status !== 'pending');
 
@@ -100,7 +110,7 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
             className="flex flex-wrap items-end gap-3 pt-1"
           >
             <input type="hidden" name="upload_id" value={upload.id} />
-            <input type="hidden" name="provider_id" value={lastJob.provider_id} />
+            <input type="hidden" name="provider_id" value={lastJobProviderId ?? ''} />
             <div>
               <label className="block text-xs opacity-70 mb-1" htmlFor="reparse_subject_id">
                 学科
@@ -123,7 +133,7 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
               type="submit"
               className="px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
             >
-              重新解析（{lastJob.provider_id}）
+              重新解析（{lastJobProviderLabel}）
             </button>
           </form>
         </section>
@@ -147,7 +157,7 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
           </span>
           <span>
             <span className="opacity-60">provider</span>{' '}
-            <code className="text-xs">{lastJob.provider_id}</code>
+            <code className="text-xs">{lastJobProviderLabel}</code>
           </span>
           <span>
             <span className="opacity-60">prompt</span>{' '}

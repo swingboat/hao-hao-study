@@ -23,9 +23,9 @@ import { createStore } from '@hao/storage';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { z } from 'zod';
+import { buildStoredAnalysisFile } from '../../../../../lib/analysis-file';
 import { SESSION_COOKIE, verifySession } from '../../../../../lib/auth';
 import {
-  analysisFileTypeFromName,
   knowledgeRowsForQuestionContext,
   questionContentKey,
   questionNoFromPayload,
@@ -302,7 +302,9 @@ export async function rerunStagingAction(
   const provider = await getLlmProviderById(providerId);
   if (!provider || !provider.enabled) return { error: `provider ${providerId} 不存在 / 未启用` };
   if (!isDocumentAnalysisProvider(provider)) {
-    return { error: `rerun 只支持 ${documentAnalysisProtocolLabel()} 的 provider；当前 ${provider.id}` };
+    return {
+      error: `rerun 只支持 ${documentAnalysisProtocolLabel()} 的 provider；当前 ${provider.id}`,
+    };
   }
   const llmPayload = staging.llm_payload as {
     source_hint?: { page?: number | null; question_no?: string | null };
@@ -323,7 +325,7 @@ export async function rerunStagingAction(
     data: {
       upload_id: staging.upload_id,
       task_kind: 'question',
-      provider_id: providerId,
+      provider_id: provider.db_id,
       prompt_version: QUESTION_PROMPT_VERSION,
       status: 'running',
     },
@@ -338,6 +340,12 @@ export async function rerunStagingAction(
     const originalName = staging.upload.original_name ?? `${job.id}.pdf`;
     tmpPath = path.join(tmpDir, `${job.id}${path.extname(originalName) || '.pdf'}`);
     await writeFile(tmpPath, buf);
+    const analysisFile = buildStoredAnalysisFile({
+      bytes: buf,
+      name: originalName,
+      path: tmpPath,
+      mimeType: staging.upload.file_type,
+    });
 
     const existingKps = await prisma.knowledge_point.findMany({
       where: { subject_id: subjectId },
@@ -346,12 +354,8 @@ export async function rerunStagingAction(
     });
 
     const result = await runQuestionAnalysis({
-      providerId,
-      file: {
-        type: analysisFileTypeFromName(originalName),
-        name: originalName,
-        path: tmpPath,
-      },
+      providerId: provider.db_id,
+      file: analysisFile,
       subject,
       knowledge: knowledgeRowsForQuestionContext(existingKps),
     });

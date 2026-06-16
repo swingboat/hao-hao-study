@@ -12,6 +12,7 @@
  */
 import { prisma } from '@hao/db';
 import Link from 'next/link';
+import { sortSubjectsByStage } from '../../../lib/subjects';
 import type { LlmQuestionPayload } from './import/[uploadId]/diff-drawer';
 import { MathText } from './import/[uploadId]/math-text';
 
@@ -25,7 +26,7 @@ export default async function QuestionsListPage({ searchParams }: PageProps) {
   const { subject: subjectFilter } = await searchParams;
 
   const [subjects, questions] = await Promise.all([
-    prisma.subject.findMany({ orderBy: { id: 'asc' } }),
+    prisma.subject.findMany().then(sortSubjectsByStage),
     prisma.question.findMany({
       orderBy: [{ primary_kp_id: 'asc' }, { created_at: 'desc' }],
       take: 500,

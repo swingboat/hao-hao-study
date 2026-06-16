@@ -54,6 +54,13 @@ export interface DiffDrawerProps {
   onClose: () => void;
 }
 
+const CURRENT_PROVIDER_PREFIXES = ['openai-chat-', 'bedrock-converse-', 'google-generate-content-'];
+
+function displayProviderId(id: string): string {
+  if (CURRENT_PROVIDER_PREFIXES.some((prefix) => id.startsWith(prefix))) return id;
+  return '旧 Provider';
+}
+
 const ACCEPT_INITIAL: StagingActionState = { error: null };
 const RERUN_INITIAL: RerunActionState = { error: null };
 
@@ -187,7 +194,7 @@ export function DiffDrawer(props: DiffDrawerProps) {
               {payload.source_hint?.page ? ` · 原文 p${payload.source_hint.page}` : ''}
               {payload.source_hint?.question_no ? ` · ${payload.source_hint.question_no}` : ''}
               {payload._rerun?.previous_provider_id
-                ? ` · 已重跑（原 ${payload._rerun.previous_provider_id} → 新结果 via ${payload._rerun.matched_strategy ?? '?'} 匹配）`
+                ? ` · 已重跑（原 ${displayProviderId(payload._rerun.previous_provider_id)} → 新结果 via ${payload._rerun.matched_strategy ?? '?'} 匹配）`
                 : ''}
             </p>
           </div>

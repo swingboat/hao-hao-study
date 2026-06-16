@@ -32,6 +32,7 @@ import {
 } from '../../../../lib/llm-providers';
 import { QUESTION_PROMPT_VERSION } from '../../../../lib/question-pipeline';
 import { runQuestionParse } from '../../../../lib/question-runner';
+import { deleteUploadHistory } from '../../../../lib/upload-history';
 
 async function requireAdmin() {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -76,7 +77,9 @@ export async function uploadAndParseAction(
     return { error: `LLM Provider ${providerId} 不存在 / 未启用` };
   }
   if (!isDocumentAnalysisProvider(provider)) {
-    return { error: `试题解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}` };
+    return {
+      error: `试题解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}`,
+    };
   }
 
   // CAS：按 sha256 寻址，同份文件多次上传只存一份
@@ -105,13 +108,13 @@ export async function uploadAndParseAction(
     data: {
       upload_id: upload.id,
       task_kind: 'question',
-      provider_id: providerId,
+      provider_id: provider.db_id,
       prompt_version: QUESTION_PROMPT_VERSION,
       status: 'queued',
     },
   });
 
-  void runQuestionParse(job.id, upload.id, providerId, subjectId);
+  void runQuestionParse(job.id, upload.id, provider.id, subjectId);
 
   redirect(`/admin/questions/import/${upload.id}`);
 }
@@ -161,7 +164,9 @@ export async function reparseUploadAction(
     return { error: `LLM Provider ${providerId} 不存在 / 未启用` };
   }
   if (!isDocumentAnalysisProvider(provider)) {
-    return { error: `试题解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}` };
+    return {
+      error: `试题解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}`,
+    };
   }
 
   await reapZombieJobs(uploadId);
@@ -170,12 +175,23 @@ export async function reparseUploadAction(
     data: {
       upload_id: uploadId,
       task_kind: 'question',
-      provider_id: providerId,
+      provider_id: provider.db_id,
       prompt_version: QUESTION_PROMPT_VERSION,
       status: 'queued',
     },
   });
 
-  void runQuestionParse(job.id, uploadId, providerId, subjectId);
+  void runQuestionParse(job.id, uploadId, provider.id, subjectId);
   redirect(`/admin/questions/import/${uploadId}`);
+}
+
+export async function deleteUploadHistoryAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const uploadId = String(formData.get('upload_id') ?? '');
+  if (!uploadId) throw new Error('upload_id 缺失');
+  const result = await deleteUploadHistory(uploadId, 'question');
+  if (!result.ok && result.reason === 'wrong_purpose') {
+    throw new Error('只能删除题集上传历史');
+  }
+  redirect('/admin/questions/import');
 }

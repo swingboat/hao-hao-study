@@ -12,6 +12,8 @@ import { type Prisma, prisma } from '@hao/db';
  *  - 模态框开关由 search params 决定：?new=1 / ?edit=<id>
  */
 import Link from 'next/link';
+import { resolveTextbookFilter } from '../../../lib/kp-filters';
+import { sortSubjectsByStage } from '../../../lib/subjects';
 import { KpDialog } from './kp-dialog';
 import { KpTreeView } from './kp-tree-view';
 
@@ -152,7 +154,7 @@ export default async function KpsPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   // Step 1：拿教材原始行 + subjects（KP 等去重完算出真正的 upload_id 集合再 load）
   const [subjects, textbookRows] = await Promise.all([
-    prisma.subject.findMany({ orderBy: { id: 'asc' } }),
+    prisma.subject.findMany().then(sortSubjectsByStage),
     // 教材原始行附带 subject_id（从 staging.llm_payload._subject_id 拿；该字段在
     // actions.ts:530 写入，每条 KP staging 都有；无 staging 的"裸上传"为 null）。
     // 一本教材只挂一个 subject（上传时强制选了），所以 LIMIT 1。
@@ -216,25 +218,20 @@ export default async function KpsPage({ searchParams }: PageProps) {
   }
   const textbookGroups = Array.from(groupMap.values());
 
-  // Step 3：解析当前 ?textbook=<id> → 找到所在组 → 拿该组全部 upload_ids
-  // 容错：URL 带的 id 不在任何组里（被删了等），就当未选教材；不要崩。
-  const currentTextbook = sp.textbook ?? '';
-  const currentGroup = currentTextbook
-    ? textbookGroups.find((g) => g.uploadIds.includes(currentTextbook))
-    : undefined;
+  // Step 3：学科 → 教材联动。未选具体学科时不列教材，残留的 ?textbook= 也不生效。
+  const currentSubject0 = sp.subject ?? '';
+  const requestedTextbook = sp.textbook ?? '';
+  const { textbooks, currentGroup } = resolveTextbookFilter(
+    currentSubject0,
+    requestedTextbook,
+    textbookGroups,
+  );
+  const currentTextbook = currentGroup?.canonicalId ?? '';
   const uploadIdsForKp = currentGroup?.uploadIds ?? [];
   const [kps, chapterTitles] = await Promise.all([
     loadKps(sp.subject, uploadIdsForKp),
     loadChapterTitles(uploadIdsForKp),
   ]);
-
-  // 教材联动：学科已选时只列对应学科的教材；未选学科则全列。
-  // 注意：subject 是过滤教材的"指引"，不是过滤 KP 的硬条件——若用户手工带 ?textbook= 而该
-  // 教材不属于当前学科，KP 仍按 textbook 加载，UI 不阻拦（容错优于卡死）。
-  const currentSubject0 = sp.subject ?? '';
-  const textbooks = currentSubject0
-    ? textbookGroups.filter((g) => g.subjectId === currentSubject0)
-    : textbookGroups;
 
   // 模态框模式
   let dialogMode: Parameters<typeof KpDialog>[0]['mode'] | null = null;
@@ -291,7 +288,12 @@ export default async function KpsPage({ searchParams }: PageProps) {
       </header>
 
       {/* 教材 + 学科过滤 — 用纯 GET form，无需 client component */}
-      <form className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+      <form
+        key={`${currentSubject || 'all'}:${currentGroup?.canonicalId ?? 'none'}:${view}`}
+        action="/admin/kps"
+        autoComplete="off"
+        className="mb-4 flex flex-wrap items-center gap-2 text-sm"
+      >
         <label htmlFor="subject-filter" className="opacity-70">
           学科：
         </label>
@@ -316,21 +318,21 @@ export default async function KpsPage({ searchParams }: PageProps) {
           id="textbook-filter"
           name="textbook"
           defaultValue={currentGroup?.canonicalId ?? ''}
-          className="px-2 py-1 border rounded bg-transparent min-w-64"
+          disabled={!currentSubject}
+          className={`px-2 py-1 border rounded bg-transparent min-w-64 ${
+            currentSubject ? '' : 'opacity-60 cursor-not-allowed'
+          }`}
         >
-          <option value="">— 请选择教材 —</option>
+          <option value="">{currentSubject ? '— 请选择教材 —' : '— 请先选择学科 —'}</option>
           {textbooks.map((g) => {
-            // 未选学科时，把学科前缀拼进 label，方便用户在长列表里快速辨认。
-            // 已选学科时教材列表已被服务端 filter 过，前缀就冗余了。
             const subjName = subjects.find((s) => s.id === g.subjectId)?.name;
-            const prefix = !currentSubject && subjName ? `[${subjName}] ` : '';
             const display = g.originalName ?? `<未命名>·${g.canonicalId.slice(0, 8)}`;
             const date = new Date(g.createdAt).toLocaleDateString('zh-CN');
             // 同一份 PDF 被多次上传 → 提示"× N"，避免用户怀疑"为什么我传了 4 次只看到 1 项"
             const dupSuffix = g.uploadIds.length > 1 ? ` · 上传 ${g.uploadIds.length} 次` : '';
             return (
               <option key={g.canonicalId} value={g.canonicalId}>
-                {prefix}
+                {subjName ? `[${subjName}] ` : ''}
                 {display}（{date}
                 {dupSuffix}）
               </option>
@@ -350,7 +352,7 @@ export default async function KpsPage({ searchParams }: PageProps) {
             href={view === 'list' ? '/admin/kps?view=list' : '/admin/kps'}
             className="text-xs opacity-60 hover:opacity-100"
           >
-            清除
+            清除筛选
           </Link>
         ) : null}
         {currentSubject && textbooks.length === 0 ? (
@@ -392,10 +394,14 @@ export default async function KpsPage({ searchParams }: PageProps) {
 
       {!currentTextbook ? (
         <div className="border rounded-lg p-8 text-center">
-          <p className="text-sm opacity-70">请先在上方选择教材，本页将展示该教材下的全部 KP。</p>
-          {textbooks.length === 0 ? (
+          <p className="text-sm opacity-70">
+            请先在上方选择学科和教材，本页将展示该教材下的全部 KP。
+          </p>
+          {!currentSubject ? (
+            <p className="text-xs opacity-50 mt-2">教材列表会在选择具体学科后显示。</p>
+          ) : textbooks.length === 0 ? (
             <p className="text-xs opacity-50 mt-2">
-              当前还没有上传过教材。点右上角"↑ 上传教材解析"开始。
+              该学科下还没有上传过教材。点右上角"↑ 上传教材解析"开始。
             </p>
           ) : null}
         </div>

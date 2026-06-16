@@ -5,8 +5,7 @@
  *           （DEFAULT_PROVIDER_QUESTION / DEFAULT_PROVIDER_KNOWLEDGE_POINT）。
  *           后续总控加 admin_setting 表后改为可写。
  */
-import { listLlmProviders } from '../../../../lib/llm-providers';
-import { toggleProviderAction } from './actions';
+import { displayLlmProviderId, listLlmProviders } from '../../../../lib/llm-providers';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,7 +39,7 @@ export default async function LlmSettingsPage() {
   const defaults = Object.entries(DEFAULT_ENV_KEYS).map(([taskKind, envKey]) => ({
     taskKind,
     envKey,
-    value: process.env[envKey] ?? '',
+    value: displayLlmProviderId(process.env[envKey] ?? '', providers),
   }));
 
   return (
@@ -108,7 +107,7 @@ export default async function LlmSettingsPage() {
                       )}
                     </td>
                     <td className="p-2 text-right">
-                      <form action={toggleProviderAction}>
+                      <form action="/admin/settings/llm/toggle" method="post">
                         <input type="hidden" name="id" value={p.id} />
                         <input type="hidden" name="next" value={String(!p.enabled)} />
                         <button
