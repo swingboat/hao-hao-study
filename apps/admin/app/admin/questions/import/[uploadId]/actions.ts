@@ -39,6 +39,11 @@ import {
   isDocumentAnalysisProvider,
 } from '../../../../../lib/llm-providers';
 import {
+  createQuestionAnalysisCache,
+  questionParseJobStatus,
+  resolveQuestionAnalysisRuntime,
+} from '../../../../../lib/question-analysis-runtime';
+import {
   QUESTION_PROMPT_VERSION,
   type QuestionProgressSnapshot,
   runQuestionAnalysis,
@@ -353,11 +358,15 @@ export async function rerunStagingAction(
       orderBy: [{ chapter_no: 'asc' }, { name: 'asc' }],
     });
 
+    const runtime = resolveQuestionAnalysisRuntime();
     const result = await runQuestionAnalysis({
       providerId: provider.db_id,
       file: analysisFile,
       subject,
       knowledge: knowledgeRowsForQuestionContext(existingKps),
+      concurrency: runtime.concurrency,
+      maxRetries: runtime.maxRetries,
+      cache: createQuestionAnalysisCache(),
     });
 
     // 匹配：先按 question_no（不空），再按 content 前 60 字归一相似（startsWith / includes 兜底）
@@ -384,6 +393,11 @@ export async function rerunStagingAction(
 
     const matchedPayload = questionToStagingPayload(matched, subjectId);
     const tokenUsage = tokenUsageTotal(tokenUsageFromEducationUsage(result.usage));
+    const jobStatus = questionParseJobStatus(result.status);
+    const errorMessage =
+      result.status === 'ok'
+        ? null
+        : (result.diagnostics?.parse_error ?? `analyzeQuestions returned ${result.status}`);
 
     await prisma.$transaction([
       prisma.llm_parse_staging.update({
@@ -409,7 +423,7 @@ export async function rerunStagingAction(
       prisma.llm_parse_job.update({
         where: { id: job.id },
         data: {
-          status: 'succeeded',
+          status: jobStatus,
           parsed_output: { questions: result.questions } as unknown as Prisma.InputJsonValue,
           token_usage: tokenUsage
             ? (tokenUsage as Prisma.InputJsonValue)
@@ -421,6 +435,7 @@ export async function rerunStagingAction(
             questionCount: result.questions.length,
             rerun_source_page: srcPage,
           } as unknown as Prisma.InputJsonValue,
+          error_message: errorMessage,
           finished_at: new Date(),
         },
       }),
@@ -661,6 +676,21 @@ export async function bulkAcceptAllAction(
   let accepted = 0;
   const skipReasons: string[] = [];
 
+  function skipReasonLabel(
+    payload: {
+      content?: string;
+      source_hint?: { page?: number | null; question_no?: string | null };
+    },
+    fallbackId: string,
+  ): string {
+    const sourceParts: string[] = [];
+    if (payload.source_hint?.page) sourceParts.push(`p${payload.source_hint.page}`);
+    if (payload.source_hint?.question_no) sourceParts.push(payload.source_hint.question_no);
+    if (sourceParts.length > 0) return `原文 ${sourceParts.join(' · ')}`;
+    const summary = (payload.content ?? '').replace(/\s+/g, ' ').slice(0, 30);
+    return summary || `staging:${fallbackId.slice(0, 8)}`;
+  }
+
   for (const s of stagings) {
     const payload = s.llm_payload as {
       content?: string;
@@ -670,10 +700,11 @@ export async function bulkAcceptAllAction(
       solution_text?: string;
       difficulty?: number;
       kp_hints?: string[];
+      source_hint?: { page?: number | null; question_no?: string | null };
       _subject_id?: string;
     };
 
-    const label = (payload.content ?? s.id).replace(/\s+/g, ' ').slice(0, 30);
+    const label = skipReasonLabel(payload, s.id);
     const subjectId = payload._subject_id ?? '';
     const questionType = payload.question_type ?? 'choice';
     const content = (payload.content ?? '').trim();

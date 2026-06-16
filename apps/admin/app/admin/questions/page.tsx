@@ -22,6 +22,10 @@ interface PageProps {
   searchParams: Promise<{ subject?: string }>;
 }
 
+function questionTypeLabel(type: 'choice' | 'fill_in'): string {
+  return type === 'choice' ? '选择题' : '填空题';
+}
+
 export default async function QuestionsListPage({ searchParams }: PageProps) {
   const { subject: subjectFilter } = await searchParams;
 
@@ -41,6 +45,7 @@ export default async function QuestionsListPage({ searchParams }: PageProps) {
       },
     }),
   ]);
+  const subjectMap = new Map(subjects.map((subject) => [subject.id, subject.name]));
 
   const kpIds = Array.from(new Set(questions.map((question) => question.primary_kp_id)));
   const kps =
@@ -103,7 +108,7 @@ export default async function QuestionsListPage({ searchParams }: PageProps) {
         <div>
           <h1 className="text-2xl font-semibold">试题库（按 KP 分组）</h1>
           <p className="text-sm opacity-60 mt-1">
-            按 primary_kp_id 聚合；上限 500 条，更多请按 KP 钻取。
+            按主知识点聚合；当前最多显示 500 条，更多请按知识点或学科筛选。
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -154,10 +159,12 @@ export default async function QuestionsListPage({ searchParams }: PageProps) {
                         <span className="opacity-60 mr-2">{g.kp.chapter_no}</span>
                       ) : null}
                       {g.kp.name}
-                      <span className="opacity-60 ml-2 text-xs">学科 {g.kp.subject_id}</span>
+                      <span className="opacity-60 ml-2 text-xs">
+                        学科 {subjectMap.get(g.kp.subject_id) ?? g.kp.subject_id}
+                      </span>
                     </>
                   ) : (
-                    <span className="text-amber-700">⚠️ KP 缺失 / 异学科</span>
+                    <span className="text-amber-700">知识点已删除或不属于当前筛选学科</span>
                   )}
                 </h2>
                 <span className="text-xs opacity-60">{g.questions.length} 题</span>
@@ -168,8 +175,7 @@ export default async function QuestionsListPage({ searchParams }: PageProps) {
                   return (
                     <li key={question.id} className="px-4 py-2 text-xs">
                       <div className="flex items-baseline gap-2 mb-1 opacity-60">
-                        <span className="font-mono">{question.id.slice(0, 8)}</span>
-                        <span>{question.question_type}</span>
+                        <span>{questionTypeLabel(question.question_type)}</span>
                         <span>难度 {question.difficulty}</span>
                         <span className="ml-auto">
                           {question.created_at.toLocaleDateString('zh-CN')}
@@ -191,7 +197,7 @@ export default async function QuestionsListPage({ searchParams }: PageProps) {
                         </ul>
                       ) : question.question_type === 'choice' ? (
                         <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
-                          ⚠️ 选择题但未找到 options（schema 缺 options 列；总控修后会自动恢复）
+                          选择题选项暂未显示，请到原审核记录中查看。
                         </p>
                       ) : null}
                       <p className="opacity-60 mt-1 inline-flex items-baseline gap-1">
