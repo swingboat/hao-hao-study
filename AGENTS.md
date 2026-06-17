@@ -66,6 +66,8 @@
    - 运营端面向运营人员：展示"教材解析中 / 试题导入失败 / Claude Opus 4.7 / 已启用"这类业务语言，不直接展示 `llm_parse_job.id`、`provider_id`、`upload_id`、`question_pack` 等编码。
    - 必须提供排障信息时，放在明确的"技术详情 / 复制诊断信息"区域或开发环境专用视图中，并避免默认首屏暴露。
    - 代码中可以继续使用稳定 ID 做路由、查询、关联和日志；但渲染到 UI 前必须转换成客户可理解的 label 或摘要。
+   - 题干、选项、答案、解析、知识点说明、公式、LLM 解析结果等富文本/数学文本，渲染到 UI 前必须使用统一公共格式化方法：从 `@hao/llm` 导入 `formatDisplayText` / `formatQuestionText` / `formatExamText`。不要在 admin/web 各自复制正则、临时替换 `$...$` / LaTeX 命令，或直接把原始 LLM 输出展示给用户。
+   - 如果某个 UI 需要特殊格式能力，先在 `how-to-use-llm-proxy` 验证并同步更新 `packages/llm/src/display/display-text-format.ts`，再通过 `@hao/llm` 公共导出使用；不要在页面组件里私自扩展一套格式化逻辑。
 
 
 ## Worktree 协作协议（v0.1 MVP 阶段）
