@@ -160,7 +160,7 @@ model student {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// 登录用户名，全局唯一，由运营开户时下发（运营端 F5.2）
   username           String    @unique
-  /// argon2 哈希后的密码，明文永不入库
+  /// 学生端登录密码 hash，明文永不入库；当前学生端认证契约为 scrypt:v1:<salt>:<hex>
   password_hash      String
   /// 学生真实姓名
   name               String

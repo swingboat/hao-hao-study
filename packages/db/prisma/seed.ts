@@ -20,6 +20,8 @@
  */
 import { type Prisma, PrismaClient } from '@prisma/client';
 
+import { NIKI_DEMO_PASSWORD_HASH } from './demo-student-password.ts';
+
 const prisma = new PrismaClient();
 
 type ProviderSeed = Omit<Prisma.llm_providerCreateInput, 'created_at'>;
@@ -283,8 +285,8 @@ async function seedDemoStudents() {
   const unlockedKpIds = unlockedMathSeniorKps.map((kp) => kp.id);
   const DEMO_STUDENT = {
     username: 'niki',
-    // Local demo password: niki-demo-2027. This bcrypt hash is for local MVP only.
-    password_hash: '$2b$10$o7TEsjheCyEGRd.DarHOS.jCg3R.bY72ttxUrErxyx2UPoLdj6sFq',
+    // Local demo password is defined in demo-student-password.ts. scrypt:v1 matches web auth.
+    password_hash: NIKI_DEMO_PASSWORD_HASH,
     name: 'Niki',
     stage: 'senior' as const,
     grade: 'g11' as const,
@@ -302,7 +304,7 @@ async function seedDemoStudents() {
     create: DEMO_STUDENT,
   });
   console.info(
-    `🌱 student seeded: ${DEMO_STUDENT.username} (${unlockedKpIds.length} math_senior KP unlocked)`,
+    `🌱 student seeded: ${DEMO_STUDENT.username} (${unlockedKpIds.length} math_senior KP unlocked, demo password hash configured)`,
   );
 }
 
