@@ -43,6 +43,7 @@ import {
   questionParseJobStatus,
   resolveQuestionAnalysisRuntime,
 } from '../../../../../lib/question-analysis-runtime';
+import { createAndPersistQuestionFigureCropAssets } from '../../../../../lib/question-figure-assets';
 import {
   QUESTION_PROMPT_VERSION,
   type QuestionProgressSnapshot,
@@ -162,6 +163,14 @@ export async function acceptStagingAction(
     };
   }
 
+  const staging = await prisma.llm_parse_staging.findUnique({
+    where: { id: d.staging_id },
+    include: { upload: true },
+  });
+  if (!staging) return { error: 'staging 不存在' };
+  if (staging.entity_kind !== 'question') return { error: '该 staging 不是 question' };
+
+  let publishedQuestionId: string | null = null;
   try {
     await prisma.$transaction(async (tx) => {
       // T3：写 question
@@ -176,6 +185,7 @@ export async function acceptStagingAction(
           primary_kp_id: d.primary_kp_id,
         },
       });
+      publishedQuestionId = question.id;
 
       // T4：同事务写 audit_log，target_id 必等于 question.id
       await tx.audit_log.create({
@@ -216,6 +226,12 @@ export async function acceptStagingAction(
         },
       });
     });
+    if (publishedQuestionId) {
+      await createAndPersistQuestionFigureCropAssets({
+        staging,
+        publishedQuestionId,
+      });
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return { error: msg.slice(0, 200) };
@@ -505,6 +521,7 @@ export async function bulkAcceptAllAction(
 
   const stagings = await prisma.llm_parse_staging.findMany({
     where: { upload_id, review_status: 'pending', entity_kind: 'question' },
+    include: { upload: true },
     orderBy: { created_at: 'asc' },
   });
 
@@ -754,6 +771,7 @@ export async function bulkAcceptAllAction(
     const solution = (payload.solution_text ?? '').slice(0, 3000);
 
     try {
+      let publishedQuestionId: string | null = null;
       await prisma.$transaction(async (tx) => {
         const question = await tx.question.create({
           data: {
@@ -766,6 +784,7 @@ export async function bulkAcceptAllAction(
             primary_kp_id: primaryKpId,
           },
         });
+        publishedQuestionId = question.id;
         await tx.audit_log.create({
           data: {
             actor_id: session.sub,
@@ -804,6 +823,12 @@ export async function bulkAcceptAllAction(
           },
         });
       });
+      if (publishedQuestionId) {
+        await createAndPersistQuestionFigureCropAssets({
+          staging: s,
+          publishedQuestionId,
+        });
+      }
       accepted += 1;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
