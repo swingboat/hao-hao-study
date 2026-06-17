@@ -625,5 +625,6 @@ model derived_asset {
 
   @@id([source_sha256, processor, version, asset_key])
   @@index([source_sha256, processor])
+  @@index([processor, version, asset_key])
   @@map("derived_asset")
 }

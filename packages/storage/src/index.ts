@@ -20,6 +20,18 @@ export {
 } from './types';
 export { StoragePaths, sha256OfBuffer, extOf } from './paths';
 export { FileSystemStore } from './fs-store';
+export {
+  FIGURE_CROP_PROCESSOR,
+  FIGURE_CROP_VERSION,
+  type FigureCropAssetRecord,
+  type FigureCropMetadata,
+  type QuestionFigure,
+  buildQuestionFigureAssetKey,
+  buildQuestionFigureCropRecord,
+  createQuestionFigureCropAssets,
+  cropPngByPercentBbox,
+  renderPdfPageToPng,
+} from './figure-crop';
 export { createStore } from './factory';
 
 export const STORAGE_VERSION = '0.1.0';
