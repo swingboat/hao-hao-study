@@ -271,9 +271,10 @@ model learning_session {
   /// 状态枚举
   status       LearningSessionStatus @default(in_progress)
   /// 本次会话分配的题目 ID 顺序数组（决议 S2-衍生2 去重后）
-  /// 长度约束：8 ≤ length ≤ 15
+  /// 目标数量 8-15；题库不足时可按 planner.minimumCount 降级创建。
   question_ids String[]              @db.Uuid
-  /// 每道题来自哪个池的标记，与 question_ids 一一对应
+  /// 每道题来自哪个池的标记，与 question_ids 一一对应；由 @hao/shared 的
+  /// toQuestionBankSessionPlan() 从 planner slot.pool 映射，不能直接写 slot.pool。
   pool_sources SessionPoolSource[]
 
   // 反向关系

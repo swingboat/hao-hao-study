@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { type QuestionPlannerInput, planLearningSession } from './engine';
+import {
+  type LearningSlot,
+  type QuestionPlannerInput,
+  planLearningSession,
+  toQuestionBankSessionPlan,
+} from './engine';
 
 const STUDENT = {
   id: 'student-1',
@@ -170,5 +175,93 @@ describe('planLearningSession', () => {
     );
 
     expect(result.slots.filter((slot) => slot.pool === 'feynman_check')).toHaveLength(1);
+  });
+
+  it('builds a DB-ready question bank session plan from planner slots', () => {
+    const slots: LearningSlot[] = [
+      {
+        slotId: 'slot-1',
+        source: 'question_bank',
+        pool: 'spaced_review',
+        kpId: 'kp-1',
+        targetExam: '高考 2027',
+        reason: 'spaced_review_due',
+        secondaryReasons: [],
+        questionId: 'q-1',
+      },
+      {
+        slotId: 'slot-2',
+        source: 'question_bank',
+        pool: 'mistake_variant',
+        kpId: 'kp-2',
+        targetExam: '高考 2027',
+        reason: 'open_mistake',
+        secondaryReasons: [],
+        questionId: 'q-2',
+      },
+      {
+        slotId: 'slot-3',
+        source: 'question_bank',
+        pool: 'chapter_practice',
+        kpId: 'kp-3',
+        targetExam: '高考 2027',
+        reason: 'chapter_progress',
+        secondaryReasons: [],
+        questionId: 'q-3',
+      },
+      {
+        slotId: 'slot-4',
+        source: 'question_bank',
+        pool: 'new_knowledge',
+        kpId: 'kp-4',
+        targetExam: '高考 2027',
+        reason: 'low_mastery_or_unseen',
+        secondaryReasons: [],
+        questionId: 'q-4',
+      },
+      {
+        slotId: 'slot-5',
+        source: 'ai_generated',
+        pool: 'new_knowledge',
+        kpId: 'kp-5',
+        targetExam: '高考 2027',
+        reason: 'low_mastery_or_unseen',
+        secondaryReasons: [],
+        difficultyRange: [1, 2],
+        questionType: 'choice',
+        fallback: 'retry_then_question_bank',
+      },
+      {
+        slotId: 'slot-6',
+        source: 'ai_generated',
+        pool: 'feynman_check',
+        kpId: 'kp-6',
+        targetExam: '高考 2027',
+        reason: 'mastery_needs_expression_check',
+        secondaryReasons: [],
+        activityType: 'feynman_prompt',
+        fallback: 'drop_slot',
+      },
+    ];
+
+    const sessionPlan = toQuestionBankSessionPlan({
+      mode: 'daily_mixed',
+      requestedCount: 8,
+      targetCount: 8,
+      minimumCount: 3,
+      isEnoughForSession: true,
+      allowedKpIds: ['kp-1', 'kp-2', 'kp-3', 'kp-4', 'kp-5', 'kp-6'],
+      slots,
+      skippedReasons: [],
+    });
+
+    expect(sessionPlan).toEqual({
+      questionIds: ['q-1', 'q-2', 'q-3', 'q-4'],
+      poolSources: ['spaced_repetition', 'error_review', 'new_knowledge', 'new_knowledge'],
+      plannedQuestionCount: 4,
+      minimumCount: 3,
+      isEnoughForSession: true,
+      skippedSlotCount: 2,
+    });
   });
 });

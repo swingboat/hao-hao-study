@@ -9,6 +9,12 @@ import type {
 } from '../types/public-types.ts';
 import { resolveProviderTarget } from './provider-target';
 
+export {
+  formatDisplayText,
+  formatExamText,
+  formatQuestionText,
+} from '../display/display-text-format.ts';
+
 interface AdapterCommonOptions {
   concurrency?: number;
   maxRetries?: number;

@@ -8,8 +8,8 @@
  *   - subject × 3（math_primary / math_junior / math_senior）—— v0.1 学生注册仅 senior，
  *     另外两条预留 v0.2+；命名遵循 "<discipline>_<stage>" 约定，与 packages/shared/labels
  *     的 STAGE_LABEL 字典对齐
- *   - student × 1（niki）—— 第一轮 MVP 只做 F5.1 学生列表，先提供可展示的种子学生；
- *     不提供真实登录凭据。
+ *   - student × 1（niki）—— 第一轮 MVP 先提供可展示、可本地演示登录的种子学生；
+ *     每次 seed 会把当前 math_senior 已有知识点全部写入 unlocked_kp_ids。
  *
  * 模型族行为差异由 packages/llm 的 adapter/provider-target.ts 映射到 how-to-use
  * 同步层 llmTarget；业务层调用方仍然只用 analyzeKnowledgePoints/analyzeQuestions，
@@ -274,9 +274,17 @@ async function seedSubjects() {
 }
 
 async function seedDemoStudents() {
+  const unlockedMathSeniorKps = await prisma.knowledge_point.findMany({
+    where: { subject_id: 'math_senior' },
+    select: { id: true },
+    orderBy: [{ chapter_no: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+  });
+
+  const unlockedKpIds = unlockedMathSeniorKps.map((kp) => kp.id);
   const DEMO_STUDENT = {
     username: 'niki',
-    password_hash: 'disabled-seed-only',
+    // Local demo password: niki-demo-2027. This bcrypt hash is for local MVP only.
+    password_hash: '$2b$10$o7TEsjheCyEGRd.DarHOS.jCg3R.bY72ttxUrErxyx2UPoLdj6sFq',
     name: 'Niki',
     stage: 'senior' as const,
     grade: 'g11' as const,
@@ -284,7 +292,7 @@ async function seedDemoStudents() {
     target_exam: '高考 2027',
     parent_consent_at: new Date('2026-06-16T00:00:00.000+08:00'),
     cold_start_mode: true,
-    unlocked_kp_ids: [],
+    unlocked_kp_ids: unlockedKpIds,
     soft_deleted_at: null,
   };
 
@@ -293,7 +301,9 @@ async function seedDemoStudents() {
     update: DEMO_STUDENT,
     create: DEMO_STUDENT,
   });
-  console.info(`🌱 student seeded: ${DEMO_STUDENT.username}`);
+  console.info(
+    `🌱 student seeded: ${DEMO_STUDENT.username} (${unlockedKpIds.length} math_senior KP unlocked)`,
+  );
 }
 
 async function main() {

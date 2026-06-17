@@ -105,6 +105,17 @@ export interface PlannerResult {
   skippedReasons: string[];
 }
 
+export type LearningSessionPoolSource = 'error_review' | 'spaced_repetition' | 'new_knowledge';
+
+export interface QuestionBankSessionPlan {
+  questionIds: string[];
+  poolSources: LearningSessionPoolSource[];
+  plannedQuestionCount: number;
+  minimumCount: number;
+  isEnoughForSession: boolean;
+  skippedSlotCount: number;
+}
+
 type WeightedPool = 'progress' | 'mistake_variant' | 'spaced_review';
 
 interface Candidate {
@@ -144,6 +155,14 @@ const MODE_WEIGHTS: Record<PlannerMode, Record<WeightedPool, number>> = {
     spaced_review: 0.2,
     progress: 0.1,
   },
+};
+
+const SESSION_POOL_SOURCE_BY_SLOT_POOL: Record<SlotPool, LearningSessionPoolSource> = {
+  mistake_variant: 'error_review',
+  spaced_review: 'spaced_repetition',
+  chapter_practice: 'new_knowledge',
+  new_knowledge: 'new_knowledge',
+  feynman_check: 'new_knowledge',
 };
 
 export function planLearningSession(input: QuestionPlannerInput): PlannerResult {
@@ -238,6 +257,21 @@ export function planLearningSession(input: QuestionPlannerInput): PlannerResult 
     allowedKpIds,
     slots,
     skippedReasons: slots.length === 0 ? ['no_candidate_slots'] : [],
+  };
+}
+
+export function toQuestionBankSessionPlan(result: PlannerResult): QuestionBankSessionPlan {
+  const questionBankSlots = result.slots.filter(
+    (slot): slot is BankQuestionSlot => slot.source === 'question_bank',
+  );
+
+  return {
+    questionIds: questionBankSlots.map((slot) => slot.questionId),
+    poolSources: questionBankSlots.map((slot) => SESSION_POOL_SOURCE_BY_SLOT_POOL[slot.pool]),
+    plannedQuestionCount: questionBankSlots.length,
+    minimumCount: result.minimumCount,
+    isEnoughForSession: questionBankSlots.length >= result.minimumCount,
+    skippedSlotCount: result.slots.length - questionBankSlots.length,
   };
 }
 
