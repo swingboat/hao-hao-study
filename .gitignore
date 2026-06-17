@@ -27,6 +27,10 @@ playwright-report/
 test-results/
 .vitest-cache/
 
+# ─── 本地工具临时输出 ───────────────────────────────────────
+.playwright-cli/
+tmp/
+
 # ─── 探针输出 ────────────────────────────────────────────────
 results/
 
