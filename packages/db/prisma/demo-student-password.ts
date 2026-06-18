@@ -1,4 +1,4 @@
-export const NIKI_DEMO_PASSWORD = 'niki-demo-2027';
+export const NIKI_DEMO_PASSWORD = 'pass';
 
 export const NIKI_DEMO_PASSWORD_HASH =
-  'scrypt:v1:niki-demo-v1-local-salt:983404511edf2dfc8c401670c1a8b47f0a0cb8cd9dba7e0a29d29752f2e17056943a764791bac4d018b10d5225e25bb3330b880e822cc95acfb5bb7259a0028b';
+  'scrypt:v1:niki-pass-v1-local-salt:318ef868863af74ae3e1905b479bc21af6835eac8e0bceae031f68a27c8196ed855d25c08da34cff097f9e0fdcea7054688b987b248ab9784dc3403caffdae81';
