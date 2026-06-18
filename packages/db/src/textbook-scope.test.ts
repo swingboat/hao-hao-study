@@ -17,6 +17,7 @@ const plan = buildTextbookScopePlan({
     { id: 'kp-2', name: '函数概念', subject_id: 'math_senior', chapter_no: '2.1' },
     { id: 'kp-1', name: '集合含义', subject_id: 'math_senior', chapter_no: '1.1' },
     { id: 'kp-4', name: '集合表示', subject_id: 'math_senior', chapter_no: '1.1' },
+    { id: 'kp-5', name: '数列拓展', subject_id: 'math_senior', chapter_no: '第四章' },
   ],
 });
 
@@ -29,7 +30,8 @@ assert.deepEqual(
   [
     { chapter_no: '1.1', title: '1.1', sort_order: 1 },
     { chapter_no: '2.1', title: '2.1', sort_order: 2 },
-    { chapter_no: '未分章节', title: '未分章节', sort_order: 3 },
+    { chapter_no: '4', title: '4', sort_order: 3 },
+    { chapter_no: '未分章节', title: '未分章节', sort_order: 4 },
   ],
 );
 
@@ -43,7 +45,8 @@ assert.deepEqual(
     { kp_id: 'kp-1', chapter_no: '1.1', sort_order: 1 },
     { kp_id: 'kp-4', chapter_no: '1.1', sort_order: 2 },
     { kp_id: 'kp-2', chapter_no: '2.1', sort_order: 3 },
-    { kp_id: 'kp-3', chapter_no: '未分章节', sort_order: 4 },
+    { kp_id: 'kp-5', chapter_no: '4', sort_order: 4 },
+    { kp_id: 'kp-3', chapter_no: '未分章节', sort_order: 5 },
   ],
 );
 
@@ -99,10 +102,23 @@ assert.deepEqual(
           source_page: 8,
         },
       },
+      {
+        id: 'staging-4',
+        published_id: 'kp-3',
+        llm_payload: {
+          chapter_no: '第五章',
+          source_pages: [12],
+        },
+        review_payload: {
+          chapter_no: '第四章',
+          subject_id: 'math_senior',
+        },
+      },
     ],
     knowledgePointById: new Map([
       ['kp-1', { id: 'kp-1', name: '集合含义', subject_id: 'math_senior', chapter_no: '1.0' }],
       ['kp-2', { id: 'kp-2', name: '函数概念', subject_id: 'math_senior', chapter_no: '2.0' }],
+      ['kp-3', { id: 'kp-3', name: '数列拓展', subject_id: 'math_senior', chapter_no: null }],
     ]),
   }),
   [
@@ -121,6 +137,14 @@ assert.deepEqual(
       chapter_no: '2.2',
       chapter_title: '函数',
       source_pages: [8],
+    },
+    {
+      id: 'kp-3',
+      name: '数列拓展',
+      subject_id: 'math_senior',
+      chapter_no: '4',
+      chapter_title: null,
+      source_pages: [],
     },
   ],
 );

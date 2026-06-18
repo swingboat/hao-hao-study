@@ -136,6 +136,7 @@ export interface TextbookScopeDb {
   };
   textbook_chapter: {
     count(args: unknown): Promise<number>;
+    deleteMany(args: unknown): Promise<{ count: number }>;
     upsert(args: unknown): Promise<{ id: string; chapter_no: string }>;
   };
   textbook_knowledge_point: {
@@ -370,6 +371,12 @@ export async function upsertTextbookScope(
       },
     });
   }
+  await db.textbook_chapter.deleteMany({
+    where: {
+      textbook_id: textbook.id,
+      knowledge_points: { none: {} },
+    },
+  });
 
   return {
     textbookId: textbook.id,
@@ -616,9 +623,10 @@ function publishedKnowledgePointPayload(staging: PublishedKnowledgePointStagingI
 function chapterNoFromPayload(payload: unknown): string | null {
   const record = asRecord(payload);
   if (!record) return null;
-  return primitiveText(
+  const value = primitiveText(
     record.chapter_no ?? record.section_no ?? record.chapter_number ?? record.section_number,
   );
+  return value ? normalizeChapterNo(value) : null;
 }
 
 function chapterTitleFromPayload(payload: unknown): string | null {
@@ -647,7 +655,8 @@ function sourcePageRangeFromRecord(record: Record<string, unknown>): unknown[] {
 
 function normalizeChapterNo(value: string | null | undefined): string {
   const text = value?.trim();
-  return text || UNASSIGNED_TEXTBOOK_CHAPTER_NO;
+  if (!text) return UNASSIGNED_TEXTBOOK_CHAPTER_NO;
+  return wholeChapterNoFromText(text) ?? text;
 }
 
 function normalizeChapterTitle(value: string | null | undefined, chapterNo: string): string {
@@ -660,6 +669,63 @@ function compareChapterNo(left: string, right: string): number {
   if (left === UNASSIGNED_TEXTBOOK_CHAPTER_NO) return 1;
   if (right === UNASSIGNED_TEXTBOOK_CHAPTER_NO) return -1;
   return chapterNoCollator.compare(left, right);
+}
+
+function wholeChapterNoFromText(text: string): string | null {
+  const match = text.match(/^第\s*([一二三四五六七八九十百〇零\d]+)\s*章(?:\s+.*)?$/);
+  if (!match?.[1]) return null;
+
+  const chapterNumber = chapterNumberTextToInteger(match[1]);
+  return chapterNumber === null ? null : String(chapterNumber);
+}
+
+function chapterNumberTextToInteger(text: string): number | null {
+  const normalized = text.trim();
+  if (/^\d+$/.test(normalized)) return Number(normalized);
+
+  const normalizedChinese = normalized.replace(/〇/g, '零');
+  if (!/^[一二三四五六七八九十百零]+$/.test(normalizedChinese)) return null;
+
+  const hundredParts = normalizedChinese.split('百');
+  if (hundredParts.length > 2) return null;
+
+  let total = 0;
+  if (hundredParts.length === 2) {
+    const hundreds = chineseDigitToInteger(hundredParts[0] || '一');
+    if (hundreds === null) return null;
+    total += hundreds * 100;
+  }
+
+  const rest = hundredParts[hundredParts.length - 1] ?? '';
+  if (!rest) return total;
+
+  const tenParts = rest.split('十');
+  if (tenParts.length > 2) return null;
+  if (tenParts.length === 2) {
+    const tens = chineseDigitToInteger(tenParts[0] || '一');
+    const ones = tenParts[1] ? chineseDigitToInteger(tenParts[1]) : 0;
+    if (tens === null || ones === null) return null;
+    return total + tens * 10 + ones;
+  }
+
+  const value = chineseDigitToInteger(rest);
+  return value === null ? null : total + value;
+}
+
+function chineseDigitToInteger(text: string): number | null {
+  const digitMap: Record<string, number> = {
+    零: 0,
+    一: 1,
+    二: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  };
+  return digitMap[text] ?? null;
 }
 
 function normalizePageNumbers(values: unknown[]): number[] {
