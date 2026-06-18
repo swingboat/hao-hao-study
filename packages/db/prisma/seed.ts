@@ -11,8 +11,8 @@
  *   - student × 1（niki）—— 第一轮 MVP 先提供可展示、可本地演示登录的种子学生；
  *     每次 seed 会把当前 math_senior 已有知识点全部写入 unlocked_kp_ids。
  *   - student_planner_preference × 1（niki）—— 默认 Auto；weights 保留默认结构，便于学生端编辑。
- *   - textbook × 1（默认高中数学教材）—— 每次 seed 会把当前 math_senior 知识点按 chapter_no
- *     backfill 到 textbook_chapter / textbook_knowledge_point。
+ *   - textbook — 每次 seed 会先保留一个默认高中数学兜底教材，再把 parsed 教材上传中已发布的
+ *     knowledge_point staging 回填为真实教材 / 章节 / 教材-KP 映射。
  *
  * 模型族行为差异由 packages/llm 的 adapter/provider-target.ts 映射到 how-to-use
  * 同步层 llmTarget；业务层调用方仍然只用 analyzeKnowledgePoints/analyzeQuestions，
@@ -23,7 +23,10 @@
  */
 import { type Prisma, PrismaClient } from '@prisma/client';
 
-import { upsertDefaultMathSeniorTextbookScope } from '../src/textbook-scope.ts';
+import {
+  backfillPublishedTextbookScopes,
+  upsertDefaultMathSeniorTextbookScope,
+} from '../src/textbook-scope.ts';
 import { NIKI_DEMO_PASSWORD_HASH } from './demo-student-password.ts';
 
 const prisma = new PrismaClient();
@@ -337,10 +340,18 @@ async function seedDefaultTextbookScope() {
   );
 }
 
+async function seedPublishedTextbookScopes() {
+  const result = await backfillPublishedTextbookScopes(prisma);
+  console.info(
+    `🌱 textbook backfilled: ${result.textbookCount} parsed uploads (${result.chapterCount} chapters, ${result.mappingCount} KP mappings)`,
+  );
+}
+
 async function main() {
   await seedSubjects();
   await seedDemoStudents();
   await seedDefaultTextbookScope();
+  await seedPublishedTextbookScopes();
   await seedLLMProviders();
   // TODO: knowledge_point 冷启动包待运营端 F4 上线后由真实数据填充
 }

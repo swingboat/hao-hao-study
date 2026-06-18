@@ -82,10 +82,33 @@ export interface UpsertPublishedKnowledgePointTextbookMappingInput {
   sortOrder?: number;
 }
 
+export interface PublishedKnowledgePointStagingInput {
+  id: string;
+  published_id: string | null;
+  llm_payload: unknown;
+  review_payload?: unknown | null;
+}
+
 export interface UpsertTextbookScopeResult {
   textbookId: string;
   chapterCount: number;
   mappingCount: number;
+}
+
+export interface BackfilledPublishedTextbookScope {
+  uploadId: string;
+  textbookId: string;
+  title: string;
+  volume: string | null;
+  chapterCount: number;
+  mappingCount: number;
+}
+
+export interface BackfillPublishedTextbookScopesResult {
+  textbookCount: number;
+  chapterCount: number;
+  mappingCount: number;
+  textbooks: BackfilledPublishedTextbookScope[];
 }
 
 export interface StudentTextbookScope {
@@ -97,6 +120,15 @@ export interface StudentTextbookScope {
 export interface TextbookScopeDb {
   knowledge_point: {
     findMany(args: unknown): Promise<TextbookKnowledgePointInput[]>;
+  };
+  subject: {
+    findUnique(args: unknown): Promise<TextbookSubjectInput | null>;
+  };
+  content_upload: {
+    findMany(args: unknown): Promise<TextbookUploadInput[]>;
+  };
+  llm_parse_staging: {
+    findMany(args: unknown): Promise<PublishedKnowledgePointStagingInput[]>;
   };
   textbook: {
     findMany(args: unknown): Promise<unknown[]>;
@@ -173,23 +205,64 @@ export function sourcePagesFromKnowledgePointPayload(payload: unknown): number[]
     record.page_number ??
     record.page ??
     [];
-  return normalizePageNumbers(Array.isArray(pages) ? pages : [pages]);
+  const pageValues = Array.isArray(pages) ? pages : [pages];
+  const rangePages = sourcePageRangeFromRecord(record);
+  return normalizePageNumbers([...pageValues, ...rangePages]);
+}
+
+export function buildPublishedTextbookKnowledgePointInputs(input: {
+  stagings: PublishedKnowledgePointStagingInput[];
+  knowledgePointById: Map<string, TextbookKnowledgePointInput>;
+}): TextbookKnowledgePointInput[] {
+  const seenKpIds = new Set<string>();
+  const knowledgePoints: TextbookKnowledgePointInput[] = [];
+
+  for (const staging of input.stagings) {
+    const publishedId = staging.published_id?.trim();
+    if (!publishedId || seenKpIds.has(publishedId)) continue;
+
+    const knowledgePoint = input.knowledgePointById.get(publishedId);
+    if (!knowledgePoint) continue;
+
+    const payload = publishedKnowledgePointPayload(staging);
+    knowledgePoints.push({
+      id: knowledgePoint.id,
+      name: knowledgePoint.name,
+      subject_id: knowledgePoint.subject_id,
+      chapter_no: chapterNoFromPayload(payload) ?? knowledgePoint.chapter_no,
+      chapter_title: chapterTitleFromPayload(payload),
+      source_pages: sourcePagesFromKnowledgePointPayload(payload),
+    });
+    seenKpIds.add(publishedId);
+  }
+
+  return knowledgePoints;
 }
 
 export function textbookInputFromUpload(input: {
   upload: TextbookUploadInput;
   subject: TextbookSubjectInput;
 }): TextbookInput {
+  const titleParts = textbookTitlePartsFromUploadName(input.upload.original_name);
   return {
     subject_id: input.subject.id,
     stage: input.subject.stage,
-    title:
-      textbookTitleFromUploadName(input.upload.original_name) ??
-      `${input.subject.name ?? input.subject.id}教材`,
+    title: titleParts.title ?? `${input.subject.name ?? input.subject.id}教材`,
     edition: null,
     publisher: null,
-    volume: null,
+    volume: titleParts.volume,
     source_upload_id: input.upload.id,
+  };
+}
+
+export function textbookTitlePartsFromUploadName(value: string | null | undefined): {
+  title: string | null;
+  volume: string | null;
+} {
+  const title = textbookTitleFromUploadName(value);
+  return {
+    title,
+    volume: title ? textbookVolumeFromTitle(title) : null,
   };
 }
 
@@ -206,6 +279,36 @@ export async function upsertDefaultMathSeniorTextbookScope(
     textbook: DEFAULT_MATH_SENIOR_TEXTBOOK,
     knowledgePoints,
   });
+}
+
+export async function backfillPublishedTextbookScopes(
+  db: TextbookScopeDb,
+): Promise<BackfillPublishedTextbookScopesResult> {
+  const uploads = await db.content_upload.findMany({
+    where: {
+      file_type: 'textbook',
+      status: 'parsed',
+    },
+    select: {
+      id: true,
+      original_name: true,
+      created_at: true,
+    },
+    orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+  });
+  const textbooks: BackfilledPublishedTextbookScope[] = [];
+
+  for (const upload of uploads) {
+    const result = await backfillPublishedTextbookScopeForUpload(db, upload);
+    if (result) textbooks.push(result);
+  }
+
+  return {
+    textbookCount: textbooks.length,
+    chapterCount: textbooks.reduce((total, textbook) => total + textbook.chapterCount, 0),
+    mappingCount: textbooks.reduce((total, textbook) => total + textbook.mappingCount, 0),
+    textbooks,
+  };
 }
 
 export async function upsertTextbookScope(
@@ -333,27 +436,41 @@ export async function getTextbooksForStudentScope(
   student: StudentTextbookScope,
 ): Promise<unknown[]> {
   if (student.unlocked_kp_ids.length === 0) return [];
-  return db.textbook.findMany({
-    where: {
-      subject_id: student.primary_subject_id,
-      stage: student.stage,
-      knowledge_points: {
-        some: {
-          kp_id: { in: student.unlocked_kp_ids },
-        },
+  const where = {
+    subject_id: student.primary_subject_id,
+    stage: student.stage,
+    knowledge_points: {
+      some: {
+        kp_id: { in: student.unlocked_kp_ids },
       },
     },
-    select: {
-      id: true,
-      subject_id: true,
-      stage: true,
-      title: true,
-      edition: true,
-      publisher: true,
-      volume: true,
-      created_at: true,
+  };
+  const select = {
+    id: true,
+    subject_id: true,
+    stage: true,
+    title: true,
+    edition: true,
+    publisher: true,
+    volume: true,
+    created_at: true,
+  };
+  const orderBy = [{ created_at: 'asc' }, { title: 'asc' }];
+
+  const realTextbooks = await db.textbook.findMany({
+    where: {
+      ...where,
+      source_upload_id: { not: null },
     },
-    orderBy: [{ created_at: 'asc' }, { title: 'asc' }],
+    select,
+    orderBy,
+  });
+  if (realTextbooks.length > 0) return realTextbooks;
+
+  return db.textbook.findMany({
+    where,
+    select,
+    orderBy,
   });
 }
 
@@ -392,6 +509,70 @@ export async function getTextbookProgressScope(
   });
 }
 
+async function backfillPublishedTextbookScopeForUpload(
+  db: TextbookScopeDb,
+  upload: TextbookUploadInput,
+): Promise<BackfilledPublishedTextbookScope | null> {
+  const stagings = await db.llm_parse_staging.findMany({
+    where: {
+      upload_id: upload.id,
+      entity_kind: 'knowledge_point',
+      published_id: { not: null },
+    },
+    select: {
+      id: true,
+      published_id: true,
+      llm_payload: true,
+      review_payload: true,
+      created_at: true,
+    },
+    orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+  });
+  const publishedIds = uniqueNonEmptyStrings(stagings.map((staging) => staging.published_id));
+  if (publishedIds.length === 0) return null;
+
+  const publishedKnowledgePoints = await db.knowledge_point.findMany({
+    where: { id: { in: publishedIds } },
+    select: { id: true, name: true, subject_id: true, chapter_no: true },
+  });
+  const knowledgePointById = new Map(publishedKnowledgePoints.map((kp) => [kp.id, kp]));
+  const knowledgePoints = buildPublishedTextbookKnowledgePointInputs({
+    stagings,
+    knowledgePointById,
+  });
+  if (knowledgePoints.length === 0) return null;
+
+  const subjectId =
+    knowledgePoints[0]?.subject_id ??
+    firstNonNull(
+      stagings.map((staging) => subjectIdFromPayload(publishedKnowledgePointPayload(staging))),
+    );
+  if (!subjectId) return null;
+
+  const subject = await db.subject.findUnique({
+    where: { id: subjectId },
+    select: { id: true, name: true, stage: true },
+  });
+  if (!subject) {
+    throw new Error(`Missing subject ${subjectId} for textbook upload ${upload.id}`);
+  }
+
+  const textbookInput = textbookInputFromUpload({ upload, subject });
+  const result = await upsertTextbookScope(db, {
+    textbook: textbookInput,
+    knowledgePoints,
+  });
+
+  return {
+    uploadId: upload.id,
+    textbookId: result.textbookId,
+    title: textbookInput.title,
+    volume: textbookInput.volume ?? null,
+    chapterCount: result.chapterCount,
+    mappingCount: result.mappingCount,
+  };
+}
+
 function textbookWhereUnique(textbook: TextbookInput) {
   if (textbook.id) return { id: textbook.id };
   if (textbook.source_upload_id) return { source_upload_id: textbook.source_upload_id };
@@ -417,11 +598,51 @@ function textbookTitleFromUploadName(value: string | null | undefined): string |
   return text.replace(/\.(pdf|docx?|png|jpe?g)$/i, '').trim() || text;
 }
 
+function textbookVolumeFromTitle(title: string): string | null {
+  const match = title.match(
+    /(选择性\s*必修|选择性\s*选修|必修|选修)\s*(第\s*[一二三四五六七八九十\d]+\s*册)/,
+  );
+  if (!match) return null;
+
+  const series = match[1]?.replace(/\s+/g, '');
+  const volumeNo = match[2]?.replace(/\s+/g, '');
+  return series && volumeNo ? `${series} ${volumeNo}` : null;
+}
+
+function publishedKnowledgePointPayload(staging: PublishedKnowledgePointStagingInput): unknown {
+  return staging.review_payload ?? staging.llm_payload;
+}
+
+function chapterNoFromPayload(payload: unknown): string | null {
+  const record = asRecord(payload);
+  if (!record) return null;
+  return primitiveText(
+    record.chapter_no ?? record.section_no ?? record.chapter_number ?? record.section_number,
+  );
+}
+
 function chapterTitleFromPayload(payload: unknown): string | null {
   const record = asRecord(payload);
   if (!record) return null;
   const value = record.chapter_title ?? record.section_title ?? record.title;
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function subjectIdFromPayload(payload: unknown): string | null {
+  const record = asRecord(payload);
+  if (!record) return null;
+  return primitiveText(record._subject_id ?? record.subject_id);
+}
+
+function sourcePageRangeFromRecord(record: Record<string, unknown>): unknown[] {
+  const explicitRange = record.source_page_range ?? record.page_range;
+  if (Array.isArray(explicitRange)) return explicitRange;
+
+  const start = Number(record.source_page_start ?? record.page_start);
+  const end = Number(record.source_page_end ?? record.page_end);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start <= 0 || end < start) return [];
+
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
 function normalizeChapterNo(value: string | null | undefined): string {
@@ -447,6 +668,27 @@ function normalizePageNumbers(values: unknown[]): number[] {
       values.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0),
     ),
   ).sort((left, right) => left - right);
+}
+
+function uniqueNonEmptyStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter(isNonEmptyString)));
+}
+
+function firstNonNull<T>(values: Array<T | null | undefined>): T | null {
+  return values.find((value): value is T => value !== null && value !== undefined) ?? null;
+}
+
+function primitiveText(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    return text || null;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return null;
+}
+
+function isNonEmptyString(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.length > 0;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

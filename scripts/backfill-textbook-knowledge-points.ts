@@ -1,13 +1,26 @@
-import { prisma, upsertDefaultMathSeniorTextbookScope } from '@hao/db';
+import {
+  backfillPublishedTextbookScopes,
+  prisma,
+  upsertDefaultMathSeniorTextbookScope,
+} from '@hao/db';
 
 async function main(): Promise<void> {
-  const result = await upsertDefaultMathSeniorTextbookScope(prisma);
+  const fallback = await upsertDefaultMathSeniorTextbookScope(prisma);
+  const published = await backfillPublishedTextbookScopes(prisma);
   console.info(
     JSON.stringify(
       {
-        textbook_id: result.textbookId,
-        chapter_count: result.chapterCount,
-        mapping_count: result.mappingCount,
+        fallback_textbook: {
+          textbook_id: fallback.textbookId,
+          chapter_count: fallback.chapterCount,
+          mapping_count: fallback.mappingCount,
+        },
+        published_textbooks: {
+          textbook_count: published.textbookCount,
+          chapter_count: published.chapterCount,
+          mapping_count: published.mappingCount,
+          textbooks: published.textbooks,
+        },
       },
       null,
       2,
