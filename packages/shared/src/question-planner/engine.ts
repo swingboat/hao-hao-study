@@ -1,5 +1,11 @@
 export type PlannerMode = 'daily_mixed' | 'chapter_focus' | 'mistake_focus';
 export type PlannerQuestionType = 'choice' | 'fill_in';
+export type PlannerConfigMode = 'auto' | 'custom';
+export type PlannerConfigWeightKey =
+  | 'new_knowledge'
+  | 'mistake_variant'
+  | 'spaced_review'
+  | 'feynman_check';
 
 export type SlotPool =
   | 'chapter_practice'
@@ -38,6 +44,11 @@ export interface PlannerDueReview {
   nextReviewAt: string | Date;
 }
 
+export interface PlannerConfig {
+  mode: PlannerConfigMode;
+  weights?: Partial<Record<PlannerConfigWeightKey, number>>;
+}
+
 export interface PlannerQuestion {
   id: string;
   primaryKpId: string;
@@ -49,6 +60,7 @@ export interface PlannerQuestion {
 export interface QuestionPlannerInput {
   student: PlannerStudent;
   mode?: PlannerMode;
+  plannerConfig?: PlannerConfig;
   count?: number;
   minimumCount?: number;
   chapterNo?: string;
@@ -165,6 +177,13 @@ const SESSION_POOL_SOURCE_BY_SLOT_POOL: Record<SlotPool, LearningSessionPoolSour
   feynman_check: 'new_knowledge',
 };
 
+const CUSTOM_WEIGHT_KEYS: PlannerConfigWeightKey[] = [
+  'new_knowledge',
+  'mistake_variant',
+  'spaced_review',
+  'feynman_check',
+];
+
 export function planLearningSession(input: QuestionPlannerInput): PlannerResult {
   const mode = input.mode ?? 'daily_mixed';
   const targetCount = clampInt(input.count ?? DEFAULT_COUNT, 1, MAX_COUNT);
@@ -207,7 +226,7 @@ export function planLearningSession(input: QuestionPlannerInput): PlannerResult 
     }),
   );
   const progressPool: SlotPool = input.chapterNo ? 'chapter_practice' : 'new_knowledge';
-  const poolBudgets = allocateBudgets(targetCount, mode, progressPool);
+  const poolBudgets = allocateBudgets(targetCount, mode, progressPool, input.plannerConfig);
   const slots: LearningSlot[] = [];
   const usedKpIds = new Set<string>();
 
@@ -377,6 +396,20 @@ function allocateBudgets(
   targetCount: number,
   mode: PlannerMode,
   progressPool: SlotPool,
+  plannerConfig?: PlannerConfig,
+): Partial<Record<SlotPool, number>> {
+  if (plannerConfig?.mode === 'custom') {
+    const customBudgets = allocateCustomBudgets(targetCount, progressPool, plannerConfig.weights);
+    if (customBudgets) return customBudgets;
+  }
+
+  return allocateModeBudgets(targetCount, mode, progressPool);
+}
+
+function allocateModeBudgets(
+  targetCount: number,
+  mode: PlannerMode,
+  progressPool: SlotPool,
 ): Partial<Record<SlotPool, number>> {
   const weights = MODE_WEIGHTS[mode];
   const poolWeights: Partial<Record<SlotPool, number>> = {
@@ -404,6 +437,48 @@ function allocateBudgets(
     budgets[pool] = (budgets[pool] ?? 0) + 1;
     remaining -= 1;
     index += 1;
+  }
+
+  return budgets;
+}
+
+function allocateCustomBudgets(
+  targetCount: number,
+  progressPool: SlotPool,
+  weights: PlannerConfig['weights'] = {},
+): Partial<Record<SlotPool, number>> | null {
+  const entries = CUSTOM_WEIGHT_KEYS.map((key): [SlotPool, number] => [
+    key === 'new_knowledge' ? progressPool : key,
+    sanitizeWeight(weights[key]),
+  ]).filter(([, weight]) => weight > 0);
+  const totalWeight = entries.reduce((sum, [, weight]) => sum + weight, 0);
+
+  if (totalWeight <= 0) return null;
+
+  const budgets: Partial<Record<SlotPool, number>> = {};
+  const fractions: Array<{ pool: SlotPool; fraction: number; weight: number }> = [];
+  let assigned = 0;
+
+  for (const [pool, weight] of entries) {
+    const exact = (targetCount * weight) / totalWeight;
+    const count = Math.floor(exact);
+    budgets[pool] = (budgets[pool] ?? 0) + count;
+    assigned += count;
+    fractions.push({ pool, fraction: exact - count, weight });
+  }
+
+  let remaining = targetCount - assigned;
+  for (const { pool } of fractions
+    .slice()
+    .sort(
+      (a, b) =>
+        b.fraction - a.fraction ||
+        b.weight - a.weight ||
+        POOL_PRIORITY[b.pool] - POOL_PRIORITY[a.pool],
+    )) {
+    if (remaining <= 0) break;
+    budgets[pool] = (budgets[pool] ?? 0) + 1;
+    remaining -= 1;
   }
 
   return budgets;
@@ -675,6 +750,12 @@ function clampInt(value: number, min: number, max: number): number {
 function clampNumber(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(1, value));
+}
+
+function sanitizeWeight(value: number | undefined): number {
+  if (typeof value !== 'number') return 0;
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, value);
 }
 
 function unique<T>(values: T[]): T[] {

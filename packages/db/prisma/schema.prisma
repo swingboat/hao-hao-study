@@ -45,6 +45,12 @@ enum LearningSessionStatus {
   abandoned /// 已放弃：超过 25 分钟未提交，下次进入首页时被清扫
 }
 
+/// 学生 Planner 偏好模式
+enum PlannerPreferenceMode {
+  auto /// 自动：使用系统默认 planner 策略，未来可接入 AI 推荐
+  custom /// 自定义：学生自行选择池与比例
+}
+
 /// 错题本条目状态（决议 S2 D2=a 永久 resolve，不可 reopen）
 enum MistakeStatus {
   open /// 未掌握：等待学生重做或在常规 Session 中召回
@@ -193,10 +199,29 @@ model student {
   knowledge_point_masteries knowledge_point_mastery[]
   mistake_entries           mistake_book_entry[]
   spaced_reviews            spaced_review[]
+  planner_preference        student_planner_preference?
 
   @@index([username])
   @@index([soft_deleted_at])
   @@map("student")
+}
+
+/// 学生 Planner 偏好 — 学生端"今日练习"凑题配置
+model student_planner_preference {
+  /// 学生外键；每个学生最多一条偏好记录
+  student_id String                @id @db.Uuid
+  student    student               @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  /// auto = 系统默认；custom = 使用 weights
+  mode       PlannerPreferenceMode @default(auto)
+  /// 权重 JSON，key 与 @hao/shared PlannerConfigWeightKey 对齐：
+  /// new_knowledge / mistake_variant / spaced_review / feynman_check
+  weights    Json                  @default("{\"new_knowledge\":40,\"mistake_variant\":30,\"spaced_review\":30,\"feynman_check\":0}")
+  /// 创建时间
+  created_at DateTime              @default(now()) @db.Timestamptz()
+  /// 最近更新
+  updated_at DateTime              @updatedAt @db.Timestamptz()
+
+  @@map("student_planner_preference")
 }
 
 /// 知识点 — 课程标准最小颗粒度（决议 C1）

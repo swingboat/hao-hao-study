@@ -70,6 +70,82 @@ describe('planLearningSession', () => {
     expect(new Set(result.slots.map((slot) => slot.kpId)).size).toBe(8);
   });
 
+  it('uses custom planner weights to allocate selected pools', () => {
+    const result = planLearningSession(
+      baseInput({
+        count: 8,
+        plannerConfig: {
+          mode: 'custom',
+          weights: {
+            new_knowledge: 25,
+            mistake_variant: 50,
+            spaced_review: 25,
+            feynman_check: 0,
+          },
+        },
+        dueReviews: [
+          { kpId: 'kp-1', nextReviewAt: '2026-06-14T00:00:00.000Z' },
+          { kpId: 'kp-2', nextReviewAt: '2026-06-15T00:00:00.000Z' },
+        ],
+        openMistakes: [
+          { questionId: 'q-3', kpId: 'kp-3', errorCount: 4 },
+          { questionId: 'q-4', kpId: 'kp-4', errorCount: 3 },
+          { questionId: 'q-5', kpId: 'kp-5', errorCount: 2 },
+          { questionId: 'q-6', kpId: 'kp-6', errorCount: 1 },
+        ],
+        now: '2026-06-16T00:00:00.000Z',
+      }),
+    );
+
+    expect(result.slots.map((slot) => slot.pool)).toEqual([
+      'spaced_review',
+      'spaced_review',
+      'mistake_variant',
+      'mistake_variant',
+      'mistake_variant',
+      'mistake_variant',
+      'new_knowledge',
+      'new_knowledge',
+    ]);
+  });
+
+  it('treats auto planner config as the current daily mixed behavior', () => {
+    const result = planLearningSession(
+      baseInput({
+        count: 8,
+        plannerConfig: {
+          mode: 'auto',
+          weights: {
+            new_knowledge: 0,
+            mistake_variant: 100,
+            spaced_review: 0,
+            feynman_check: 0,
+          },
+        },
+        dueReviews: [
+          { kpId: 'kp-1', nextReviewAt: '2026-06-14T00:00:00.000Z' },
+          { kpId: 'kp-2', nextReviewAt: '2026-06-15T00:00:00.000Z' },
+        ],
+        openMistakes: [
+          { questionId: 'q-3', kpId: 'kp-3', errorCount: 3 },
+          { questionId: 'q-4', kpId: 'kp-4', errorCount: 1 },
+        ],
+        now: '2026-06-16T00:00:00.000Z',
+      }),
+    );
+
+    expect(result.slots.map((slot) => slot.pool)).toEqual([
+      'spaced_review',
+      'spaced_review',
+      'mistake_variant',
+      'mistake_variant',
+      'new_knowledge',
+      'new_knowledge',
+      'new_knowledge',
+      'new_knowledge',
+    ]);
+  });
+
   it('deduplicates a KP by keeping the highest-priority pool', () => {
     const result = planLearningSession(
       baseInput({

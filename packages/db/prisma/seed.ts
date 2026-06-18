@@ -10,6 +10,7 @@
  *     的 STAGE_LABEL 字典对齐
  *   - student × 1（niki）—— 第一轮 MVP 先提供可展示、可本地演示登录的种子学生；
  *     每次 seed 会把当前 math_senior 已有知识点全部写入 unlocked_kp_ids。
+ *   - student_planner_preference × 1（niki）—— 默认 Auto；weights 保留默认结构，便于学生端编辑。
  *
  * 模型族行为差异由 packages/llm 的 adapter/provider-target.ts 映射到 how-to-use
  * 同步层 llmTarget；业务层调用方仍然只用 analyzeKnowledgePoints/analyzeQuestions，
@@ -31,6 +32,12 @@ const OPENAI_CHAT_ENDPOINT_ENV = 'LLM_PROXY_OPENAI_CHAT_ENDPOINT';
 const GOOGLE_GEMINI_3_PRO_IMAGE_ENDPOINT_ENV =
   'LLM_PROXY_GOOGLE_GENERATE_CONTENT_GEMINI_3_PRO_IMAGE_ENDPOINT';
 const BEDROCK_CLAUDE_OPUS_4_7_ENDPOINT_ENV = 'LLM_PROXY_BEDROCK_CONVERSE_CLAUDE_OPUS_4_7_ENDPOINT';
+const DEFAULT_PLANNER_WEIGHTS = {
+  new_knowledge: 40,
+  mistake_variant: 30,
+  spaced_review: 30,
+  feynman_check: 0,
+} satisfies Prisma.InputJsonObject;
 
 function endpointEnvRef(envVar: string): string {
   return `env:${envVar}`;
@@ -298,13 +305,25 @@ async function seedDemoStudents() {
     soft_deleted_at: null,
   };
 
-  await prisma.student.upsert({
+  const demoStudent = await prisma.student.upsert({
     where: { username: DEMO_STUDENT.username },
     update: DEMO_STUDENT,
     create: DEMO_STUDENT,
   });
+  await prisma.student_planner_preference.upsert({
+    where: { student_id: demoStudent.id },
+    update: {
+      mode: 'auto',
+      weights: DEFAULT_PLANNER_WEIGHTS,
+    },
+    create: {
+      student_id: demoStudent.id,
+      mode: 'auto',
+      weights: DEFAULT_PLANNER_WEIGHTS,
+    },
+  });
   console.info(
-    `🌱 student seeded: ${DEMO_STUDENT.username} (${unlockedKpIds.length} math_senior KP unlocked, demo password hash configured)`,
+    `🌱 student seeded: ${DEMO_STUDENT.username} (${unlockedKpIds.length} math_senior KP unlocked, demo password hash configured, planner preference auto)`,
   );
 }
 
