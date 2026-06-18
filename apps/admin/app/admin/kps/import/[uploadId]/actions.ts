@@ -18,6 +18,7 @@ import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { SESSION_COOKIE, verifySession } from '../../../../../lib/auth';
+import { upsertAdminKnowledgePointTextbookMapping } from '../../../../../lib/kp-textbook-mapping';
 import type { ProgressSnapshot } from '../actions';
 
 async function requireAdmin() {
@@ -64,6 +65,22 @@ export async function acceptStagingAction(
     return { error: parsed.error.issues[0]?.message ?? '表单校验失败' };
   }
   const { staging_id, name, subject_id, chapter_no } = parsed.data;
+  const reviewPayload = { name, subject_id, chapter_no };
+
+  const [staging, subject] = await Promise.all([
+    prisma.llm_parse_staging.findUnique({
+      where: { id: staging_id },
+      include: { upload: true },
+    }),
+    prisma.subject.findUnique({
+      where: { id: subject_id },
+      select: { id: true, name: true, stage: true },
+    }),
+  ]);
+  if (!staging) return { error: 'staging 不存在' };
+  if (staging.entity_kind !== 'knowledge_point')
+    return { error: '该 staging 不是 knowledge_point' };
+  if (!subject) return { error: `subject ${subject_id} 不存在` };
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -76,13 +93,21 @@ export async function acceptStagingAction(
           data: { name, subject_id, chapter_no },
         });
       }
+      await upsertAdminKnowledgePointTextbookMapping({
+        db: tx,
+        upload: staging.upload,
+        subject,
+        knowledgePoint: kp,
+        reviewPayload,
+        llmPayload: staging.llm_payload,
+      });
 
       // 2. 更新 staging
       await tx.llm_parse_staging.update({
         where: { id: staging_id },
         data: {
           review_status: 'accepted',
-          review_payload: { name, subject_id, chapter_no } as Prisma.InputJsonValue,
+          review_payload: reviewPayload as Prisma.InputJsonValue,
           reviewed_by: session.sub,
           reviewed_at: new Date(),
           published_id: kp.id,
@@ -155,7 +180,20 @@ export async function bulkAcceptAllAction(
 
   const pendings = await prisma.llm_parse_staging.findMany({
     where: { upload_id, review_status: 'pending', entity_kind: 'knowledge_point' },
+    include: { upload: true },
   });
+  const subjectIds = Array.from(
+    new Set(
+      pendings
+        .map((s) => (s.llm_payload as { _subject_id?: unknown })._subject_id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    ),
+  );
+  const subjects = await prisma.subject.findMany({
+    where: { id: { in: subjectIds } },
+    select: { id: true, name: true, stage: true },
+  });
+  const subjectById = new Map(subjects.map((subject) => [subject.id, subject]));
 
   let accepted = 0;
   const failures: NonNullable<BulkActionState['failures']> = [];
@@ -180,8 +218,17 @@ export async function bulkAcceptAllAction(
       });
       continue;
     }
+    const subject = subjectById.get(subject_id);
+    if (!subject) {
+      failures.push({
+        stagingId: s.id,
+        reason: `subject ${subject_id} 不存在`,
+      });
+      continue;
+    }
 
     try {
+      const reviewPayload = { name, subject_id, chapter_no };
       await prisma.$transaction(async (tx) => {
         let kp = await tx.knowledge_point.findUnique({
           where: { subject_id_name: { subject_id, name } },
@@ -191,11 +238,19 @@ export async function bulkAcceptAllAction(
             data: { name, subject_id, chapter_no },
           });
         }
+        await upsertAdminKnowledgePointTextbookMapping({
+          db: tx,
+          upload: s.upload,
+          subject,
+          knowledgePoint: kp,
+          reviewPayload,
+          llmPayload: s.llm_payload,
+        });
         await tx.llm_parse_staging.update({
           where: { id: s.id },
           data: {
             review_status: 'accepted',
-            review_payload: { name, subject_id, chapter_no } as Prisma.InputJsonValue,
+            review_payload: reviewPayload as Prisma.InputJsonValue,
             reviewed_by: session.sub,
             reviewed_at: new Date(),
             published_id: kp.id,
