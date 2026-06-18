@@ -10,6 +10,8 @@
  *   - presignedGetUrl(key) 在 fs 模式返回 ${PUBLIC_BASE_URL}/storage/${key}，
  *     在 s3 模式返回真签名 URL；业务方代码不变
  */
+import type { CreateQuestionFigureCropAssetsInput } from './figure-crop-core';
+
 export {
   type ObjectStore,
   type PutOptions,
@@ -23,15 +25,23 @@ export { FileSystemStore } from './fs-store';
 export {
   FIGURE_CROP_PROCESSOR,
   FIGURE_CROP_VERSION,
-  type FigureCropAssetRecord,
-  type FigureCropMetadata,
-  type QuestionFigure,
   buildQuestionFigureAssetKey,
   buildQuestionFigureCropRecord,
-  createQuestionFigureCropAssets,
-  cropPngByPercentBbox,
-  renderPdfPageToPng,
-} from './figure-crop';
+} from './figure-crop-core';
+export type {
+  BuildQuestionFigureCropRecordInput,
+  CreateQuestionFigureCropAssetsInput,
+  FigureBbox,
+  FigureCropAssetRecord,
+  FigureCropMetadata,
+  QuestionFigure,
+  RenderedPagePng,
+} from './figure-crop-core';
 export { createStore } from './factory';
 
 export const STORAGE_VERSION = '0.1.0';
+
+export async function createQuestionFigureCropAssets(input: CreateQuestionFigureCropAssetsInput) {
+  const { createQuestionFigureCropAssets } = await import('./figure-crop');
+  return createQuestionFigureCropAssets(input);
+}

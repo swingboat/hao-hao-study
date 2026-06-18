@@ -1,10 +1,10 @@
 import { type Prisma, prisma } from '@hao/db';
+import { createStore } from '@hao/storage';
 import {
   type FigureCropAssetRecord,
   type QuestionFigure,
   createQuestionFigureCropAssets,
-  createStore,
-} from '@hao/storage';
+} from '@hao/storage/figure-crop';
 
 interface BackfillStats {
   scanned: number;
