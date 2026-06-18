@@ -156,6 +156,7 @@ model subject {
   knowledge_points          knowledge_point[]
   knowledge_point_masteries knowledge_point_mastery[]
   students_primary          student[]                 @relation("student_primary_subject")
+  textbooks                 textbook[]
 
   @@map("subject")
 }
@@ -241,10 +242,91 @@ model knowledge_point {
   // 反向关系
   knowledge_point_masteries knowledge_point_mastery[]
   spaced_reviews            spaced_review[]
+  textbook_mappings         textbook_knowledge_point[]
 
   @@unique([subject_id, name])
   @@index([subject_id, chapter_no])
   @@map("knowledge_point")
+}
+
+/// 教材 — 学生端按教材查看知识点进度的稳定归属维度
+model textbook {
+  /// 主键 UUID
+  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// 所属学科
+  subject_id       String
+  subject          subject         @relation(fields: [subject_id], references: [id])
+  /// 学段
+  stage            Stage
+  /// 教材标题，如"高中数学默认教材"
+  title            String
+  /// 版本 / 版次，可空
+  edition          String?
+  /// 出版社，可空
+  publisher        String?
+  /// 册别，如"必修第一册"，可空
+  volume           String?
+  /// 来源教材上传；旧数据 backfill 可为空
+  source_upload_id String?         @unique @db.Uuid
+  source_upload    content_upload? @relation(fields: [source_upload_id], references: [id], onDelete: SetNull)
+  /// 创建时间
+  created_at       DateTime        @default(now()) @db.Timestamptz()
+
+  // 反向关系
+  chapters         textbook_chapter[]
+  knowledge_points textbook_knowledge_point[]
+
+  @@index([subject_id, stage])
+  @@index([title])
+  @@map("textbook")
+}
+
+/// 教材章节 — 教材内章节顺序与展示名称
+model textbook_chapter {
+  /// 主键 UUID
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// 所属教材
+  textbook_id String   @db.Uuid
+  textbook    textbook @relation(fields: [textbook_id], references: [id], onDelete: Cascade)
+  /// 章节编号，如"1.1"；未识别时统一写"未分章节"
+  chapter_no  String
+  /// 展示标题
+  title       String
+  /// 教材内排序
+  sort_order  Int
+  /// 创建时间
+  created_at  DateTime @default(now()) @db.Timestamptz()
+
+  // 反向关系
+  knowledge_points textbook_knowledge_point[]
+
+  @@unique([textbook_id, chapter_no])
+  @@index([textbook_id, sort_order])
+  @@map("textbook_chapter")
+}
+
+/// 教材-知识点映射 — 学生端取"教材 ∩ 已解锁知识点"的正式依据
+model textbook_knowledge_point {
+  /// 教材外键（复合主键 part 1）
+  textbook_id     String            @db.Uuid
+  textbook        textbook          @relation(fields: [textbook_id], references: [id], onDelete: Cascade)
+  /// 章节外键；旧数据或解析不完整时允许为空
+  chapter_id      String?           @db.Uuid
+  chapter         textbook_chapter? @relation(fields: [chapter_id], references: [id], onDelete: SetNull)
+  /// 知识点外键（复合主键 part 2）
+  kp_id           String            @db.Uuid
+  knowledge_point knowledge_point   @relation(fields: [kp_id], references: [id], onDelete: Cascade)
+  /// 教材内排序
+  sort_order      Int
+  /// 来源页码；旧数据 backfill 可为空数组
+  source_pages    Int[]             @default([])
+  /// 创建时间
+  created_at      DateTime          @default(now()) @db.Timestamptz()
+
+  @@id([textbook_id, kp_id])
+  @@index([kp_id])
+  @@index([textbook_id, chapter_id, sort_order])
+  @@map("textbook_knowledge_point")
 }
 
 /// 题目（v0.1 仅 choice / fill_in）
@@ -534,6 +616,7 @@ model content_upload {
   // 反向关系
   llm_parse_jobs     llm_parse_job[]
   llm_parse_stagings llm_parse_staging[]
+  textbooks          textbook[]
 
   @@index([uploader_id, created_at])
   @@index([sha256])

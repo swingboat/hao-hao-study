@@ -25,3 +25,4 @@ if (process.env.NODE_ENV !== 'production') {
 
 export { Prisma } from '@prisma/client';
 export type * from '@prisma/client';
+export * from './textbook-scope';
