@@ -1,6 +1,7 @@
 'use server';
 
 import { prisma } from '@hao/db';
+import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import {
@@ -9,6 +10,10 @@ import {
   signStudentSession,
   verifyStudentPassword,
 } from '../lib/auth';
+import {
+  readPlannerPreferenceFormData,
+  validatePlannerPreferenceInput,
+} from '../lib/planner-preferences';
 import { submitSessionAnswers } from '../lib/session-submit';
 import { readSubmittedAnswers } from '../lib/session-submit-path';
 import { requireCurrentStudent } from '../lib/student-data';
@@ -16,6 +21,11 @@ import { getTodayPlannerDataForStudent } from '../lib/today-planner';
 
 export interface LoginState {
   error: string | null;
+}
+
+export interface PlannerPreferenceFormState {
+  status: 'idle' | 'success' | 'error';
+  message: string | null;
 }
 
 export async function loginAction(_prev: LoginState, formData: FormData): Promise<LoginState> {
@@ -83,6 +93,41 @@ export async function startTodaySessionAction(): Promise<void> {
   });
 
   redirect(`/study/${session.id}`);
+}
+
+export async function savePlannerPreferenceAction(
+  _prevState: PlannerPreferenceFormState,
+  formData: FormData,
+): Promise<PlannerPreferenceFormState> {
+  const student = await requireCurrentStudent();
+  const result = validatePlannerPreferenceInput(readPlannerPreferenceFormData(formData));
+
+  if (!result.ok) {
+    return {
+      status: 'error',
+      message: result.message,
+    };
+  }
+
+  await prisma.student_planner_preference.upsert({
+    where: { student_id: student.id },
+    create: {
+      student_id: student.id,
+      mode: result.preference.mode,
+      weights: result.preference.weights,
+    },
+    update: {
+      mode: result.preference.mode,
+      weights: result.preference.weights,
+    },
+  });
+
+  revalidatePath('/');
+
+  return {
+    status: 'success',
+    message: result.preference.mode === 'auto' ? '已保存：自动安排' : '已保存：自定义比例',
+  };
 }
 
 export async function submitSessionAction(formData: FormData): Promise<void> {

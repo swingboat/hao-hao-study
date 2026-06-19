@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { requireCurrentStudent } from '../lib/student-data';
 import { getTodayPlannerDataForStudent } from '../lib/today-planner';
 import { startTodaySessionAction } from './actions';
+import { PlannerSettingsForm } from './planner-settings-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,8 +30,13 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             {planner.student.gradeLabel} · {planner.student.targetExam}
           </p>
         </div>
-        <div className="practice-status" data-ready={canStart}>
-          {canStart ? '今日练习已准备好' : '今日练习正在准备'}
+        <div className="top-actions">
+          <Link className="secondary-button" href="/progress">
+            学习进度
+          </Link>
+          <div className="practice-status" data-ready={canStart}>
+            {canStart ? '今日练习已准备好' : '今日练习正在准备'}
+          </div>
         </div>
       </section>
 
@@ -68,6 +74,19 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         <Link className="secondary-button" href="/study/history">
           查看练习记录
         </Link>
+      </section>
+
+      <section className="content-section planner-settings-section">
+        <div className="section-heading-row">
+          <div>
+            <h2>练习设置</h2>
+            <p>选择今天各类练习的安排比例。</p>
+          </div>
+          <span className="mode-pill">
+            {planner.plannerPreference.mode === 'auto' ? '自动安排' : '自定义比例'}
+          </span>
+        </div>
+        <PlannerSettingsForm preference={planner.plannerPreference} />
       </section>
     </main>
   );

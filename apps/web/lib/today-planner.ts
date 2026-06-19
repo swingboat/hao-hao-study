@@ -17,6 +17,11 @@ import {
   mapQuestionBankForPlanner,
   toPlannerSlotView,
 } from './planner-adapter';
+import {
+  type PlannerPreferenceView,
+  buildPlannerConfig,
+  resolvePlannerPreference,
+} from './planner-preferences';
 
 export const PLANNER_TARGET_COUNT = 8;
 export const PLANNER_MINIMUM_COUNT = 3;
@@ -51,6 +56,7 @@ export interface TodayPlannerData {
   questionBankCount: number;
   filteredQuestionBankCount: number;
   readyQuestionCount: number;
+  plannerPreference: PlannerPreferenceView;
   sessionPlan: QuestionBankSessionPlan | null;
   result: PlannerResult;
   slots: PlannerSlotView[];
@@ -89,7 +95,11 @@ export async function getTodayPlannerDataForStudent(
     orderBy: [{ chapter_no: 'asc' }, { created_at: 'asc' }],
   });
 
-  const [questionRows, masteryRows, mistakeRows, dueReviewRows] = await Promise.all([
+  const [preferenceRow, questionRows, masteryRows, mistakeRows, dueReviewRows] = await Promise.all([
+    prisma.student_planner_preference.findUnique({
+      where: { student_id: student.id },
+      select: { mode: true, weights: true },
+    }),
     prisma.question.findMany({
       where: {
         primary_kp_id: { in: unlockedKpIds },
@@ -150,6 +160,7 @@ export async function getTodayPlannerDataForStudent(
     ? unlockedKpIds.filter((kpId) => answerablePrimaryKpIds.has(kpId))
     : unlockedKpIds;
   const plannerUnlockedSet = new Set(plannerUnlockedKpIds);
+  const plannerPreference = resolvePlannerPreference(preferenceRow);
   const plannerKnowledgePoints = knowledgePoints
     .filter((kp) => plannerUnlockedSet.has(kp.id))
     .map((kp) => ({
@@ -189,6 +200,7 @@ export async function getTodayPlannerDataForStudent(
         kpId: row.kp_id,
         nextReviewAt: row.next_review_at,
       })),
+    plannerConfig: buildPlannerConfig(plannerPreference),
   });
 
   const sessionPlan = toQuestionBankSessionPlan(result);
@@ -212,6 +224,7 @@ export async function getTodayPlannerDataForStudent(
     questionBankCount: questionRows.length,
     filteredQuestionBankCount: questionBank.length,
     readyQuestionCount: sessionPlan.plannedQuestionCount,
+    plannerPreference,
     sessionPlan: sessionPlan.isEnoughForSession ? sessionPlan : null,
     result,
     slots: result.slots.map((slot, index) =>
