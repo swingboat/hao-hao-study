@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  QuestionBatchSchema,
-  QuestionParsedSchema,
-  QuestionTypeSchema,
-} from './question';
+import { QuestionBatchSchema, QuestionParsedSchema, QuestionTypeSchema } from './question';
 
 describe('Question schema naming', () => {
   const validQuestion = {

@@ -13,10 +13,7 @@
  *   - 批量上限 300
  */
 import { describe, expect, it } from 'vitest';
-import {
-  QuestionBatchSchema,
-  QuestionParsedSchema,
-} from './question';
+import { QuestionBatchSchema, QuestionParsedSchema } from './question';
 
 describe('QuestionParsedSchema — choice happy path', () => {
   it('单选题：A-D 选项 + 答案 A', () => {

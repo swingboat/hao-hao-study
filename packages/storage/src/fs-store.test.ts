@@ -2,10 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ChecksumMismatchError, NotFoundError } from './types';
-import { FileSystemStore } from './fs-store';
-import { StoragePaths, sha256OfBuffer, extOf } from './paths';
 import { createStore } from './factory';
+import { FileSystemStore } from './fs-store';
+import { StoragePaths, extOf, sha256OfBuffer } from './paths';
+import { ChecksumMismatchError, NotFoundError } from './types';
 
 describe('FileSystemStore', () => {
   let root: string;
@@ -43,9 +43,9 @@ describe('FileSystemStore', () => {
 
   it('expectedSha256 mismatch throws ChecksumMismatchError and does not write', async () => {
     const body = Buffer.from('payload');
-    await expect(
-      store.put('y', body, { expectedSha256: 'a'.repeat(64) }),
-    ).rejects.toBeInstanceOf(ChecksumMismatchError);
+    await expect(store.put('y', body, { expectedSha256: 'a'.repeat(64) })).rejects.toBeInstanceOf(
+      ChecksumMismatchError,
+    );
     expect(await store.exists('y')).toBe(false);
   });
 

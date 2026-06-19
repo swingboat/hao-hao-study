@@ -37,7 +37,9 @@ export function providerToTarget(provider: ProviderRecord): ResolvedProviderTarg
 
   const apiKey = process.env[provider.auth_env_var];
   if (!apiKey) {
-    throw new Error(`env var ${provider.auth_env_var} not set; required by provider ${provider.id}`);
+    throw new Error(
+      `env var ${provider.auth_env_var} not set; required by provider ${provider.id}`,
+    );
   }
   const endpoint = resolveEndpoint(provider.endpoint, provider.id);
 
@@ -98,7 +100,8 @@ function resolveEndpoint(endpoint: string, providerId: string): string {
   if (!envVar) throw new Error(`empty endpoint env reference for provider ${providerId}`);
 
   const value = process.env[envVar]?.trim();
-  if (!value) throw new Error(`env var ${envVar} not set; required as endpoint by provider ${providerId}`);
+  if (!value)
+    throw new Error(`env var ${envVar} not set; required as endpoint by provider ${providerId}`);
   return value;
 }
 

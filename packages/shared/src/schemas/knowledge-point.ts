@@ -15,10 +15,7 @@ import { z } from 'zod';
 
 /** 单条 KP 候选（一行 staging） */
 export const KnowledgePointParsedSchema = z.object({
-  name: z
-    .string()
-    .min(2, 'KP name 至少 2 字符')
-    .max(50, 'KP name 不超过 50 字符'),
+  name: z.string().min(2, 'KP name 至少 2 字符').max(50, 'KP name 不超过 50 字符'),
   chapter_no: z.string().max(20).nullable().optional(),
   /** 给运营审核展示，不入正式 knowledge_point 表 */
   brief: z.string().max(200).optional(),

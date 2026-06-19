@@ -1,4 +1,4 @@
-export type JsonObject = Record<string, any>;
+export type JsonObject = Record<string, unknown>;
 
 export interface LlmTarget {
   id: string;
@@ -12,7 +12,7 @@ export interface LlmTarget {
   query?: Record<string, string>;
   aliases?: string[];
   capabilities?: string[];
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface LlmConfig {
@@ -22,13 +22,13 @@ export interface LlmConfig {
   llmTargets?: LlmTarget[];
   defaultTargetId?: string;
   targets?: LlmTarget[];
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface TargetConfig extends LlmConfig {}
 
 export interface SourceFile {
-  type?: "pdf" | "word" | "image" | string;
+  type?: 'pdf' | 'word' | 'image' | string;
   name?: string;
   filename?: string;
   data?: string;
@@ -44,7 +44,7 @@ export interface ParserProgressEvent {
   total_pages?: number;
   message?: string;
   cache_layer?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface CommonParserOptions {
@@ -63,7 +63,7 @@ export interface CommonParserOptions {
   payloadLogLimit?: number;
   renderDpi?: number;
   apiKey?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface KnowledgePoint {
@@ -80,7 +80,7 @@ export interface KnowledgePoint {
   section_number?: string;
   section_title?: string;
   source_name?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface KnowledgeSection {
@@ -90,7 +90,7 @@ export interface KnowledgeSection {
   display_name?: string;
   source_pages?: number[];
   knowledge_points?: KnowledgePoint[];
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface KnowledgeChapter {
@@ -101,7 +101,7 @@ export interface KnowledgeChapter {
   source_pages?: number[];
   sections?: KnowledgeSection[];
   knowledge_points?: KnowledgePoint[];
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface RelatedKnowledgePoint {
@@ -111,7 +111,7 @@ export interface RelatedKnowledgePoint {
   section?: string;
   confidence?: number;
   reason?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface Question {
@@ -124,16 +124,16 @@ export interface Question {
   analysis?: string;
   related_knowledge_points?: RelatedKnowledgePoint[];
   source_pages?: number[];
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface ImageReference {
-  kind?: "page_image" | string;
-  reference_type?: "file_path" | string;
+  kind?: 'page_image' | string;
+  reference_type?: 'file_path' | string;
   page_number?: number;
   mime_type?: string;
   path?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface LlmInfo {
@@ -144,9 +144,13 @@ export interface LlmInfo {
   api_shape?: string;
 }
 
+export interface AnalysisDiagnostics extends JsonObject {
+  parse_error?: string | null;
+}
+
 export interface KnowledgePointsAnalysisResult {
-  kind: "knowledge_points";
-  status: "ok" | "partial" | "failed";
+  kind: 'knowledge_points';
+  status: 'ok' | 'partial' | 'failed';
   source: {
     type: string;
     name: string;
@@ -157,13 +161,13 @@ export interface KnowledgePointsAnalysisResult {
   chapters: KnowledgeChapter[];
   knowledge_points: KnowledgePoint[];
   coverage?: JsonObject;
-  diagnostics?: JsonObject;
-  [key: string]: any;
+  diagnostics?: AnalysisDiagnostics;
+  [key: string]: unknown;
 }
 
 export interface QuestionAnalysisResult {
-  kind: "questions";
-  status: "ok" | "partial" | "failed";
+  kind: 'questions';
+  status: 'ok' | 'partial' | 'failed';
   source: {
     type: string;
     name: string;
@@ -176,8 +180,8 @@ export interface QuestionAnalysisResult {
   };
   images?: ImageReference[];
   questions: Question[];
-  diagnostics?: JsonObject;
-  [key: string]: any;
+  diagnostics?: AnalysisDiagnostics;
+  [key: string]: unknown;
 }
 
 export interface AnalyzeKnowledgePointsRequest extends CommonParserOptions {
@@ -195,7 +199,10 @@ export interface AnalyzeQuestionsRequest extends CommonParserOptions {
   file?: SourceFile;
   pdf?: SourceFile;
   word?: SourceFile;
-  knowledge?: KnowledgePointsAnalysisResult | KnowledgePoint[] | Array<KnowledgePointsAnalysisResult | KnowledgePoint>;
+  knowledge?:
+    | KnowledgePointsAnalysisResult
+    | KnowledgePoint[]
+    | Array<KnowledgePointsAnalysisResult | KnowledgePoint>;
   llmConfig?: LlmConfig;
   llmTarget?: LlmTarget;
   llmTargetId?: string;
@@ -212,7 +219,7 @@ export interface PageImage {
   mime_type?: string;
   data: string;
   path?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface DocumentParseResult {
@@ -229,8 +236,8 @@ export interface DocumentParseResult {
   text?: string;
   pages?: JsonObject[];
   images?: ImageReference[];
-  raw_results?: any[];
-  [key: string]: any;
+  raw_results?: unknown[];
+  [key: string]: unknown;
 }
 
 export interface ParseImageRequest extends CommonParserOptions {
@@ -275,20 +282,20 @@ export interface ParseDocumentPagesRequest extends CommonParserOptions {
 }
 
 export interface LlmAttachment {
-  type?: "image" | "pdf" | "document" | "file" | string;
+  type?: 'image' | 'pdf' | 'document' | 'file' | string;
   mimeType?: string;
   mime_type?: string;
   name?: string;
   filename?: string;
   data?: string;
   base64?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface LlmMessage {
   role?: string;
-  content?: any;
-  [key: string]: any;
+  content?: unknown;
+  [key: string]: unknown;
 }
 
 export interface LlmCallRequest {
@@ -307,7 +314,7 @@ export interface LlmCallRequest {
   payloadLogPath?: string;
   payloadLogLimit?: number;
   requestLabel?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface LlmResult {
@@ -322,7 +329,7 @@ export interface LlmResult {
   latency_ms: number;
   usage: JsonObject | null;
   text: string;
-  raw: any;
+  raw: unknown;
   error_message?: string;
 }
 
@@ -334,7 +341,7 @@ export interface BuiltLlmRequest {
   method: string;
   url: string;
   headers: Record<string, string>;
-  body: any;
+  body: unknown;
 }
 
 export interface FileSystemDocumentCacheOptions {
@@ -346,15 +353,21 @@ export interface DocumentCache {
   type?: string;
   rootDir?: string;
   namespace?: string;
-  getJson(key: string): Promise<any>;
-  setJson(key: string, value: any): Promise<void>;
+  getJson(key: string): Promise<unknown>;
+  setJson(key: string, value: unknown): Promise<void>;
 }
 
-export type AnalyzeKnowledgePoints = (request?: AnalyzeKnowledgePointsRequest) => Promise<KnowledgePointsAnalysisResult>;
-export type AnalyzeQuestions = (request?: AnalyzeQuestionsRequest) => Promise<QuestionAnalysisResult>;
+export type AnalyzeKnowledgePoints = (
+  request?: AnalyzeKnowledgePointsRequest,
+) => Promise<KnowledgePointsAnalysisResult>;
+export type AnalyzeQuestions = (
+  request?: AnalyzeQuestionsRequest,
+) => Promise<QuestionAnalysisResult>;
 export type ParseImage = (request: ParseImageRequest) => Promise<DocumentParseResult>;
 export type ParsePdf = (request: ParsePdfRequest) => Promise<DocumentParseResult>;
 export type ParseWord = (request: ParseWordRequest) => Promise<DocumentParseResult>;
-export type ParseDocumentPages = (request: ParseDocumentPagesRequest) => Promise<DocumentParseResult>;
+export type ParseDocumentPages = (
+  request: ParseDocumentPagesRequest,
+) => Promise<DocumentParseResult>;
 export type CallLlm = (request: LlmCallRequest) => Promise<LlmResult>;
 export type BuildLlmRequest = (request: LlmCallRequest) => BuiltLlmRequest;
