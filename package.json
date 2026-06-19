@@ -20,6 +20,7 @@
     "db:generate": "pnpm --filter @hao/db generate",
     "db:migrate": "pnpm --filter @hao/db migrate",
     "db:seed": "pnpm --filter @hao/db seed",
+    "db:check-textbooks": "pnpm --filter @hao/db exec tsx ../../scripts/check-textbook-scope-integrity.ts",
     "db:studio": "pnpm --filter @hao/db studio",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down"

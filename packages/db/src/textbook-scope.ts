@@ -117,6 +117,21 @@ export interface StudentTextbookScope {
   unlocked_kp_ids: string[];
 }
 
+export interface TextbookChapterLabelIssue {
+  id: string;
+  textbook_id: string;
+  textbook_title: string;
+  chapter_no: string;
+  normalized_chapter_no: string;
+  title: string;
+}
+
+export interface TextbookScopeHealthDb {
+  textbook_chapter: {
+    findMany(args: unknown): Promise<unknown[]>;
+  };
+}
+
 export interface TextbookScopeDb {
   knowledge_point: {
     findMany(args: unknown): Promise<TextbookKnowledgePointInput[]>;
@@ -265,6 +280,77 @@ export function textbookTitlePartsFromUploadName(value: string | null | undefine
     title,
     volume: title ? textbookVolumeFromTitle(title) : null,
   };
+}
+
+export function normalizeTextbookChapterNo(value: string | null | undefined): string {
+  return normalizeChapterNo(value);
+}
+
+export async function findTextbookChapterLabelIssues(
+  db: TextbookScopeHealthDb,
+): Promise<TextbookChapterLabelIssue[]> {
+  const rows = await db.textbook_chapter.findMany({
+    where: {
+      chapter_no: {
+        contains: '章',
+      },
+    },
+    select: {
+      id: true,
+      textbook_id: true,
+      chapter_no: true,
+      title: true,
+      textbook: {
+        select: {
+          title: true,
+        },
+      },
+    },
+    orderBy: [{ textbook_id: 'asc' }, { sort_order: 'asc' }, { chapter_no: 'asc' }],
+  });
+
+  return rows.flatMap((row) => {
+    const record = asRecord(row);
+    const textbook = asRecord(record?.textbook);
+    const id = primitiveText(record?.id);
+    const textbookId = primitiveText(record?.textbook_id);
+    const textbookTitle = primitiveText(textbook?.title);
+    const chapterNo = primitiveText(record?.chapter_no);
+    const title = primitiveText(record?.title);
+    if (!id || !textbookId || !textbookTitle || !chapterNo || !title) return [];
+
+    const normalizedChapterNo = normalizeTextbookChapterNo(chapterNo);
+    if (normalizedChapterNo === chapterNo) return [];
+
+    return [
+      {
+        id,
+        textbook_id: textbookId,
+        textbook_title: textbookTitle,
+        chapter_no: chapterNo,
+        normalized_chapter_no: normalizedChapterNo,
+        title,
+      },
+    ];
+  });
+}
+
+export async function assertTextbookChapterLabelsCanonical(
+  db: TextbookScopeHealthDb,
+): Promise<TextbookChapterLabelIssue[]> {
+  const issues = await findTextbookChapterLabelIssues(db);
+  if (issues.length > 0) {
+    const details = issues
+      .slice(0, 10)
+      .map(
+        (issue) => `${issue.textbook_title}: ${issue.chapter_no} -> ${issue.normalized_chapter_no}`,
+      )
+      .join('; ');
+    throw new Error(
+      `Found non-canonical textbook chapter_no values. Run textbook backfill first. ${details}`,
+    );
+  }
+  return issues;
 }
 
 export async function upsertDefaultMathSeniorTextbookScope(

@@ -5,7 +5,9 @@ import {
   type TextbookScopeDb,
   buildPublishedTextbookKnowledgePointInputs,
   buildTextbookScopePlan,
+  findTextbookChapterLabelIssues,
   getTextbooksForStudentScope,
+  normalizeTextbookChapterNo,
   sourcePagesFromKnowledgePointPayload,
   textbookInputFromUpload,
 } from './textbook-scope';
@@ -56,6 +58,12 @@ assert.deepEqual(
   }),
   [2, 3],
 );
+
+assert.equal(normalizeTextbookChapterNo('第 4 章'), '4');
+assert.equal(normalizeTextbookChapterNo('第十一章'), '11');
+assert.equal(normalizeTextbookChapterNo('4.1'), '4.1');
+assert.equal(normalizeTextbookChapterNo('4.4*'), '4.4*');
+assert.equal(normalizeTextbookChapterNo(null), '未分章节');
 
 assert.deepEqual(
   textbookInputFromUpload({
@@ -194,3 +202,36 @@ assert.deepEqual(
   fallbackTextbooks,
 );
 assert.equal(fallbackQueryCount, 2);
+
+assert.deepEqual(
+  await findTextbookChapterLabelIssues({
+    textbook_chapter: {
+      findMany: async () => [
+        {
+          id: 'chapter-1',
+          textbook_id: 'textbook-1',
+          chapter_no: '第四章',
+          title: '第四章',
+          textbook: { title: '选择性必修 第二册' },
+        },
+        {
+          id: 'chapter-2',
+          textbook_id: 'textbook-1',
+          chapter_no: '4.1',
+          title: '4.1',
+          textbook: { title: '选择性必修 第二册' },
+        },
+      ],
+    },
+  }),
+  [
+    {
+      id: 'chapter-1',
+      textbook_id: 'textbook-1',
+      textbook_title: '选择性必修 第二册',
+      chapter_no: '第四章',
+      normalized_chapter_no: '4',
+      title: '第四章',
+    },
+  ],
+);

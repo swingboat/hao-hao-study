@@ -1,4 +1,5 @@
 import {
+  assertTextbookChapterLabelsCanonical,
   backfillPublishedTextbookScopes,
   prisma,
   upsertDefaultMathSeniorTextbookScope,
@@ -7,6 +8,7 @@ import {
 async function main(): Promise<void> {
   const fallback = await upsertDefaultMathSeniorTextbookScope(prisma);
   const published = await backfillPublishedTextbookScopes(prisma);
+  await assertTextbookChapterLabelsCanonical(prisma);
   console.info(
     JSON.stringify(
       {

@@ -24,6 +24,7 @@
 import { type Prisma, PrismaClient } from '@prisma/client';
 
 import {
+  assertTextbookChapterLabelsCanonical,
   backfillPublishedTextbookScopes,
   upsertDefaultMathSeniorTextbookScope,
 } from '../src/textbook-scope.ts';
@@ -342,6 +343,7 @@ async function seedDefaultTextbookScope() {
 
 async function seedPublishedTextbookScopes() {
   const result = await backfillPublishedTextbookScopes(prisma);
+  await assertTextbookChapterLabelsCanonical(prisma);
   console.info(
     `🌱 textbook backfilled: ${result.textbookCount} parsed uploads (${result.chapterCount} chapters, ${result.mappingCount} KP mappings)`,
   );
