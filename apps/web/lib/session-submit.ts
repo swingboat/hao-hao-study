@@ -7,6 +7,7 @@ import {
   isAnswerCorrect,
   withUnlockedPrimaryKpFilter,
 } from './learning-rules';
+import { nextMistakeReviewState } from './mistake-redo';
 import type { CurrentStudent } from './student-data';
 
 export async function submitSessionAnswers(
@@ -178,11 +179,16 @@ export async function submitSessionAnswers(
           },
           select: {
             status: true,
+            error_count: true,
             consecutive_correct_count: true,
           },
         });
         if (mistake?.status === 'open') {
-          const consecutiveCorrectCount = mistake.consecutive_correct_count + 1;
+          const nextState = nextMistakeReviewState({
+            errorCount: mistake.error_count,
+            consecutiveCorrectCount: mistake.consecutive_correct_count,
+            isCorrect: true,
+          });
           await tx.mistake_book_entry.update({
             where: {
               student_id_question_id: {
@@ -191,9 +197,9 @@ export async function submitSessionAnswers(
               },
             },
             data: {
-              consecutive_correct_count: consecutiveCorrectCount,
-              status: consecutiveCorrectCount >= 2 ? 'resolved' : 'open',
-              resolved_at: consecutiveCorrectCount >= 2 ? now : null,
+              consecutive_correct_count: nextState.consecutiveCorrectCount,
+              status: nextState.status,
+              resolved_at: nextState.resolvedNow ? now : null,
             },
           });
         }

@@ -17,6 +17,7 @@ import {
   questionContentPartsToPlainText,
 } from './question-content';
 import { type SessionHistorySummary, summarizeSessionHistory } from './session-history';
+import { buildResolvedMistakeFeedback } from './session-result-feedback';
 
 export interface CurrentStudent {
   id: string;
@@ -76,10 +77,14 @@ export interface SessionResultData {
   ended_at: Date | null;
   attempts: Array<{
     id: string;
+    question_id: string;
     student_answer: string;
     is_correct: boolean;
+    mistakeResolved: boolean;
     question: SessionQuestionView;
   }>;
+  resolvedMistakeCount: number;
+  resolvedMistakeHeadline: string | null;
 }
 
 export interface SessionHistoryData {
@@ -227,10 +232,38 @@ export async function getSessionResultData(
     session.question_attempts.map((attempt) => attempt.question_id),
   );
   const questionById = new Map(questions.map((question) => [question.id, question]));
+  const endedAt = session.ended_at ?? new Date();
+  const resolvedMistakes = await prisma.mistake_book_entry.findMany({
+    where: {
+      student_id: student.id,
+      question_id: { in: session.question_attempts.map((attempt) => attempt.question_id) },
+      status: 'resolved',
+      resolved_at: {
+        gte: session.started_at,
+        lte: endedAt,
+      },
+    },
+    select: {
+      question_id: true,
+    },
+  });
+  const feedback = buildResolvedMistakeFeedback({
+    attempts: session.question_attempts.map((attempt) => ({
+      questionId: attempt.question_id,
+      isCorrect: attempt.is_correct,
+    })),
+    resolvedQuestionIds: resolvedMistakes.map((mistake) => mistake.question_id),
+  });
   const attempts = session.question_attempts.flatMap((attempt) => {
     const question = questionById.get(attempt.question_id);
     if (!question) return [];
-    return [{ ...attempt, question }];
+    return [
+      {
+        ...attempt,
+        mistakeResolved: feedback.resolvedQuestionIds.has(attempt.question_id),
+        question,
+      },
+    ];
   });
 
   return {
@@ -238,6 +271,8 @@ export async function getSessionResultData(
     started_at: session.started_at,
     ended_at: session.ended_at,
     attempts,
+    resolvedMistakeCount: feedback.resolvedCount,
+    resolvedMistakeHeadline: feedback.headline,
   };
 }
 
@@ -265,7 +300,7 @@ export async function getSessionHistoryData(student: CurrentStudent): Promise<Se
   };
 }
 
-async function getQuestionsForStudent(
+export async function getQuestionsForStudent(
   student: CurrentStudent,
   questionIds: readonly string[],
 ): Promise<SessionQuestionView[]> {

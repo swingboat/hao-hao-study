@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev --port 3000",
-    "build": "next build",
-    "start": "next start --port 3000",
+    "dev": "if [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi; STORAGE_DRIVER=${STORAGE_DRIVER:-fs} STORAGE_FS_ROOT=${STORAGE_FS_ROOT:-/Users/huyin/www/hao-hao-study} STORAGE_PUBLIC_BASE_URL=${STORAGE_PUBLIC_BASE_URL:-http://localhost:3000} next dev --port 3000",
+    "build": "if [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi; STORAGE_DRIVER=${STORAGE_DRIVER:-fs} STORAGE_FS_ROOT=${STORAGE_FS_ROOT:-/Users/huyin/www/hao-hao-study} STORAGE_PUBLIC_BASE_URL=${STORAGE_PUBLIC_BASE_URL:-http://localhost:3000} next build",
+    "start": "if [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi; STORAGE_DRIVER=${STORAGE_DRIVER:-fs} STORAGE_FS_ROOT=${STORAGE_FS_ROOT:-/Users/huyin/www/hao-hao-study} STORAGE_PUBLIC_BASE_URL=${STORAGE_PUBLIC_BASE_URL:-http://localhost:3000} next start --port 3000",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check ."
+    "lint": "biome check .",
+    "test": "../../packages/db/node_modules/.bin/tsx --test lib/*.test.ts"
   },
   "dependencies": {
     "@hao/db": "workspace:*",

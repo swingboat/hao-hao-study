@@ -43,6 +43,13 @@ export default async function SessionResultPage({ params }: PageProps) {
         </div>
       </section>
 
+      {result.resolvedMistakeHeadline ? (
+        <section className="content-section success-panel">
+          <h2>{result.resolvedMistakeHeadline}</h2>
+          <p>这些题已经从错题复习中移除，后面会继续把时间留给更需要巩固的内容。</p>
+        </section>
+      ) : null}
+
       <div className="result-list">
         {result.attempts.map((attempt, index) => (
           <article
@@ -51,12 +58,15 @@ export default async function SessionResultPage({ params }: PageProps) {
           >
             <div className="result-head">
               <span>第 {index + 1} 题</span>
-              <strong>{attempt.is_correct ? '正确' : '错误'}</strong>
+              <strong>{attempt.is_correct ? '正确' : '还需巩固'}</strong>
             </div>
+            {attempt.mistakeResolved ? (
+              <p className="resolved-mistake-note">这道错题已攻克，已从错题复习中移除。</p>
+            ) : null}
             <QuestionContentBlock parts={attempt.question.contentParts} />
             <dl className="answer-grid">
               <div>
-                <dt>我的答案</dt>
+                <dt>你的答案</dt>
                 <dd>{formatStudentDisplayText(attempt.student_answer || '未作答')}</dd>
               </div>
               <div>
