@@ -46,11 +46,11 @@ export interface PlannerSlotView {
 }
 
 const POOL_LABELS: Record<SlotPool, string> = {
-  spaced_review: '艾宾浩斯复习',
-  mistake_variant: '错题变式',
-  chapter_practice: '教材进度练习',
-  new_knowledge: '新知识练习',
-  feynman_check: '费曼复述检查',
+  spaced_review: '复习回顾',
+  mistake_variant: '错题巩固',
+  chapter_practice: '章节巩固',
+  new_knowledge: '基础巩固',
+  feynman_check: '表达检查',
 };
 
 const PLANNER_QUESTION_TYPES = new Set<string>(['choice', 'fill_in']);
@@ -140,7 +140,7 @@ function mapQuestionType(questionType: QuestionType | string): PlannerQuestionTy
 }
 
 function sourceLabel(slot: LearningSlot): string {
-  if (slot.pool === 'feynman_check') return '复述练习';
+  if (slot.pool === 'feynman_check') return '表达练习';
   return slot.source === 'question_bank' ? '可直接练习' : '练习方向';
 }
 

@@ -48,8 +48,8 @@ test('maps only choice and fill-in questions within the allowed KP boundary', ()
 });
 
 test('renders question bank and AI slots with planner pool labels', () => {
-  assert.equal(poolLabel('spaced_review'), '艾宾浩斯复习');
-  assert.equal(poolLabel('feynman_check'), '费曼复述检查');
+  assert.equal(poolLabel('spaced_review'), '复习回顾');
+  assert.equal(poolLabel('feynman_check'), '表达检查');
   assert.equal(questionTypeLabel('fill_in'), '填空题');
   assert.equal(difficultyLabel(3), '中等');
 
@@ -88,7 +88,7 @@ test('renders question bank and AI slots with planner pool labels', () => {
   assert.equal(bankSlot.question?.content, '函数题');
   assert.equal(bankSlot.question?.questionTypeLabel, '选择题');
   assert.equal(bankSlot.question?.difficultyLabel, '基础');
-  assert.deepEqual(bankSlot.secondaryReasonLabels, ['艾宾浩斯复习']);
+  assert.deepEqual(bankSlot.secondaryReasonLabels, ['复习回顾']);
 
   const feynmanSlot = toPlannerSlotView(
     {
@@ -106,7 +106,7 @@ test('renders question bank and AI slots with planner pool labels', () => {
     new Map([['kp-2', { name: '函数单调性', chapterNo: null }]]),
   );
 
-  assert.equal(feynmanSlot.sourceLabel, '复述练习');
+  assert.equal(feynmanSlot.sourceLabel, '表达练习');
   assert.equal(feynmanSlot.kpTitle, '函数单调性');
   assert.equal(feynmanSlot.aiPlaceholder?.activityType, 'feynman_prompt');
 

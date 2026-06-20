@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { requireCurrentStudent } from '../lib/student-data';
 import { getTodayPlannerDataForStudent } from '../lib/today-planner';
 import { startTodaySessionAction } from './actions';
-import { PlannerSettingsForm } from './planner-settings-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,28 +18,34 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const readyCount = planner.sessionPlan?.questionIds.length ?? 0;
   const canStart = Boolean(planner.sessionPlan);
   const showPreparingNotice = params.notice === 'practice-preparing' || !canStart;
+  const taskSummary = planner.taskSummary;
 
   return (
     <main className="page-shell">
       <section className="top-band">
         <div>
-          <p className="eyebrow">今日练习</p>
-          <h1 className="page-title">{planner.student.name}</h1>
+          <p className="eyebrow">今日一轮复习</p>
+          <h1 className="page-title">今天练这些</h1>
           <p className="muted mt-2">
-            {planner.student.gradeLabel} · {planner.student.targetExam}
+            {planner.student.name} · {planner.student.gradeLabel} · {planner.student.targetExam}
           </p>
         </div>
         <div className="top-actions">
           <Link className="secondary-button" href="/progress">
             学习进度
           </Link>
-          <div className="practice-status" data-ready={canStart}>
-            {canStart ? '今日练习已准备好' : '今日练习正在准备'}
-          </div>
+          <Link className="secondary-button" href="/study/history">
+            练习记录
+          </Link>
+          <Link className="secondary-button" href="/study/mistakes">
+            错题复习
+          </Link>
         </div>
       </section>
 
-      {showPreparingNotice ? <p className="notice">今天的练习还在准备中，稍后再来看看。</p> : null}
+      {showPreparingNotice && taskSummary.positiveEmptyState ? (
+        <p className="notice">{taskSummary.positiveEmptyState}</p>
+      ) : null}
 
       <section className="metric-grid">
         <div className="metric-card">
@@ -49,44 +54,73 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         </div>
         <div className="metric-card">
           <span className="metric-label">预计用时</span>
-          <strong className="metric-text">25 分钟</strong>
+          <strong className="metric-text">{taskSummary.estimatedMinutes} 分钟</strong>
         </div>
         <div className="metric-card">
           <span className="metric-label">完成后</span>
-          <strong className="metric-text">查看解析</strong>
+          <strong className="metric-text">解析和进度变化</strong>
         </div>
       </section>
 
-      <section className="content-section practice-start-section">
-        <div>
-          <h2>开始今日练习</h2>
-          <p>一次完成这组题，提交后会马上看到批改结果和解析。</p>
-        </div>
-        <form action={startTodaySessionAction}>
-          <button
-            type="submit"
-            className="primary-button start-practice-button"
-            disabled={!canStart}
-          >
-            {canStart ? '开始今日练习' : '练习准备中'}
-          </button>
-        </form>
-        <Link className="secondary-button" href="/study/history">
-          查看练习记录
-        </Link>
-      </section>
-
-      <section className="content-section planner-settings-section">
-        <div className="section-heading-row">
-          <div>
-            <h2>练习设置</h2>
-            <p>选择今天各类练习的安排比例。</p>
+      <section className="content-section task-console-section">
+        <div className="task-console-primary">
+          <p className="chapter-label">今天练什么</p>
+          <h2>{taskSummary.knowledgePointSummary}</h2>
+          {taskSummary.chapterLabels.length > 0 ? (
+            <p className="task-console-subtitle">{taskSummary.chapterLabels.join(' · ')}</p>
+          ) : null}
+          <div className="task-console-meta" aria-label="今日复习概览">
+            <span>{canStart ? readyCount : planner.result.targetCount} 题</span>
+            <span>{taskSummary.estimatedMinutes} 分钟</span>
+            <span>完成后看解析和进度变化</span>
           </div>
-          <span className="mode-pill">
-            {planner.plannerPreference.mode === 'auto' ? '自动安排' : '自定义比例'}
-          </span>
+          <form action={startTodaySessionAction}>
+            <button
+              type="submit"
+              className="primary-button start-practice-button"
+              disabled={!canStart}
+            >
+              {canStart ? '开始今日复习' : '今天先保持复习节奏'}
+            </button>
+          </form>
         </div>
-        <PlannerSettingsForm preference={planner.plannerPreference} />
+
+        <aside className="task-console-context" aria-label="今日推荐说明">
+          <div>
+            <p className="chapter-label">为什么练</p>
+            <div className="task-chip-list">
+              {taskSummary.reasons.map((reason) => (
+                <span className="task-chip" key={reason}>
+                  {reason}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="chapter-label">做完看到什么</p>
+            <ul className="task-outcome-list">
+              {taskSummary.afterCompletion.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        </aside>
+      </section>
+
+      <section className="home-action-grid" aria-label="学习入口">
+        <Link className="home-action-card" href="/progress">
+          <strong>学习进度</strong>
+          <span>按章节查看已掌握和需要加强的知识点。</span>
+        </Link>
+        <Link className="home-action-card" href="/study/history">
+          <strong>练习记录</strong>
+          <span>回看最近完成的练习和正确率。</span>
+        </Link>
+        <Link className="home-action-card" href="/study/mistakes">
+          <strong>错题复习</strong>
+          <span>集中处理还没彻底攻克的题。</span>
+        </Link>
       </section>
     </main>
   );

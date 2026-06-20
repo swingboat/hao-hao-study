@@ -22,6 +22,7 @@ import {
   buildPlannerConfig,
   resolvePlannerPreference,
 } from './planner-preferences';
+import { type TodayTaskSummary, buildTodayTaskSummary } from './today-task-summary';
 
 export const PLANNER_TARGET_COUNT = 8;
 export const PLANNER_MINIMUM_COUNT = 3;
@@ -60,6 +61,7 @@ export interface TodayPlannerData {
   sessionPlan: QuestionBankSessionPlan | null;
   result: PlannerResult;
   slots: PlannerSlotView[];
+  taskSummary: TodayTaskSummary;
 }
 
 export async function getNikiTodayPlannerData(): Promise<TodayPlannerData | null> {
@@ -209,6 +211,10 @@ export async function getTodayPlannerDataForStudent(
     knowledgePoints.map((kp) => [kp.id, { name: kp.name, chapterNo: kp.chapter_no }]),
   );
 
+  const slots = result.slots.map((slot, index) =>
+    toPlannerSlotView(slot, detailMap, knowledgePointMap, index),
+  );
+
   return {
     student: {
       id: student.id,
@@ -227,8 +233,12 @@ export async function getTodayPlannerDataForStudent(
     plannerPreference,
     sessionPlan: sessionPlan.isEnoughForSession ? sessionPlan : null,
     result,
-    slots: result.slots.map((slot, index) =>
-      toPlannerSlotView(slot, detailMap, knowledgePointMap, index),
-    ),
+    slots,
+    taskSummary: buildTodayTaskSummary({
+      slots,
+      readyQuestionCount: sessionPlan.plannedQuestionCount,
+      targetQuestionCount: result.targetCount,
+      canStart: sessionPlan.isEnoughForSession,
+    }),
   };
 }
