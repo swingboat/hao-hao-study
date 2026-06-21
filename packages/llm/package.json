@@ -14,7 +14,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@hao/db": "workspace:*"
+    "@hao/db": "workspace:*",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

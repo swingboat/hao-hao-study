@@ -75,6 +75,16 @@ enum ParseTaskKind {
   question /// 题目抽取
   knowledge_point /// 知识点抽取
   goal_template /// Goal Template 抽取（v0.2 才用，schema 先留位）
+  mixed_learning_material /// 混合学习资料抽取：来源 + KP + 题目 + 学习材料
+}
+
+/// LLM staging 候选实体种类。与 ParseTaskKind 拆开，允许一个混合解析任务产出多类审核实体
+enum ParseEntityKind {
+  question /// 题目候选
+  knowledge_point /// 知识点候选
+  goal_template /// Goal Template 候选（v0.2 预留）
+  source_document /// 来源资料候选
+  learning_material /// 学习材料候选
 }
 
 /// LLM 解析任务状态
@@ -90,6 +100,43 @@ enum UploadFileType {
   exam_outline /// 考试大纲（goal_template 用）
   textbook /// 教材 / 章节讲义（knowledge_point 用）
   question_pack /// 题集 / 习题图（question 用）
+  lesson_handout /// 辅导讲义 / PPT
+  workbook /// 辅导教材 / 练习册
+  exam_paper /// 完整试卷
+  answer_book /// 答案解析册
+  mixed_material /// 混合学习资料
+}
+
+/// 结构化资料来源类型
+enum SourceDocumentType {
+  textbook /// 教材
+  lesson_handout /// 辅导讲义 / PPT
+  workbook /// 辅导教材 / 练习册
+  question_pack /// 题集
+  exam_paper /// 完整试卷
+  answer_book /// 答案解析册
+  mixed_material /// 混合资料
+}
+
+/// 来源定位单元类型
+enum SourceUnitKind {
+  page /// 整页
+  slide /// PPT slide
+  question_region /// 题目区域
+  explanation_region /// 解析区域
+  text_block /// 文本块
+}
+
+/// 学习材料类型
+enum LearningMaterialType {
+  concept_explanation /// 概念说明
+  method_card /// 解题方法 / 大招
+  common_mistake /// 易错提醒
+  question_type_summary /// 题型总结
+  exam_trend /// 考情分析
+  textbook_deep_dive /// 教材深挖
+  solution_summary /// 解析方法总结
+  study_advice /// 学习建议
 }
 
 /// 上传记录的处理阶段
@@ -157,6 +204,8 @@ model subject {
   knowledge_point_masteries knowledge_point_mastery[]
   students_primary          student[]                 @relation("student_primary_subject")
   textbooks                 textbook[]
+  source_documents          source_document[]
+  learning_materials        learning_material[]
 
   @@map("subject")
 }
@@ -354,6 +403,7 @@ model question {
   // 反向关系
   question_attempts question_attempt[]
   mistake_entries   mistake_book_entry[]
+  sources           question_source[]
 
   @@index([primary_kp_id])
   @@index([difficulty])
@@ -540,8 +590,8 @@ model audit_log {
 /// bedrock-converse-* 系列 Provider。
 ///
 /// 模型族行为差异由 packages/llm adapter/provider-target.ts 映射到 how-to-use 同步层
-/// llmTarget；业务层调用方仍然只用 analyzeKnowledgePoints/analyzeQuestions，
-/// 看不出 Gemini / Claude / GPT 的协议差别。
+/// llmTarget；业务层调用方仍然只用 analyzeKnowledgePoints/analyzeLearningResource
+/// 这类 @hao/llm adapter 入口，看不出 Gemini / Claude / GPT 的协议差别。
 model llm_provider {
   /// 主键，运营自定义 slug
   id                 String      @id
@@ -617,6 +667,7 @@ model content_upload {
   llm_parse_jobs     llm_parse_job[]
   llm_parse_stagings llm_parse_staging[]
   textbooks          textbook[]
+  source_documents   source_document[]
 
   @@index([uploader_id, created_at])
   @@index([sha256])
@@ -667,38 +718,186 @@ model llm_parse_job {
 }
 
 /// 解析结果待审核中间层（运营端 F3.3–F3.7 / F4.3）
-/// 每抽出一个候选实体（一题 / 一 KP）写一行
+/// 每抽出一个候选实体（一题 / 一 KP / 一个来源 / 一条学习材料）写一行
 model llm_parse_staging {
   /// 主键 UUID
-  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// 触发本条产出的解析任务
-  parse_job_id   String         @db.Uuid
-  parse_job      llm_parse_job  @relation(fields: [parse_job_id], references: [id])
+  parse_job_id   String          @db.Uuid
+  parse_job      llm_parse_job   @relation(fields: [parse_job_id], references: [id])
   /// 冗余 upload_id 便于按上传批次列表
-  upload_id      String         @db.Uuid
-  upload         content_upload @relation(fields: [upload_id], references: [id])
+  upload_id      String          @db.Uuid
+  upload         content_upload  @relation(fields: [upload_id], references: [id])
   /// 实体种类
-  entity_kind    ParseTaskKind
+  entity_kind    ParseEntityKind
   /// LLM 原始抽取字段（只读不改）
   llm_payload    Json
   /// 审核状态
-  review_status  ReviewStatus   @default(pending)
+  review_status  ReviewStatus    @default(pending)
   /// 运营修改后的最终值
   /// pending 时 NULL；edited 时存草稿；accepted 时存最终值
   review_payload Json?
   /// 审核者（管理员 username）
   reviewed_by    String?
   /// 审核时间
-  reviewed_at    DateTime?      @db.Timestamptz()
+  reviewed_at    DateTime?       @db.Timestamptz()
   /// accepted 后指向正式表的 ID（question.id 或 knowledge_point.id）
   /// 多态外键，应用层校验一致性；强约束：accepted ⇒ NOT NULL
-  published_id   String?        @db.Uuid
+  published_id   String?         @db.Uuid
   /// 创建时间
-  created_at     DateTime       @default(now()) @db.Timestamptz()
+  created_at     DateTime        @default(now()) @db.Timestamptz()
 
   @@index([upload_id, review_status])
   @@index([parse_job_id])
   @@map("llm_parse_staging")
+}
+
+/// 结构化资料来源
+/// 用于表达"2026 年高考卷 1 数学"、"高途 2024 秋季第 1 讲"这类可查询来源
+model source_document {
+  /// 主键 UUID
+  id          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// 原始上传文件
+  upload_id   String             @db.Uuid
+  upload      content_upload     @relation(fields: [upload_id], references: [id], onDelete: Cascade)
+  /// 来源资料类型
+  source_type SourceDocumentType
+  /// 展示标题，如"2026 年高考卷 1 数学"
+  title       String
+  /// 所属学科
+  subject_id  String
+  subject     subject            @relation(fields: [subject_id], references: [id])
+  /// 学段，可为空表示未识别
+  stage       Stage?
+  /// 年级，可为空表示未识别
+  grade       Grade?
+  /// 来源机构，如"高途"
+  provider    String?
+  /// 出版社
+  publisher   String?
+  /// 年份，如 2026
+  year        Int?
+  /// 季节，如"秋季"
+  season      String?
+  /// 考试名称，如"高考"
+  exam_name   String?
+  /// 试卷名称，如"新高考 I 卷"
+  paper_name  String?
+  /// 地区，如"全国"或省份
+  region      String?
+  /// 讲次，如"第 1 讲"
+  lesson_no   String?
+  /// 页数
+  page_count  Int?
+  /// 额外来源元数据
+  metadata    Json               @default("{}")
+  /// 创建时间
+  created_at  DateTime           @default(now()) @db.Timestamptz()
+
+  // 反向关系
+  units          source_unit[]
+  question_links question_source[]
+  materials      learning_material[]
+
+  @@index([subject_id, source_type, year])
+  @@index([title])
+  @@map("source_document")
+}
+
+/// 来源定位单元
+/// 用于把题目、学习材料定位回 PDF 页、PPT slide、题号或视觉区域
+model source_unit {
+  /// 主键 UUID
+  id                 String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// 所属来源资料
+  source_document_id String          @db.Uuid
+  source_document    source_document @relation(fields: [source_document_id], references: [id], onDelete: Cascade)
+  /// 定位单元类型
+  unit_kind          SourceUnitKind
+  /// PDF 页码，从 1 开始
+  page_no            Int?
+  /// PPT slide 编号，从 1 开始
+  slide_no           Int?
+  /// 题号，如"第 8 题"
+  question_no        String?
+  /// 视觉区域 bbox，约定为 [x1,y1,x2,y2]
+  bbox               Json?
+  /// 原文片段
+  text_snippet       String?
+  /// derived_asset.asset_key，非外键；derived_asset 是复合主键索引
+  derived_asset_key  String?
+  /// 创建时间
+  created_at         DateTime        @default(now()) @db.Timestamptz()
+
+  // 反向关系
+  learning_materials learning_material[]
+  question_links     question_source[]
+
+  @@index([source_document_id, page_no])
+  @@index([source_document_id, question_no])
+  @@map("source_unit")
+}
+
+/// 学习材料
+/// 承接大招、技巧、易错提醒、题型总结、考情分析、教材深挖和解析总结
+model learning_material {
+  /// 主键 UUID
+  id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// 材料类型
+  material_type      LearningMaterialType
+  /// 标题
+  title              String
+  /// 正文
+  content            String
+  /// 面向学生的短摘要
+  student_summary    String?
+  /// 所属学科
+  subject_id         String
+  subject            subject              @relation(fields: [subject_id], references: [id])
+  /// 关联知识点 ID 数组
+  kp_ids             String[]             @db.Uuid
+  /// 主知识点 ID
+  primary_kp_id      String?              @db.Uuid
+  /// 来源资料
+  source_document_id String?              @db.Uuid
+  source_document    source_document?     @relation(fields: [source_document_id], references: [id], onDelete: SetNull)
+  /// 来源定位
+  source_unit_id     String?              @db.Uuid
+  source_unit        source_unit?         @relation(fields: [source_unit_id], references: [id], onDelete: SetNull)
+  /// 解析置信度
+  confidence         Float?
+  /// 创建时间
+  created_at         DateTime             @default(now()) @db.Timestamptz()
+
+  @@index([subject_id, material_type])
+  @@index([primary_kp_id])
+  @@map("learning_material")
+}
+
+/// 题目来源关系
+/// 把正式题库题目关联到结构化来源，如"2026 年高考卷 1 数学 第 8 题"
+model question_source {
+  /// 题目外键（复合主键 part 1）
+  question_id        String          @db.Uuid
+  question           question        @relation(fields: [question_id], references: [id], onDelete: Cascade)
+  /// 来源资料外键（复合主键 part 2）
+  source_document_id String          @db.Uuid
+  source_document    source_document @relation(fields: [source_document_id], references: [id], onDelete: Cascade)
+  /// 来源定位
+  source_unit_id     String?         @db.Uuid
+  source_unit        source_unit?    @relation(fields: [source_unit_id], references: [id], onDelete: SetNull)
+  /// 题号冗余，便于查询
+  question_no        String?
+  /// 页码冗余，便于查询
+  page_no            Int?
+  /// 来源关系角色，如 origin / solution_source
+  role               String          @default("origin")
+  /// 创建时间
+  created_at         DateTime        @default(now()) @db.Timestamptz()
+
+  @@id([question_id, source_document_id, role])
+  @@index([source_document_id, question_no])
+  @@map("question_source")
 }
 
 /// 派生资产索引（docs/File_Storage_v0.1.md §4.2）

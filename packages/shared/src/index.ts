@@ -11,5 +11,6 @@
  */
 export * from './labels';
 export * from './question-planner';
+export * from './schemas';
 
 export const SHARED_VERSION = '0.1.0';

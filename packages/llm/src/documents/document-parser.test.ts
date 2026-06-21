@@ -1,6 +1,10 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
-import { parseDocumentPages } from '../index.ts';
+import { parseDocumentPages, parsePdfPages } from '../index.ts';
 
 const targetConfig = {
   base_url: 'https://proxy.example.test',
@@ -22,6 +26,7 @@ const target = {
 const page = { pageNumber: 1, mimeType: 'image/png', data: 'page-image' };
 
 type DocumentResult = {
+  payload_log_path?: string;
   pages: Array<{
     text?: string;
     http_status?: number | null;
@@ -226,5 +231,72 @@ describe('parseDocumentPages retry backoff', () => {
     expect(calls).toBe(1);
     expect(sleeps).toEqual([]);
     expect(result.pages?.[0]?.http_status).toBe(400);
+  });
+
+  it('passes through payload log path for downstream diagnostics', async () => {
+    const result = (await parseDocumentPages({
+      targetConfig,
+      target,
+      documentType: 'mixed_learning_material',
+      pages: [page],
+      synthesize: false,
+      payloadLogPath: '/tmp/mixed-payload.ndjson',
+      callLlmImpl: async () => ({
+        ok: true,
+        llm_target_id: target.id,
+        target_id: target.id,
+        provider: target.provider,
+        model: target.model,
+        api_shape: target.api_shape,
+        http_status: 200,
+        headers: {},
+        latency_ms: 1,
+        usage: null,
+        text: 'ok',
+        raw: {},
+      }),
+    })) as DocumentResult;
+
+    expect(result.payload_log_path).toBe('/tmp/mixed-payload.ndjson');
+  });
+
+  it('accepts PDF file paths for page rendering', async () => {
+    const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'hao-pdf-path-'));
+    try {
+      const pdfPath = path.join(tmpDir, 'lesson.pdf');
+      await writeFile(pdfPath, 'fake-pdf');
+
+      const result = (await parsePdfPages({
+        targetConfig,
+        target,
+        pdf: {
+          name: 'lesson.pdf',
+          path: pdfPath,
+        },
+        synthesize: false,
+        renderPdfToPageImagesImpl: async (input: { path: string }) => {
+          expect(input.path).toBe(pdfPath);
+          return [page];
+        },
+        callLlmImpl: async () => ({
+          ok: true,
+          llm_target_id: target.id,
+          target_id: target.id,
+          provider: target.provider,
+          model: target.model,
+          api_shape: target.api_shape,
+          http_status: 200,
+          headers: {},
+          latency_ms: 1,
+          usage: null,
+          text: 'ok',
+          raw: {},
+        }),
+      })) as DocumentResult;
+
+      expect(result.pages?.[0]?.text).toBe('ok');
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true });
+    }
   });
 });

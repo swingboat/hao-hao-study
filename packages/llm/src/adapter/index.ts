@@ -1,9 +1,15 @@
 import {
   analyzeKnowledgePoints as analyzeKnowledgePointsCommon,
+  analyzeLearningResource as analyzeLearningResourceCommon,
+  analyzeMixedLearningMaterial as analyzeMixedLearningMaterialCommon,
   analyzeQuestions as analyzeQuestionsCommon,
 } from '../business/education-analysis.ts';
 import type {
   KnowledgePointsAnalysisResult,
+  LearningResourceAnalysisBatch,
+  LlmConfig,
+  LlmTarget,
+  MixedLearningMaterialBatch,
   QuestionAnalysisResult,
   SourceFile,
 } from '../types/public-types.ts';
@@ -14,6 +20,10 @@ export {
   formatExamText,
   formatQuestionText,
 } from '../display/display-text-format.ts';
+export {
+  learningResourceAnalysisBatchSchema,
+  mixedLearningMaterialBatchSchema,
+} from '../business/mixed-learning-material-parser.ts';
 
 interface AdapterCommonOptions {
   concurrency?: number;
@@ -28,6 +38,13 @@ interface AdapterCommonOptions {
   payloadLogPath?: string;
   payloadLogLimit?: number;
   renderDpi?: number;
+  apiKey?: string;
+  llmConfig?: LlmConfig;
+  llmTarget?: LlmTarget;
+  llmTargetId?: string;
+  targetConfig?: LlmConfig;
+  target?: LlmTarget;
+  targetId?: string;
   [key: string]: unknown;
 }
 
@@ -78,7 +95,31 @@ export interface AnalyzeQuestionsOptions extends AdapterCommonOptions {
   maxKnowledgeContextItems?: number;
 }
 export type KnowledgePointAnalysisParserResult = KnowledgePointsAnalysisResult;
+export type LearningResourceAnalysisParserResult = LearningResourceAnalysisBatch;
+export type MixedLearningMaterialAnalysisParserResult = MixedLearningMaterialBatch;
 export type QuestionAnalysisParserResult = QuestionAnalysisResult;
+
+export interface AnalyzeLearningResourceOptions extends AdapterCommonOptions {
+  providerId?: string;
+  file?: EducationAnalysisFile;
+  pdf?: EducationAnalysisFile;
+  word?: EducationAnalysisFile;
+  image?: EducationAnalysisFile;
+  subjectName?: string;
+  knowledge?: unknown;
+  maxKnowledgeContextItems?: number;
+}
+
+export interface AnalyzeMixedLearningMaterialOptions extends AdapterCommonOptions {
+  providerId?: string;
+  file?: EducationAnalysisFile;
+  pdf?: EducationAnalysisFile;
+  word?: EducationAnalysisFile;
+  image?: EducationAnalysisFile;
+  subjectName?: string;
+  knowledge?: unknown;
+  maxKnowledgeContextItems?: number;
+}
 
 export async function analyzeKnowledgePoints(
   opts: AnalyzeKnowledgePointsOptions,
@@ -104,6 +145,38 @@ export async function analyzeQuestions(
   });
 }
 
+export async function analyzeLearningResource(
+  opts: AnalyzeLearningResourceOptions,
+): Promise<LearningResourceAnalysisBatch> {
+  const { providerId, ...commonOptions } = opts;
+  if (!providerId) {
+    return callCommonLearningResourceAnalysis(commonOptions);
+  }
+
+  const provider = await resolveProviderTarget(providerId);
+  return callCommonLearningResourceAnalysis({
+    ...withProviderDefaults(commonOptions, provider.defaults),
+    llmTarget: provider.llmTarget,
+    apiKey: provider.apiKey,
+  });
+}
+
+export async function analyzeMixedLearningMaterial(
+  opts: AnalyzeMixedLearningMaterialOptions,
+): Promise<MixedLearningMaterialBatch> {
+  const { providerId, ...commonOptions } = opts;
+  if (!providerId) {
+    return callCommonMixedLearningMaterialAnalysis(commonOptions);
+  }
+
+  const provider = await resolveProviderTarget(providerId);
+  return callCommonMixedLearningMaterialAnalysis({
+    ...withProviderDefaults(commonOptions, provider.defaults),
+    llmTarget: provider.llmTarget,
+    apiKey: provider.apiKey,
+  });
+}
+
 const callCommonKnowledgeAnalysis = analyzeKnowledgePointsCommon as unknown as (
   opts: Record<string, unknown>,
 ) => Promise<KnowledgePointsAnalysisResult>;
@@ -111,6 +184,14 @@ const callCommonKnowledgeAnalysis = analyzeKnowledgePointsCommon as unknown as (
 const callCommonQuestionAnalysis = analyzeQuestionsCommon as unknown as (
   opts: Record<string, unknown>,
 ) => Promise<QuestionAnalysisResult>;
+
+const callCommonLearningResourceAnalysis = analyzeLearningResourceCommon as unknown as (
+  opts: Record<string, unknown>,
+) => Promise<LearningResourceAnalysisBatch>;
+
+const callCommonMixedLearningMaterialAnalysis = analyzeMixedLearningMaterialCommon as unknown as (
+  opts: Record<string, unknown>,
+) => Promise<MixedLearningMaterialBatch>;
 
 function withProviderDefaults<T extends Record<string, unknown>>(
   options: T,

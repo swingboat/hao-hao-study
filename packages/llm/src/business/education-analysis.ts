@@ -2,6 +2,15 @@
 import { findLlmTargetByIdOrAlias } from '../llm/target-ids.ts';
 import { parsePdfKnowledgePoints } from './knowledge-parser.ts';
 import {
+  buildMixedLearningMaterialFinalPrompt,
+  buildMixedLearningMaterialKnowledgeContext,
+  buildMixedLearningMaterialPagePrompt,
+  learningResourceAnalysisBatchSchema,
+  parseImageMixedLearningMaterial,
+  parsePdfMixedLearningMaterial,
+  parseWordMixedLearningMaterial,
+} from './mixed-learning-material-parser.ts';
+import {
   buildQuestionFinalPrompt,
   buildQuestionPagePrompt,
   parsePdfQuestions,
@@ -119,6 +128,108 @@ export async function analyzeQuestions({
   });
 }
 
+export async function analyzeLearningResource(options = {}) {
+  const mixedResult = await analyzeMixedLearningMaterial(options);
+  const knowledgeSource = normalizeKnowledgeSource(options.knowledge);
+  return buildLearningResourceAnalysisResult({
+    result: mixedResult,
+    knowledgeSource,
+    payloadLogPath: options.payloadLogPath,
+  });
+}
+
+export async function analyzeMixedLearningMaterial({
+  file,
+  pdf,
+  word,
+  image,
+  subjectName = '',
+  knowledge,
+  llmConfig,
+  llmTarget,
+  llmTargetId,
+  targetConfig = {},
+  target,
+  targetId,
+  pagePrompt,
+  finalPrompt,
+  parsePdfMixedLearningMaterialImpl = parsePdfMixedLearningMaterial,
+  parseWordMixedLearningMaterialImpl = parseWordMixedLearningMaterial,
+  parseImageMixedLearningMaterialImpl = parseImageMixedLearningMaterial,
+  maxKnowledgeContextItems = 180,
+  ...parserOptions
+} = {}) {
+  const resolvedLlmConfig = resolveLlmConfig({ llmConfig, targetConfig });
+  const resolvedLlmTarget = resolveLlmTarget({
+    llmConfig: resolvedLlmConfig,
+    llmTarget: llmTarget ?? target,
+    llmTargetId: llmTargetId ?? targetId,
+  });
+  const sourceFile = normalizeAnalysisFile({
+    file,
+    pdf,
+    word,
+    image,
+    defaultType: pdf ? 'pdf' : word ? 'word' : image ? 'image' : 'pdf',
+    allowedTypes: ['pdf', 'word', 'image'],
+  });
+  const knowledgeSource = normalizeKnowledgeSource(knowledge);
+  const knowledgeContext = buildMixedLearningMaterialKnowledgeContext({
+    points: knowledgeSource.points,
+    maxItems: maxKnowledgeContextItems,
+  });
+  const resolvedPagePrompt = (args) =>
+    appendKnowledgeContext(
+      resolvePrompt(
+        pagePrompt ??
+          ((input) =>
+            buildMixedLearningMaterialPagePrompt({
+              ...input,
+              subjectName,
+            })),
+        args,
+      ),
+      knowledgeContext,
+    );
+  const resolvedFinalPrompt = (args) =>
+    appendKnowledgeContext(
+      resolvePrompt(
+        finalPrompt ??
+          ((input) =>
+            buildMixedLearningMaterialFinalPrompt({
+              ...input,
+              subjectName,
+            })),
+        args,
+      ),
+      knowledgeContext,
+    );
+  const request = omitUndefined({
+    ...parserOptions,
+    llmConfig: resolvedLlmConfig,
+    llmTarget: resolvedLlmTarget,
+    targetConfig: resolvedLlmConfig,
+    target: resolvedLlmTarget,
+    subjectName,
+    [sourceFile.type]: fileToParserDocument(sourceFile),
+    pagePrompt: resolvedPagePrompt,
+    finalPrompt: resolvedFinalPrompt,
+  });
+  const parserResult =
+    sourceFile.type === 'word'
+      ? await parseWordMixedLearningMaterialImpl(request)
+      : sourceFile.type === 'image'
+        ? await parseImageMixedLearningMaterialImpl(request)
+        : await parsePdfMixedLearningMaterialImpl(request);
+
+  return buildMixedLearningMaterialAnalysisResult({
+    result: parserResult,
+    file: sourceFile,
+    target: resolvedLlmTarget,
+    knowledgeSource,
+  });
+}
+
 function resolveLlmConfig({ llmConfig, targetConfig }) {
   return llmConfig ?? targetConfig ?? {};
 }
@@ -134,11 +245,22 @@ function resolveLlmTarget({ llmConfig, llmTarget, llmTargetId }) {
   throw new Error('llmTarget or llmTargetId is required');
 }
 
-function normalizeAnalysisFile({ file, pdf, word, defaultType, allowedTypes }) {
+function normalizeAnalysisFile({ file, pdf, word, image, defaultType, allowedTypes }) {
   const input =
-    file ?? (pdf ? { ...pdf, type: 'pdf' } : null) ?? (word ? { ...word, type: 'word' } : null);
+    file ??
+    (pdf ? { ...pdf, type: 'pdf' } : null) ??
+    (word ? { ...word, type: 'word' } : null) ??
+    (image ? { ...image, type: 'image' } : null);
   if (!input || typeof input !== 'object') throw new Error('file is required');
-  const type = normalizeFileType(input.type ?? defaultType);
+  const type = normalizeFileType(
+    input.type ??
+      input.mimeType ??
+      input.mime_type ??
+      input.name ??
+      input.filename ??
+      input.path ??
+      defaultType,
+  );
   if (!allowedTypes.includes(type)) {
     throw new Error(`Unsupported file type: ${type}`);
   }
@@ -158,8 +280,15 @@ function normalizeAnalysisFile({ file, pdf, word, defaultType, allowedTypes }) {
 function normalizeFileType(value) {
   const type = String(value ?? '').toLowerCase();
   if (type.includes('pdf')) return 'pdf';
-  if (type.includes('word') || type.includes('docx')) return 'word';
-  if (type.includes('image') || ['png', 'jpg', 'jpeg', 'webp'].includes(type)) return 'image';
+  if (type.includes('word') || type.includes('docx') || type.includes('wordprocessingml'))
+    return 'word';
+  if (
+    type.includes('image') ||
+    ['png', 'jpg', 'jpeg', 'webp'].includes(type) ||
+    /\.(png|jpe?g|webp)(?:$|[?#])/.test(type)
+  ) {
+    return 'image';
+  }
   return type || 'pdf';
 }
 
@@ -294,6 +423,516 @@ function buildQuestionAnalysisResult({ result, file, target, knowledgeSource }) 
     latency_ms: result.latency_ms,
     pages,
   });
+}
+
+function buildMixedLearningMaterialAnalysisResult({ result, file, target, knowledgeSource }) {
+  const pages = result.pages ?? [];
+  const llm = llmInfo({ result, target });
+  return omitUndefined({
+    source_document: result.source_document,
+    source_units: result.source_units ?? [],
+    knowledge_points: result.knowledge_points ?? [],
+    learning_materials: result.learning_materials ?? [],
+    questions: result.questions ?? [],
+    knowledge_source: {
+      count: knowledgeSource.points.length,
+      source_type: knowledgeSource.sourceType,
+    },
+    llm,
+    diagnostics: {
+      parse_error: result.parse_error ?? null,
+      validation_error: result.validation_error ?? null,
+      page_results: pages.map(sanitizePageResult),
+      payload_log_path: result.payload_log_path,
+      fallback_used: result.fallback_used,
+      schema_version: result.mixed_material_schema_version,
+    },
+
+    document_type: result.document_type ?? file.type,
+    llm_target_id: llm.llm_target_id,
+    target_id: llm.target_id,
+    provider: llm.provider,
+    model: llm.model,
+    api_shape: llm.api_shape,
+    ok: result.ok,
+    parse_error: result.parse_error,
+    validation_error: result.validation_error,
+    usage: result.usage,
+    latency_ms: result.latency_ms,
+    pages,
+    images: normalizeImageRefs(result.images),
+    payload_log_path: result.payload_log_path,
+    raw_mixed_material: result.raw_mixed_material,
+    fallback_used: result.fallback_used,
+    mixed_material_schema_version: result.mixed_material_schema_version,
+  });
+}
+
+const LEARNING_MATERIAL_THREAD_KEYS = {
+  method_card: 'method_cards',
+  common_mistake: 'common_mistakes',
+  question_type_summary: 'question_type_summaries',
+  exam_trend: 'exam_trends',
+  textbook_deep_dive: 'textbook_deep_dives',
+  solution_summary: 'solution_summaries',
+  concept_explanation: 'concept_explanations',
+  study_advice: 'study_advice',
+};
+
+function buildLearningResourceAnalysisResult({ result, knowledgeSource, payloadLogPath }) {
+  const { knowledgeThreads, unmappedItems, filteredItemsSummary } = organizeMixedResultByKnowledge({
+    result,
+    knowledgeSource,
+  });
+  const resolvedPayloadLogPath = String(
+    result.diagnostics?.payload_log_path ?? result.payload_log_path ?? payloadLogPath ?? '',
+  );
+  const diagnostics = {
+    fallback_used: result.diagnostics?.fallback_used ?? result.fallback_used ?? null,
+    parse_error: result.diagnostics?.parse_error ?? result.parse_error ?? null,
+    validation_error: result.diagnostics?.validation_error ?? result.validation_error ?? null,
+    payload_log_path: resolvedPayloadLogPath,
+  };
+  const batch = omitUndefined({
+    kind: 'learning_resource',
+    source_document: result.source_document,
+    knowledge_threads: knowledgeThreads,
+    unmapped_items: unmappedItems,
+    filtered_items_summary: filteredItemsSummary,
+    diagnostics,
+
+    knowledge_source: result.knowledge_source ?? {
+      count: knowledgeSource.points.length,
+      source_type: knowledgeSource.sourceType,
+    },
+    llm: result.llm,
+    document_type: 'learning_resource',
+    llm_target_id: result.llm_target_id,
+    target_id: result.target_id,
+    provider: result.provider,
+    model: result.model,
+    api_shape: result.api_shape,
+    ok: result.ok,
+    usage: result.usage,
+    latency_ms: result.latency_ms,
+    pages: result.pages,
+    images: result.images,
+    payload_log_path: result.payload_log_path ?? resolvedPayloadLogPath,
+    fallback_used: diagnostics.fallback_used,
+  });
+  const validation = learningResourceAnalysisBatchSchema.safeParse(batch);
+  if (!validation.success && diagnostics.validation_error == null) {
+    return {
+      ...batch,
+      diagnostics: {
+        ...diagnostics,
+        validation_error: validation.error.issues,
+      },
+    };
+  }
+  return batch;
+}
+
+function organizeMixedResultByKnowledge({ result, knowledgeSource }) {
+  const externalKnowledgePoints = knowledgeSource.points ?? [];
+  const hasExternalKnowledge = externalKnowledgePoints.length > 0;
+  const candidates = hasExternalKnowledge
+    ? externalKnowledgePoints.map((point, index) => knowledgeCandidateFromInput(point, index))
+    : buildGeneratedKnowledgeCandidates(result);
+  const threadsById = new Map();
+  const unmappedItems = [];
+  const filtered = createFilteredItemsCollector();
+
+  for (const unit of result.source_units ?? []) {
+    const categories = classifyNonLearningText(unit.text_snippet);
+    if (categories.length) {
+      filtered.add(categories);
+    }
+  }
+
+  for (const material of result.learning_materials ?? []) {
+    const categories = classifyNonLearningText(
+      [material.title, material.content, material.student_summary].join('\n'),
+    );
+    if (categories.length) {
+      filtered.add(categories);
+      continue;
+    }
+    const match = matchLearningItemToKnowledge({
+      item: material,
+      candidates,
+      hasExternalKnowledge,
+      fallbackHints: material.kp_hints ?? [],
+    });
+    if (!match) {
+      unmappedItems.push(unmappedLearningMaterial(material, 'no_matching_knowledge_point'));
+      continue;
+    }
+    const thread = ensureKnowledgeThread(threadsById, match);
+    const key = LEARNING_MATERIAL_THREAD_KEYS[material.material_type] ?? 'concept_explanations';
+    thread[key].push(materialToThreadItem(material));
+    addThreadSourceRef(thread, material.source_ref);
+  }
+
+  for (const question of result.questions ?? []) {
+    const normalizedQuestion = normalizeLearningResourceQuestion(question);
+    const categories = classifyNonLearningText(normalizedQuestion.content);
+    if (categories.length) {
+      filtered.add(categories);
+      continue;
+    }
+    const match = matchLearningItemToKnowledge({
+      item: normalizedQuestion,
+      candidates,
+      hasExternalKnowledge,
+      fallbackHints: normalizedQuestion.kp_hints ?? [],
+    });
+    if (!match) {
+      unmappedItems.push(unmappedQuestion(normalizedQuestion, 'no_matching_knowledge_point'));
+      continue;
+    }
+    const thread = ensureKnowledgeThread(threadsById, match);
+    thread.questions.push(normalizedQuestion);
+    addThreadSourceRef(thread, normalizedQuestion.source_ref);
+  }
+
+  for (const thread of threadsById.values()) {
+    thread.source_refs = dedupeSourceRefs(thread.source_refs);
+  }
+
+  return {
+    knowledgeThreads: Array.from(threadsById.values()),
+    unmappedItems,
+    filteredItemsSummary: filtered.summary(),
+  };
+}
+
+function buildGeneratedKnowledgeCandidates(result) {
+  const byName = new Map();
+  const add = (point) => {
+    if (!point?.name) return;
+    const key = normalizeKnowledgeText(point.name);
+    if (!key || byName.has(key)) return;
+    byName.set(key, knowledgeCandidateFromMixed(point, byName.size));
+  };
+  for (const point of result.knowledge_points ?? []) add(point);
+  for (const material of result.learning_materials ?? []) {
+    for (const hint of material.kp_hints ?? []) add({ name: hint, brief: '' });
+  }
+  for (const question of result.questions ?? []) {
+    for (const hint of question.kp_hints ?? []) add({ name: hint, brief: '' });
+  }
+  return Array.from(byName.values());
+}
+
+function knowledgeCandidateFromInput(point, index) {
+  return {
+    id: String(point.id ?? `kp-input-${index + 1}`),
+    name: String(point.name ?? ''),
+    chapter_no:
+      point.chapter_number == null && point.chapter_no == null
+        ? null
+        : String(point.chapter_number ?? point.chapter_no),
+    brief: String(point.description ?? point.brief ?? ''),
+    search_text: [
+      point.name,
+      point.chapter_title,
+      point.section_title,
+      point.description,
+      ...(point.formulas ?? []),
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    source: 'knowledge',
+  };
+}
+
+function knowledgeCandidateFromMixed(point, index) {
+  return {
+    id: String(point.id ?? `kp-generated-${index + 1}`),
+    name: String(point.name ?? ''),
+    chapter_no: point.chapter_no == null ? null : String(point.chapter_no),
+    brief: String(point.brief ?? point.description ?? ''),
+    search_text: [point.name, point.chapter_no, point.brief, point.description]
+      .filter(Boolean)
+      .join('\n'),
+    source: 'generated',
+  };
+}
+
+function matchLearningItemToKnowledge({ item, candidates, hasExternalKnowledge, fallbackHints }) {
+  const hints = normalizeStringArray(fallbackHints);
+  const itemText = [
+    item.title,
+    item.content,
+    item.student_summary,
+    item.content,
+    item.solution_text,
+    item.answer,
+    ...(hints ?? []),
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  let best = null;
+  for (const candidate of candidates) {
+    const score = scoreKnowledgeMatch({
+      itemText,
+      hints,
+      candidate,
+    });
+    if (!best || score > best.match_confidence) {
+      best = {
+        ...candidate,
+        match_confidence: score,
+      };
+    }
+  }
+
+  if (best && best.match_confidence >= 0.45) return best;
+  if (!hasExternalKnowledge && hints.length) {
+    const hint = hints[0];
+    return {
+      id: `kp-generated-hint-${stableIdPart(hint)}`,
+      name: hint,
+      chapter_no: null,
+      brief: '',
+      search_text: hint,
+      source: 'generated',
+      match_confidence: 0.7,
+    };
+  }
+  return null;
+}
+
+function scoreKnowledgeMatch({ itemText, hints, candidate }) {
+  const candidateText = candidate.search_text || candidate.name || '';
+  const normalizedCandidateName = normalizeKnowledgeText(candidate.name);
+  const normalizedCandidateText = normalizeKnowledgeText(candidateText);
+  const normalizedItemText = normalizeKnowledgeText(itemText);
+  let score = 0;
+
+  for (const hint of hints) {
+    const normalizedHint = normalizeKnowledgeText(hint);
+    if (!normalizedHint) continue;
+    if (normalizedHint === normalizedCandidateName) score = Math.max(score, 0.98);
+    if (
+      normalizedCandidateText.includes(normalizedHint) ||
+      normalizedHint.includes(normalizedCandidateName)
+    ) {
+      score = Math.max(score, 0.88);
+    }
+  }
+
+  if (normalizedCandidateName && normalizedItemText.includes(normalizedCandidateName)) {
+    score = Math.max(score, 0.82);
+  }
+
+  for (const rule of KNOWLEDGE_MATCH_RULES) {
+    if (rule.item.test(itemText) && rule.knowledge.test(candidateText)) {
+      score = Math.max(score, rule.score);
+    }
+  }
+
+  const overlap = characterOverlapScore(normalizedItemText, normalizedCandidateText);
+  if (overlap >= 0.55) score = Math.max(score, 0.62);
+  else if (overlap >= 0.35) score = Math.max(score, 0.48);
+
+  return Math.max(0, Math.min(1, score));
+}
+
+const KNOWLEDGE_MATCH_RULES = [
+  {
+    item: /互异|回代|含参|参数/,
+    knowledge: /互异|元素.*重复|元素.*不同|含参|参数/,
+    score: 0.86,
+  },
+  {
+    item: /子集|真子集|包含关系|A\s*⊆|\\subset|包含于/,
+    knowledge: /子集|真子集|集合间|基本关系|包含/,
+    score: 0.84,
+  },
+  {
+    item: /交集|并集|补集|集合运算|A\s*[∩∪]|\\cap|\\cup/,
+    knowledge: /交集|并集|补集|集合运算|交并补|运算/,
+    score: 0.84,
+  },
+  {
+    item: /子集个数|真子集个数|2\^n|2\\\^\{?n\}?|非空子集/,
+    knowledge: /子集个数|真子集|子集|集合子集/,
+    score: 0.84,
+  },
+  {
+    item: /空集|∅|分类讨论|分情况/,
+    knowledge: /空集|分类讨论|集合关系/,
+    score: 0.84,
+  },
+];
+
+function ensureKnowledgeThread(threadsById, match) {
+  if (!threadsById.has(match.id)) {
+    threadsById.set(match.id, {
+      knowledge_point: {
+        id: match.id,
+        name: match.name,
+        chapter_no: match.chapter_no ?? null,
+        brief: match.brief ?? '',
+        match_confidence: clamp01(match.match_confidence ?? 0.7),
+      },
+      concept_explanations: [],
+      method_cards: [],
+      common_mistakes: [],
+      question_type_summaries: [],
+      exam_trends: [],
+      textbook_deep_dives: [],
+      solution_summaries: [],
+      study_advice: [],
+      questions: [],
+      source_refs: [],
+    });
+  }
+  const thread = threadsById.get(match.id);
+  thread.knowledge_point.match_confidence = Math.max(
+    thread.knowledge_point.match_confidence,
+    clamp01(match.match_confidence ?? 0.7),
+  );
+  return thread;
+}
+
+function materialToThreadItem(material) {
+  return omitUndefined({
+    title: String(material.title ?? ''),
+    content: String(material.content ?? ''),
+    student_summary: material.student_summary,
+    content_origin:
+      material.content_origin === 'model_summary' ? 'model_summary' : 'source_extract',
+    kp_hints: normalizeStringArray(material.kp_hints),
+    source_ref: material.source_ref,
+    confidence: clamp01(numberOrDefault(material.confidence, 0.7)),
+  });
+}
+
+function normalizeLearningResourceQuestion(question) {
+  const answer = question.answer == null ? '' : String(question.answer);
+  const solutionText = question.solution_text == null ? '' : String(question.solution_text);
+  let qualityStatus = question.quality_status ?? 'publishable';
+  if (!answer.trim()) qualityStatus = 'missing_answer';
+  else if (!solutionText.trim() && qualityStatus === 'publishable')
+    qualityStatus = 'missing_solution';
+  return {
+    ...question,
+    content: String(question.content ?? ''),
+    question_type: question.question_type ?? 'unknown',
+    options: Array.isArray(question.options) ? question.options : [],
+    answer,
+    solution_text: solutionText,
+    difficulty: numberOrDefault(question.difficulty, 0),
+    kp_hints: normalizeStringArray(question.kp_hints),
+    quality_status: qualityStatus,
+    source_ref: question.source_ref,
+  };
+}
+
+function unmappedLearningMaterial(material, reason) {
+  return {
+    item_type: 'learning_material',
+    reason,
+    title: String(material.title ?? ''),
+    content: String(material.content ?? material.student_summary ?? ''),
+    source_ref: material.source_ref,
+    suggested_kp_hints: normalizeStringArray(material.kp_hints),
+  };
+}
+
+function unmappedQuestion(question, reason) {
+  return {
+    item_type: 'question',
+    reason,
+    title: String(question.source_ref?.question_no ?? '未匹配试题'),
+    content: String(question.content ?? ''),
+    source_ref: question.source_ref,
+    suggested_kp_hints: normalizeStringArray(question.kp_hints),
+  };
+}
+
+function addThreadSourceRef(thread, sourceRef) {
+  if (!sourceRef?.page) return;
+  thread.source_refs.push(sourceRef);
+}
+
+function dedupeSourceRefs(sourceRefs) {
+  const byKey = new Map();
+  for (const ref of sourceRefs ?? []) {
+    if (!ref?.page) continue;
+    const key = [ref.page, ref.slide_no ?? '', ref.question_no ?? '', ref.text_snippet ?? ''].join(
+      '|',
+    );
+    if (!byKey.has(key)) byKey.set(key, ref);
+  }
+  return Array.from(byKey.values());
+}
+
+function createFilteredItemsCollector() {
+  let count = 0;
+  const categories = new Set();
+  return {
+    add(values) {
+      const normalized = Array.isArray(values) ? values.filter(Boolean) : [];
+      if (!normalized.length) return;
+      count += 1;
+      for (const value of normalized) categories.add(value);
+    },
+    summary() {
+      return {
+        count,
+        categories: Array.from(categories),
+      };
+    },
+  };
+}
+
+function classifyNonLearningText(value) {
+  const text = String(value ?? '');
+  const categories = new Set();
+  if (/扫码|二维码|QR\s*code|关注.*资料|加群|客服|课程顾问/i.test(text)) categories.add('qr_code');
+  if (/优惠|报名|续班|领取|课程顾问|招生|广告|低至|限时/i.test(text))
+    categories.add('advertisement');
+  if (/老师介绍|教师介绍|主讲老师|授课老师|名师|教龄/.test(text)) categories.add('teacher_intro');
+  if (/版权|©|Copyright|禁止翻印|内部资料/.test(text)) categories.add('copyright');
+  if (/页脚|页码|第\s*\d+\s*页\s*\/\s*\d+/.test(text)) categories.add('page_footer');
+  if (/目录|导航|上一页|下一页|返回首页/.test(text)) categories.add('duplicate_navigation');
+  if (
+    /班主任|公众号|小程序|讲座|福利/.test(text) &&
+    !/集合|函数|数学|物理|化学|语文|英语/.test(text)
+  ) {
+    categories.add('non_subject_content');
+  }
+  return Array.from(categories);
+}
+
+function normalizeKnowledgeText(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[，。、“”‘’；：:,.()[\]{}<>《》【】|_—-]/g, '');
+}
+
+function characterOverlapScore(left, right) {
+  if (!left || !right) return 0;
+  const rightChars = new Set([...right]);
+  const leftChars = [...new Set([...left])];
+  if (!leftChars.length) return 0;
+  const overlap = leftChars.filter((char) => rightChars.has(char)).length;
+  return overlap / Math.max(1, Math.min(leftChars.length, rightChars.size));
+}
+
+function stableIdPart(value) {
+  const normalized = normalizeKnowledgeText(value);
+  let hash = 0;
+  for (const char of normalized) {
+    hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
+  }
+  return Math.abs(hash).toString(36) || 'unknown';
 }
 
 function normalizeBusinessChapters(chapters, pointIds) {
@@ -726,6 +1365,12 @@ function normalizePageArray(value) {
 function numberOrDefault(value, defaultValue) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : defaultValue;
+}
+
+function clamp01(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, Math.min(1, parsed));
 }
 
 function numberOrUndefined(value) {

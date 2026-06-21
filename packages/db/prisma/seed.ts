@@ -15,8 +15,9 @@
  *     knowledge_point staging 回填为真实教材 / 章节 / 教材-KP 映射。
  *
  * 模型族行为差异由 packages/llm 的 adapter/provider-target.ts 映射到 how-to-use
- * 同步层 llmTarget；业务层调用方仍然只用 analyzeKnowledgePoints/analyzeQuestions，
- * 看不到 OpenAI-compatible / Google GenerateContent / Bedrock Converse 的协议差别。
+ * 同步层 llmTarget；业务层调用方仍然只用 analyzeKnowledgePoints/analyzeLearningResource
+ * 这类 @hao/llm adapter 入口，看不到 OpenAI-compatible / Google GenerateContent /
+ * Bedrock Converse 的协议差别。
  *
  * 待补：
  *   - knowledge_point 冷启动包 — 待运营端 F4 真实教材解析后注入

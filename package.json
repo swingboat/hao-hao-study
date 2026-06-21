@@ -21,6 +21,8 @@
     "db:migrate": "pnpm --filter @hao/db migrate",
     "db:seed": "pnpm --filter @hao/db seed",
     "db:check-textbooks": "pnpm --filter @hao/db exec tsx ../../scripts/check-textbook-scope-integrity.ts",
+    "llm:verify-learning-resource": "pnpm --filter @hao/db exec tsx ../../scripts/verify-mixed-learning-material.ts",
+    "llm:verify-mixed-material": "pnpm --filter @hao/db exec tsx ../../scripts/verify-mixed-learning-material.ts",
     "db:studio": "pnpm --filter @hao/db studio",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down"

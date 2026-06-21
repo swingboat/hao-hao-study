@@ -1,7 +1,13 @@
 import {
   analyzeKnowledgePoints as analyzeKnowledgePointsImpl,
+  analyzeLearningResource as analyzeLearningResourceImpl,
+  analyzeMixedLearningMaterial as analyzeMixedLearningMaterialImpl,
   analyzeQuestions as analyzeQuestionsImpl,
 } from './business/education-analysis.ts';
+import {
+  learningResourceAnalysisBatchSchema as learningResourceAnalysisBatchSchemaImpl,
+  mixedLearningMaterialBatchSchema as mixedLearningMaterialBatchSchemaImpl,
+} from './business/mixed-learning-material-parser.ts';
 import {
   buildDisplayTextFormatterBrowserScript as buildDisplayTextFormatterBrowserScriptImpl,
   formatDisplayText as formatDisplayTextImpl,
@@ -35,6 +41,8 @@ import {
 
 import type {
   AnalyzeKnowledgePoints,
+  AnalyzeLearningResource,
+  AnalyzeMixedLearningMaterial,
   AnalyzeQuestions,
   BuildLlmRequest,
   CallLlm,
@@ -49,6 +57,8 @@ import type {
 
 export type {
   AnalyzeKnowledgePointsRequest,
+  AnalyzeLearningResourceRequest,
+  AnalyzeMixedLearningMaterialRequest,
   AnalyzeQuestionsRequest,
   BuiltLlmRequest,
   CommonParserOptions,
@@ -60,6 +70,9 @@ export type {
   KnowledgePoint,
   KnowledgePointsAnalysisResult,
   KnowledgeSection,
+  LearningResourceAnalysisBatch,
+  LearningResourceKnowledgeThread,
+  LearningResourceUnmappedItem,
   LlmConfig,
   LlmAttachment,
   LlmCallRequest,
@@ -67,6 +80,12 @@ export type {
   LlmMessage,
   LlmResult,
   LlmTarget,
+  MixedLearningMaterial,
+  MixedLearningMaterialBatch,
+  MixedLearningMaterialQuestion,
+  MixedLearningMaterialSourceDocument,
+  MixedLearningMaterialSourceRef,
+  MixedLearningMaterialSourceUnit,
   PageImage,
   ParseDocumentPagesRequest,
   ParseImageRequest,
@@ -82,7 +101,13 @@ export type {
 
 export const analyzeKnowledgePoints =
   analyzeKnowledgePointsImpl as unknown as AnalyzeKnowledgePoints;
+export const analyzeLearningResource =
+  analyzeLearningResourceImpl as unknown as AnalyzeLearningResource;
+export const analyzeMixedLearningMaterial =
+  analyzeMixedLearningMaterialImpl as unknown as AnalyzeMixedLearningMaterial;
 export const analyzeQuestions = analyzeQuestionsImpl as unknown as AnalyzeQuestions;
+export const learningResourceAnalysisBatchSchema = learningResourceAnalysisBatchSchemaImpl;
+export const mixedLearningMaterialBatchSchema = mixedLearningMaterialBatchSchemaImpl;
 
 export const parseImage = parseImageImpl as unknown as ParseImage;
 export const parsePdf = parsePdfImpl as unknown as ParsePdf;

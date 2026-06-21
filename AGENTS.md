@@ -12,13 +12,14 @@
    | 关注点 | 必须经过 | 禁止直连 | 实现文档 |
    |---|---|---|---|
    | 写/读文件、生成派生资产 | `@hao/storage` 的 `ObjectStore`（`createStore()` 获取实例，路径走 `StoragePaths`） | `node:fs` 直接读写"业务文件"（上传、派生 PNG、LLM 中间产物、figure 切片） | `docs/File_Storage_v0.1.md` |
-   | 访问 LLM | 只通过 `@hao/llm` adapter 暴露的业务入口（当前为 `analyzeKnowledgePoints` / `analyzeQuestions`）；provider 元数据走 `llm_provider` 表，LLM 解析实现来自 `how-to-use-llm-proxy` 同步层 | `fetch()` 直连 LLM 端点、硬编码 endpoint / model / token；业务里自己拼 prompt / schema / PDF 渲染 / LLM 循环；直接调用同步层 `llm-client` / `document-parser` 等内部原语实现业务解析 | `docs/Tech_Stack_MVP_v0.1.md` §2.3 + `packages/llm/src/adapter/index.ts` |
+   | 访问 LLM | 只通过 `@hao/llm` adapter 暴露的业务入口（当前为 `analyzeKnowledgePoints` / `analyzeLearningResource`，`analyzeQuestions` 仅作兼容/专项能力）；provider 元数据走 `llm_provider` 表，LLM 解析实现来自 `how-to-use-llm-proxy` 同步层 | `fetch()` 直连 LLM 端点、硬编码 endpoint / model / token；业务里自己拼 prompt / schema / PDF 渲染 / LLM 循环；直接调用同步层 `llm-client` / `document-parser` 等内部原语实现业务解析 | `docs/Tech_Stack_MVP_v0.1.md` §2.3 + `packages/llm/src/adapter/index.ts` |
    | KP 解析 | `@hao/llm` 的 `analyzeKnowledgePoints()` | admin / web / 运营端自己维护 KP prompt、schema、chunk、vision pipeline | `packages/llm/src/adapter/index.ts` + `packages/llm/src/business/knowledge-parser.ts` |
-   | 试题解析 | `@hao/llm` 的 `analyzeQuestions()` | admin / web / 运营端自己维护试题 prompt、schema、chunk、vision pipeline | `packages/llm/src/adapter/index.ts` + `packages/llm/src/business/question-parser.ts` |
+   | 学习资料解析 | `@hao/llm` 的 `analyzeLearningResource()` | admin / web / 运营端自己判断资料类型、维护试题/讲义 prompt、schema、chunk、vision pipeline | `packages/llm/src/adapter/index.ts` + `packages/llm/src/business/education-analysis.ts` |
 
    **`@hao/llm` 业务入口速查**（v0.1）：
    - `analyzeKnowledgePoints` — 从教材/资料文件生成知识点。
-   - `analyzeQuestions` — 从 PDF / Word 试题文件生成试题，可接收知识点上下文。
+   - `analyzeLearningResource` — 统一解析辅导资料、讲义、PPT、题集、解析册、完整试卷等学习资料，按知识点主线返回学习材料与试题。
+   - `analyzeQuestions` — 兼容/专项入口，从 PDF / Word 试题文件生成试题，可接收知识点上下文；admin 主流程应优先使用 `analyzeLearningResource`。
    - `packages/llm/src/business|documents|llm|types|display` 为从 `how-to-use-llm-proxy/src` 同步来的代码，保持同名目录和文件；不要在当前仓库直接改这些文件来研发 LLM 能力。
    - `packages/llm/src/adapter` 是当前项目自己的薄适配层，负责 `providerId → llmTarget/apiKey` 和对外导出；业务代码只调 adapter 暴露的包入口。
 

@@ -398,6 +398,7 @@ export async function parseDocumentPages({
       target: resolvedLlmTarget,
       pageResults,
       finalResponse: null,
+      payloadLogPath,
     });
   }
 
@@ -449,6 +450,7 @@ export async function parseDocumentPages({
     target: resolvedLlmTarget,
     pageResults,
     finalResponse,
+    payloadLogPath,
   });
 }
 
@@ -611,7 +613,13 @@ function resultFromSingleResponse({ documentType, response }) {
   };
 }
 
-function resultFromPageResponses({ documentType, target, pageResults, finalResponse }) {
+function resultFromPageResponses({
+  documentType,
+  target,
+  pageResults,
+  finalResponse,
+  payloadLogPath,
+}) {
   const rawResults = [
     ...pageResults.map((page) => page.raw),
     ...(finalResponse ? [finalResponse.raw] : []),
@@ -646,6 +654,7 @@ function resultFromPageResponses({ documentType, target, pageResults, finalRespo
     pages: pageResults,
     images: images.length ? images : undefined,
     raw_results: rawResults,
+    payload_log_path: payloadLogPath,
   });
 }
 
@@ -869,15 +878,16 @@ function normalizePdf(pdf) {
   if (!pdf || typeof pdf !== 'object') {
     throw new Error('pdf is required');
   }
-  if (!pdf.data) {
-    throw new Error('pdf.data must contain base64 PDF data');
+  if (!pdf.data && !pdf.path) {
+    throw new Error('pdf.data or pdf.path must contain PDF data');
   }
-  return {
+  return omitUndefined({
     type: 'document',
     mimeType: 'application/pdf',
     name: pdf.name ?? pdf.filename ?? 'document.pdf',
     data: pdf.data,
-  };
+    path: pdf.path,
+  });
 }
 
 function normalizeWord(word) {

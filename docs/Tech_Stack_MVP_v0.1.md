@@ -49,8 +49,8 @@
 | 层 | 选型 | 用途 |
 |---|---|---|
 | 同步层 | **`packages/llm/src/business|documents|llm|types|display`** | 与 `how-to-use-llm-proxy/src` 同名目录/文件保持一致；承载 prompt、文档渲染、LLM 调用和解析逻辑 |
-| 当前项目适配层 | **`packages/llm/src/adapter`** | `providerId → llmTarget/apiKey`，对外只暴露 `analyzeKnowledgePoints` / `analyzeQuestions` |
-| 教育解析编排 | **`analyzeKnowledgePoints` / `analyzeQuestions`**（packages/llm） | LLM 业务解析能力先在 `how-to-use-llm-proxy` 验证通过，再同步到本包；业务侧不要直接拼 prompt / schema / PDF 渲染 / LLM 循环 |
+| 当前项目适配层 | **`packages/llm/src/adapter`** | `providerId → llmTarget/apiKey`，对外主入口为 `analyzeKnowledgePoints` / `analyzeLearningResource`；`analyzeQuestions` 保留为兼容/专项能力 |
+| 教育解析编排 | **`analyzeKnowledgePoints` / `analyzeLearningResource`**（packages/llm） | LLM 业务解析能力先在 `how-to-use-llm-proxy` 验证通过，再同步到本包；业务侧不要直接拼 prompt / schema / PDF 渲染 / LLM 循环 |
 | Provider 1 | `openai-chat-gemini-3.1-pro` | OpenAI-compatible 协议；文本 KP / Goal Template 解析 |
 | Provider 2 | `google-generate-content-gemini-3-pro-image` | Google GenerateContent 协议；图片 / 题集 vision 解析 |
 | Provider 3 | `openai-chat-claude-opus-4.7` | OpenAI-compatible 协议；纯文本 KP 抽取生产首选（探针 113/113 通过） |
