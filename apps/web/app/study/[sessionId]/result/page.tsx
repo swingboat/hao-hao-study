@@ -50,6 +50,50 @@ export default async function SessionResultPage({ params }: PageProps) {
         </section>
       ) : null}
 
+      {result.relatedKnowledgeGroups.length > 0 ? (
+        <section className="related-knowledge-section" aria-labelledby="related-knowledge-title">
+          <div className="section-heading-row">
+            <div>
+              <h2 id="related-knowledge-title">本次复盘重点</h2>
+              <p>先看和这次练习最相关的知识点，再回到每道题的解析。</p>
+            </div>
+          </div>
+
+          <div className="related-knowledge-list">
+            {result.relatedKnowledgeGroups.map((group) => (
+              <article className="related-knowledge-group" key={group.kpId}>
+                <div className="related-knowledge-group-head">
+                  <div>
+                    <p className="related-knowledge-status">
+                      {group.status === 'needs_work' ? '这部分还需要巩固' : '这部分可以顺手复习'}
+                    </p>
+                    <h3>{group.knowledgePointName}</h3>
+                  </div>
+                  <span>
+                    本次 {group.correctCount} / {group.totalCount}
+                  </span>
+                </div>
+
+                <div className="related-material-list">
+                  {group.materials.map((material) => (
+                    <article className="related-material-item" key={material.id}>
+                      <div className="related-material-head">
+                        <span>{material.label}</span>
+                        <h4>{material.title}</h4>
+                      </div>
+                      {material.studentSummary ? (
+                        <p className="related-material-summary">{material.studentSummary}</p>
+                      ) : null}
+                      <p className="related-material-content">{material.content}</p>
+                    </article>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <div className="result-list">
         {result.attempts.map((attempt, index) => (
           <article

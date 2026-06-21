@@ -18,6 +18,11 @@ import {
 } from './question-content';
 import { type SessionHistorySummary, summarizeSessionHistory } from './session-history';
 import { buildResolvedMistakeFeedback } from './session-result-feedback';
+import {
+  type SessionResultKnowledgeGroup,
+  buildSessionResultKnowledgeGroups,
+  collectSessionKnowledgePointIds,
+} from './session-result-materials';
 
 export interface CurrentStudent {
   id: string;
@@ -62,6 +67,7 @@ export interface SessionQuestionView {
   question_type: QuestionType;
   difficulty: number;
   primary_kp_id: string;
+  kp_ids: string[];
   options: QuestionOptionView[];
 }
 
@@ -85,6 +91,7 @@ export interface SessionResultData {
   }>;
   resolvedMistakeCount: number;
   resolvedMistakeHeadline: string | null;
+  relatedKnowledgeGroups: SessionResultKnowledgeGroup[];
 }
 
 export interface SessionHistoryData {
@@ -232,21 +239,55 @@ export async function getSessionResultData(
     session.question_attempts.map((attempt) => attempt.question_id),
   );
   const questionById = new Map(questions.map((question) => [question.id, question]));
+  const sessionKpIds = collectSessionKnowledgePointIds(questions, student.unlocked_kp_ids);
   const endedAt = session.ended_at ?? new Date();
-  const resolvedMistakes = await prisma.mistake_book_entry.findMany({
-    where: {
-      student_id: student.id,
-      question_id: { in: session.question_attempts.map((attempt) => attempt.question_id) },
-      status: 'resolved',
-      resolved_at: {
-        gte: session.started_at,
-        lte: endedAt,
+  const [resolvedMistakes, knowledgePoints, learningMaterials] = await Promise.all([
+    prisma.mistake_book_entry.findMany({
+      where: {
+        student_id: student.id,
+        question_id: { in: session.question_attempts.map((attempt) => attempt.question_id) },
+        status: 'resolved',
+        resolved_at: {
+          gte: session.started_at,
+          lte: endedAt,
+        },
       },
-    },
-    select: {
-      question_id: true,
-    },
-  });
+      select: {
+        question_id: true,
+      },
+    }),
+    sessionKpIds.length
+      ? prisma.knowledge_point.findMany({
+          where: {
+            id: { in: sessionKpIds },
+            subject_id: student.primary_subject_id,
+          },
+          select: {
+            id: true,
+            name: true,
+          },
+        })
+      : Promise.resolve([]),
+    sessionKpIds.length
+      ? prisma.learning_material.findMany({
+          where: {
+            subject_id: student.primary_subject_id,
+            OR: [{ primary_kp_id: { in: sessionKpIds } }, { kp_ids: { hasSome: sessionKpIds } }],
+          },
+          select: {
+            id: true,
+            material_type: true,
+            title: true,
+            content: true,
+            student_summary: true,
+            primary_kp_id: true,
+            kp_ids: true,
+            created_at: true,
+          },
+          orderBy: [{ created_at: 'desc' }],
+        })
+      : Promise.resolve([]),
+  ]);
   const feedback = buildResolvedMistakeFeedback({
     attempts: session.question_attempts.map((attempt) => ({
       questionId: attempt.question_id,
@@ -265,6 +306,26 @@ export async function getSessionResultData(
       },
     ];
   });
+  const relatedKnowledgeGroups = buildSessionResultKnowledgeGroups({
+    questions: attempts.map((attempt) => ({
+      id: attempt.question.id,
+      isCorrect: attempt.is_correct,
+      primaryKpId: attempt.question.primary_kp_id,
+      kpIds: attempt.question.kp_ids,
+    })),
+    unlockedKpIds: student.unlocked_kp_ids,
+    knowledgePoints,
+    materials: learningMaterials.map((material) => ({
+      id: material.id,
+      materialType: material.material_type,
+      title: material.title,
+      content: material.content,
+      studentSummary: material.student_summary,
+      primaryKpId: material.primary_kp_id,
+      kpIds: material.kp_ids,
+      createdAt: material.created_at,
+    })),
+  });
 
   return {
     id: session.id,
@@ -273,6 +334,7 @@ export async function getSessionResultData(
     attempts,
     resolvedMistakeCount: feedback.resolvedCount,
     resolvedMistakeHeadline: feedback.headline,
+    relatedKnowledgeGroups,
   };
 }
 
@@ -319,6 +381,7 @@ export async function getQuestionsForStudent(
       question_type: true,
       difficulty: true,
       primary_kp_id: true,
+      kp_ids: true,
     },
   });
   const metadataByQuestionId = await getMetadataByQuestionId(questionIds);

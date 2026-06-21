@@ -1429,6 +1429,119 @@ button:disabled {
   margin-top: 18px;
 }
 
+.related-knowledge-section {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.related-knowledge-list {
+  display: grid;
+  gap: 12px;
+}
+
+.related-knowledge-group {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.related-knowledge-group-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.related-knowledge-group-head h3 {
+  margin: 4px 0 0;
+  font-size: 22px;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.related-knowledge-group-head > span {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--brand-strong);
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.related-knowledge-status {
+  margin: 0;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.related-material-list {
+  display: grid;
+}
+
+.related-material-item {
+  display: grid;
+  gap: 8px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.related-material-item:last-child {
+  padding-bottom: 0;
+}
+
+.related-material-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.related-material-head span {
+  flex: 0 0 auto;
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: #eef8f3;
+  color: var(--brand-strong);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.related-material-head h4 {
+  min-width: 0;
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.related-material-summary,
+.related-material-content {
+  margin: 0;
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+.related-material-summary {
+  color: var(--brand-strong);
+  font-weight: 700;
+}
+
+.related-material-content {
+  color: var(--foreground);
+}
+
 .history-list {
   display: grid;
   gap: 12px;
@@ -1597,6 +1710,16 @@ button:disabled {
   }
 
   .mistake-group-summary span {
+    white-space: normal;
+  }
+
+  .related-knowledge-group-head,
+  .related-material-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .related-knowledge-group-head > span {
     white-space: normal;
   }
 
