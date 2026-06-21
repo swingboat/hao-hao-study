@@ -148,7 +148,9 @@ function isAcceptedQuestionFile(file: File): boolean {
   );
 }
 
-function normalizeLearningResourceFileType(value: FormDataEntryValue | null): LearningResourceFileType | null {
+function normalizeLearningResourceFileType(
+  value: FormDataEntryValue | null,
+): LearningResourceFileType | null {
   return LEARNING_RESOURCE_FILE_TYPES.includes(value as LearningResourceFileType)
     ? (value as LearningResourceFileType)
     : null;
