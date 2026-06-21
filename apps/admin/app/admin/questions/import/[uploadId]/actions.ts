@@ -6,7 +6,7 @@
  *     T4：audit_log.target_id == question.id（同一事务，必一致）
  *   - rejectStagingAction：仅 review_status='rejected'
  *   - rerunStagingAction (F3.6 / T7)：选 provider → 新建 llm_parse_job → 同一文件跑一遍
- *     analyzeQuestions → 用 question_no / content 匹配本 staging 行 → 覆盖 llm_payload + 把 parse_job_id 指到新 job
+ *     analyzeLearningResource → 用 question_no / content 匹配本 staging 行 → 覆盖 llm_payload + 把 parse_job_id 指到新 job
  *   - bulkAcceptAllAction / bulkRejectAllAction：dev-only 批量操作（对照 KP 版）
  *   - getJobProgressAction：客户端轮询返回 QuestionProgressSnapshot
  *
@@ -27,9 +27,9 @@ import { buildStoredAnalysisFile } from '../../../../../lib/analysis-file';
 import { SESSION_COOKIE, verifySession } from '../../../../../lib/auth';
 import {
   knowledgeRowsForQuestionContext,
+  learningResourceToStagingPayloads,
   questionContentKey,
   questionNoFromPayload,
-  questionToStagingPayload,
   tokenUsageFromEducationUsage,
   tokenUsageTotal,
 } from '../../../../../lib/education-analysis-adapter';
@@ -40,10 +40,14 @@ import {
 } from '../../../../../lib/llm-providers';
 import {
   createQuestionAnalysisCache,
-  questionParseJobStatus,
   resolveQuestionAnalysisRuntime,
 } from '../../../../../lib/question-analysis-runtime';
 import { createAndPersistQuestionFigureCropAssets } from '../../../../../lib/question-figure-assets';
+import {
+  createQuestionSourceForPayload,
+  ensurePublishedSourceDocumentForUpload,
+  publishLearningMaterialStaging,
+} from '../../../../../lib/learning-resource-publish';
 import {
   QUESTION_PROMPT_VERSION,
   type QuestionProgressSnapshot,
@@ -187,6 +191,17 @@ export async function acceptStagingAction(
       });
       publishedQuestionId = question.id;
 
+      const { sourceDocumentId } = await ensurePublishedSourceDocumentForUpload(tx, {
+        uploadId: staging.upload_id,
+        subjectId: d.subject_id,
+        reviewedBy: session.sub,
+      });
+      await createQuestionSourceForPayload(tx, {
+        questionId: question.id,
+        sourceDocumentId,
+        payload: staging.llm_payload,
+      });
+
       // T4：同事务写 audit_log，target_id 必等于 question.id
       await tx.audit_log.create({
         data: {
@@ -197,6 +212,7 @@ export async function acceptStagingAction(
           payload: {
             staging_id: d.staging_id,
             subject_id: d.subject_id,
+            source_document_id: sourceDocumentId,
             kp_ids: d.kp_ids,
             primary_kp_id: d.primary_kp_id,
             question_type: d.question_type,
@@ -219,6 +235,7 @@ export async function acceptStagingAction(
             kp_ids: d.kp_ids,
             primary_kp_id: d.primary_kp_id,
             subject_id: d.subject_id,
+            source_ref: (staging.llm_payload as { source_ref?: unknown }).source_ref ?? null,
           } as Prisma.InputJsonValue,
           reviewed_by: session.sub,
           reviewed_at: new Date(),
@@ -260,6 +277,93 @@ export async function rejectStagingAction(formData: FormData): Promise<void> {
   revalidatePath('/admin/questions');
 }
 
+export interface LearningResourceEntityActionState {
+  error: string | null;
+  ok?: boolean;
+}
+
+export async function acceptSourceDocumentStagingAction(
+  _prev: LearningResourceEntityActionState,
+  formData: FormData,
+): Promise<LearningResourceEntityActionState> {
+  const session = await requireAdmin();
+  const stagingId = String(formData.get('staging_id') ?? '');
+  const subjectId = String(formData.get('subject_id') ?? '');
+  if (!stagingId || !subjectId) return { error: 'staging_id / subject_id 缺失' };
+
+  const staging = await prisma.llm_parse_staging.findUnique({ where: { id: stagingId } });
+  if (!staging) return { error: 'staging 不存在' };
+  if (staging.entity_kind !== 'source_document') return { error: '该 staging 不是 source_document' };
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const { sourceDocumentId } = await ensurePublishedSourceDocumentForUpload(tx, {
+        uploadId: staging.upload_id,
+        subjectId,
+        reviewedBy: session.sub,
+      });
+      await tx.audit_log.create({
+        data: {
+          actor_id: session.sub,
+          action: 'publish_source_document',
+          target_type: 'source_document',
+          target_id: sourceDocumentId,
+          payload: {
+            staging_id: staging.id,
+            subject_id: subjectId,
+          } as Prisma.InputJsonValue,
+        },
+      });
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { error: msg.slice(0, 200) };
+  }
+
+  const uploadId = String(formData.get('upload_id') ?? staging.upload_id);
+  revalidatePath(`/admin/questions/import/${uploadId}`);
+  return { error: null, ok: true };
+}
+
+export async function acceptLearningMaterialStagingAction(
+  _prev: LearningResourceEntityActionState,
+  formData: FormData,
+): Promise<LearningResourceEntityActionState> {
+  const session = await requireAdmin();
+  const stagingId = String(formData.get('staging_id') ?? '');
+  const subjectId = String(formData.get('subject_id') ?? '');
+  if (!stagingId || !subjectId) return { error: 'staging_id / subject_id 缺失' };
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const materialId = await publishLearningMaterialStaging(tx, {
+        stagingId,
+        subjectId,
+        reviewedBy: session.sub,
+      });
+      await tx.audit_log.create({
+        data: {
+          actor_id: session.sub,
+          action: 'publish_learning_material',
+          target_type: 'learning_material',
+          target_id: materialId,
+          payload: {
+            staging_id: stagingId,
+            subject_id: subjectId,
+          } as Prisma.InputJsonValue,
+        },
+      });
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { error: msg.slice(0, 200) };
+  }
+
+  const uploadId = String(formData.get('upload_id') ?? '');
+  if (uploadId) revalidatePath(`/admin/questions/import/${uploadId}`);
+  return { error: null, ok: true };
+}
+
 // ────────── KP 候选搜索（F3.5） ──────────
 
 /**
@@ -294,8 +398,8 @@ export interface RerunActionState {
 
 /**
  * 用新 provider 重跑该 staging 行：
- *   1) 新建 llm_parse_job(task_kind='question', provider=new)
- *   2) 把同一文件跑一遍 analyzeQuestions
+ *   1) 新建 llm_parse_job(task_kind='mixed_learning_material', provider=new)
+ *   2) 把同一文件跑一遍 analyzeLearningResource
  *   3) 在结果里找匹配本题的那条（先按 question_no 精确匹配，找不到回退 content 前 60 字相似度），
  *      覆盖 staging.llm_payload + 把 staging.parse_job_id 指到新 job
  *   4) job 标 succeeded / failed
@@ -345,7 +449,7 @@ export async function rerunStagingAction(
   const job = await prisma.llm_parse_job.create({
     data: {
       upload_id: staging.upload_id,
-      task_kind: 'question',
+      task_kind: 'mixed_learning_material',
       provider_id: provider.db_id,
       prompt_version: QUESTION_PROMPT_VERSION,
       status: 'running',
@@ -384,36 +488,30 @@ export async function rerunStagingAction(
       maxRetries: runtime.maxRetries,
       cache: createQuestionAnalysisCache(),
     });
+    const flattened = learningResourceToStagingPayloads(result, subjectId);
+    const resultQuestions = flattened.questions;
 
     // 匹配：先按 question_no（不空），再按 content 前 60 字归一相似（startsWith / includes 兜底）
     const matched =
       (srcQuestionNo
-        ? result.questions.find(
-            (question) =>
-              questionNoFromPayload(questionToStagingPayload(question, subjectId)) ===
-              srcQuestionNo,
-          )
+        ? resultQuestions.find((question) => questionNoFromPayload(question) === srcQuestionNo)
         : null) ??
-      result.questions.find(
+      resultQuestions.find(
         (question) =>
           oldContentKey.length > 10 &&
-          questionContentKey(questionToStagingPayload(question, subjectId)).startsWith(
-            oldContentKey.slice(0, 30),
-          ),
+          questionContentKey(question).startsWith(oldContentKey.slice(0, 30)),
       ) ??
-      result.questions[0];
+      resultQuestions[0];
 
     if (!matched) {
-      throw new Error('rerun 没产出可匹配的题（result.questions 为空）');
+      throw new Error('rerun 没产出可匹配的题（学习资料解析结果中没有题目）');
     }
 
-    const matchedPayload = questionToStagingPayload(matched, subjectId);
-    const tokenUsage = tokenUsageTotal(tokenUsageFromEducationUsage(result.usage));
-    const jobStatus = questionParseJobStatus(result.status);
-    const errorMessage =
-      result.status === 'ok'
-        ? null
-        : (result.diagnostics?.parse_error ?? `analyzeQuestions returned ${result.status}`);
+    const matchedPayload = matched;
+    const resultRecord = result as Record<string, unknown>;
+    const tokenUsage = tokenUsageTotal(tokenUsageFromEducationUsage(resultRecord.usage));
+    const jobStatus = learningResourceParseJobStatus(result);
+    const errorMessage = learningResourceErrorMessage(result);
 
     await prisma.$transaction([
       prisma.llm_parse_staging.update({
@@ -440,15 +538,17 @@ export async function rerunStagingAction(
         where: { id: job.id },
         data: {
           status: jobStatus,
-          parsed_output: { questions: result.questions } as unknown as Prisma.InputJsonValue,
+          parsed_output: result as unknown as Prisma.InputJsonValue,
           token_usage: tokenUsage
             ? (tokenUsage as Prisma.InputJsonValue)
             : (Prisma.JsonNull as unknown as Prisma.InputJsonValue),
           raw_response: {
-            status: result.status,
+            ok: resultRecord.ok ?? null,
             diagnostics: result.diagnostics,
-            pageCount: result.source.page_count,
-            questionCount: result.questions.length,
+            pageCount: result.source_document.page_count,
+            sourceDocumentTitle: result.source_document.title,
+            learningMaterialCount: flattened.learningMaterials.length,
+            questionCount: resultQuestions.length,
             rerun_source_page: srcPage,
           } as unknown as Prisma.InputJsonValue,
           error_message: errorMessage,
@@ -785,6 +885,16 @@ export async function bulkAcceptAllAction(
           },
         });
         publishedQuestionId = question.id;
+        const { sourceDocumentId } = await ensurePublishedSourceDocumentForUpload(tx, {
+          uploadId: s.upload_id,
+          subjectId,
+          reviewedBy: session.sub,
+        });
+        await createQuestionSourceForPayload(tx, {
+          questionId: question.id,
+          sourceDocumentId,
+          payload: s.llm_payload,
+        });
         await tx.audit_log.create({
           data: {
             actor_id: session.sub,
@@ -798,6 +908,7 @@ export async function bulkAcceptAllAction(
               primary_kp_id: primaryKpId,
               question_type: questionType,
               difficulty,
+              source_document_id: sourceDocumentId,
               bulk: true,
             } as Prisma.InputJsonValue,
           },
@@ -816,6 +927,7 @@ export async function bulkAcceptAllAction(
               kp_ids: kpIds,
               primary_kp_id: primaryKpId,
               subject_id: subjectId,
+              source_ref: (s.llm_payload as { source_ref?: unknown }).source_ref ?? null,
             } as Prisma.InputJsonValue,
             reviewed_by: session.sub,
             reviewed_at: new Date(),
@@ -937,4 +1049,33 @@ export async function getJobProgressAction(jobId: string): Promise<JobProgressVi
         : fallbackUsage,
     questionCount,
   };
+}
+
+function learningResourceParseJobStatus(result: {
+  diagnostics?: {
+    parse_error?: unknown | null;
+    validation_error?: unknown | null;
+  };
+  [key: string]: unknown;
+}): 'succeeded' | 'failed' {
+  if (result.ok === false) return 'failed';
+  if (result.diagnostics?.parse_error != null || result.diagnostics?.validation_error != null) {
+    return 'failed';
+  }
+  return 'succeeded';
+}
+
+function learningResourceErrorMessage(result: {
+  diagnostics?: {
+    parse_error?: unknown | null;
+    validation_error?: unknown | null;
+  };
+  [key: string]: unknown;
+}): string | null {
+  if (learningResourceParseJobStatus(result) === 'succeeded') return null;
+  const reason =
+    result.diagnostics?.parse_error ??
+    result.diagnostics?.validation_error ??
+    'analyzeLearningResource returned failed';
+  return typeof reason === 'string' ? reason : JSON.stringify(reason).slice(0, 500);
 }

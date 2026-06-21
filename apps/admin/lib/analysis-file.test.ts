@@ -31,3 +31,18 @@ test('buildStoredAnalysisFile keeps Word documents path-based', () => {
   assert.equal(file.path, '/tmp/paper.docx');
   assert.equal(file.data, undefined);
 });
+
+test('buildStoredAnalysisFile sends image bytes as base64 data for learning resource parsing', () => {
+  const bytes = Buffer.from('png-bytes');
+
+  const file = buildStoredAnalysisFile({
+    bytes,
+    name: '讲义截图.png',
+    path: '/tmp/handout.png',
+    mimeType: 'image/png',
+  });
+
+  assert.equal(file.type, 'image');
+  assert.equal(file.mimeType, 'image/png');
+  assert.equal(file.data, bytes.toString('base64'));
+});

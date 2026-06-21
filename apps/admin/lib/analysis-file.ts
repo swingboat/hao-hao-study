@@ -14,12 +14,12 @@ export function buildStoredAnalysisFile({
   path,
   mimeType,
 }: StoredAnalysisFileInput): EducationAnalysisFile {
-  const type = analysisFileTypeFromName(name);
+  const type = analysisFileTypeFromName(name, mimeType);
   return {
     type,
     name,
     path,
     mimeType: mimeType ?? undefined,
-    data: type === 'pdf' ? bytes.toString('base64') : undefined,
+    data: type === 'pdf' || type === 'image' ? bytes.toString('base64') : undefined,
   };
 }

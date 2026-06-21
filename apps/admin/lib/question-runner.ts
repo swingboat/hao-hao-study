@@ -1,6 +1,6 @@
 /**
  * F3 后台 runParse。admin 只负责文件读取、任务状态、进度映射和 DB 落库；
- * LLM 解析统一委托 @hao/llm 的 analyzeQuestions 公共入口。
+ * LLM 解析统一委托 @hao/llm 的 analyzeLearningResource 公共入口。
  */
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -10,7 +10,7 @@ import { createStore, extOf } from '@hao/storage';
 import { buildStoredAnalysisFile } from './analysis-file';
 import {
   knowledgeRowsForQuestionContext,
-  questionToStagingPayload,
+  learningResourceToStagingPayloads,
   tokenUsageFromEducationUsage,
   tokenUsageTotal,
 } from './education-analysis-adapter';
@@ -21,7 +21,6 @@ import {
 } from './llm-providers';
 import {
   createQuestionAnalysisCache,
-  questionParseJobStatus,
   resolveQuestionAnalysisRuntime,
 } from './question-analysis-runtime';
 import { type QuestionProgressSnapshot, runQuestionAnalysis } from './question-pipeline';
@@ -62,7 +61,7 @@ export async function runQuestionParse(
     if (!provider.enabled) throw new Error(`llm_provider ${providerId} 已禁用`);
     if (!isDocumentAnalysisProvider(provider)) {
       throw new Error(
-        `试题解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}`,
+        `学习资料解析只支持 ${documentAnalysisProtocolLabel()} 的 Provider；当前 ${provider.id}`,
       );
     }
 
@@ -78,7 +77,7 @@ export async function runQuestionParse(
             pagesDone: 0,
             pagesFailed: 0,
             tokenUsageSoFar: null,
-            lastEvent: 'started analyzeQuestions',
+            lastEvent: 'started analyzeLearningResource',
           } satisfies QuestionProgressSnapshot,
         } as Prisma.InputJsonValue,
       },
@@ -114,29 +113,43 @@ export async function runQuestionParse(
       cache: createQuestionAnalysisCache(),
       onProgress: (snap) => {
         void patchProgress(jobId, snap).catch((e) =>
-          console.warn(`[analyzeQuestions job=${jobId}] progress patch fail:`, e),
+          console.warn(`[analyzeLearningResource job=${jobId}] progress patch fail:`, e),
         );
       },
     });
 
-    const tokenUsage = tokenUsageFromEducationUsage(result.usage);
+    const resultRecord = result as Record<string, unknown>;
+    const tokenUsage = tokenUsageFromEducationUsage(resultRecord.usage);
     const tokenUsageForDb = tokenUsageTotal(tokenUsage);
-    const stagingPayloads = result.questions.map((question) =>
-      questionToStagingPayload(question, subjectId),
-    );
-    const jobStatus = questionParseJobStatus(result.status);
-    const errorMessage =
-      result.status === 'ok'
-        ? null
-        : (result.diagnostics?.parse_error ?? `analyzeQuestions returned ${result.status}`);
+    const stagingPayloads = learningResourceToStagingPayloads(result, subjectId);
+    const stagingRows = [
+      ...stagingPayloads.sourceDocuments.map((payload) => ({
+        entity_kind: 'source_document' as const,
+        payload,
+      })),
+      ...stagingPayloads.learningMaterials.map((payload) => ({
+        entity_kind: 'learning_material' as const,
+        payload,
+      })),
+      ...stagingPayloads.questions.map((payload) => ({
+        entity_kind: 'question' as const,
+        payload,
+      })),
+      ...stagingPayloads.knowledgePoints.map((payload) => ({
+        entity_kind: 'knowledge_point' as const,
+        payload,
+      })),
+    ];
+    const jobStatus = learningResourceParseJobStatus(result);
+    const errorMessage = learningResourceErrorMessage(result);
 
     await prisma.$transaction([
       prisma.llm_parse_staging.createMany({
-        data: stagingPayloads.map((payload) => ({
+        data: stagingRows.map((row) => ({
           parse_job_id: jobId,
           upload_id: uploadId,
-          entity_kind: 'question' as const,
-          llm_payload: payload as unknown as Prisma.InputJsonValue,
+          entity_kind: row.entity_kind,
+          llm_payload: row.payload as unknown as Prisma.InputJsonValue,
         })),
       }),
       prisma.llm_parse_job.update({
@@ -144,23 +157,29 @@ export async function runQuestionParse(
         data: {
           status: jobStatus,
           request_payload: {
-            entry: 'analyzeQuestions',
+            entry: 'analyzeLearningResource',
             provider_id: provider.id,
             file_type: analysisFile.type,
+            subject_name: subject.name,
             knowledge_count: existingKps.length,
           } as Prisma.InputJsonValue,
           raw_response: {
-            status: result.status,
+            ok: resultRecord.ok ?? null,
             diagnostics: result.diagnostics,
-            pageCount: result.source.page_count,
-            questionCount: result.questions.length,
+            pageCount: result.source_document.page_count,
+            sourceDocumentTitle: result.source_document.title,
+            sourceDocumentType: result.source_document.source_type,
+            sourceDocumentCount: stagingPayloads.sourceDocuments.length,
+            learningMaterialCount: stagingPayloads.learningMaterials.length,
+            questionCount: stagingPayloads.questions.length,
+            unmappedKnowledgePointCount: stagingPayloads.knowledgePoints.length,
             llm: result.llm,
           } as unknown as Prisma.InputJsonValue,
-          parsed_output: { questions: result.questions } as unknown as Prisma.InputJsonValue,
+          parsed_output: result as unknown as Prisma.InputJsonValue,
           token_usage: tokenUsageForDb
             ? (tokenUsageForDb as Prisma.InputJsonValue)
             : (Prisma.JsonNull as unknown as Prisma.InputJsonValue),
-          latency_ms: typeof result.latency_ms === 'number' ? result.latency_ms : null,
+          latency_ms: typeof resultRecord.latency_ms === 'number' ? resultRecord.latency_ms : null,
           finished_at: new Date(),
           error_message: errorMessage,
         },
@@ -202,4 +221,33 @@ export async function runQuestionParse(
       await rm(tmpPath, { force: true }).catch(() => {});
     }
   }
+}
+
+function learningResourceParseJobStatus(result: {
+  diagnostics?: {
+    parse_error?: unknown | null;
+    validation_error?: unknown | null;
+  };
+  [key: string]: unknown;
+}): 'succeeded' | 'failed' {
+  if (result.ok === false) return 'failed';
+  if (result.diagnostics?.parse_error != null || result.diagnostics?.validation_error != null) {
+    return 'failed';
+  }
+  return 'succeeded';
+}
+
+function learningResourceErrorMessage(result: {
+  diagnostics?: {
+    parse_error?: unknown | null;
+    validation_error?: unknown | null;
+  };
+  [key: string]: unknown;
+}): string | null {
+  if (learningResourceParseJobStatus(result) === 'succeeded') return null;
+  const reason =
+    result.diagnostics?.parse_error ??
+    result.diagnostics?.validation_error ??
+    'analyzeLearningResource returned failed';
+  return typeof reason === 'string' ? reason : JSON.stringify(reason).slice(0, 500);
 }

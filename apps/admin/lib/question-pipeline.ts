@@ -2,7 +2,7 @@ import type { subject } from '@hao/db';
 import {
   type EducationAnalysisFile,
   type EducationProgressEvent,
-  analyzeQuestions,
+  analyzeLearningResource,
 } from '@hao/llm';
 import {
   type AdminDocumentCache,
@@ -10,7 +10,7 @@ import {
   resolveQuestionAnalysisRuntime,
 } from './question-analysis-runtime';
 
-export const QUESTION_PROMPT_VERSION = 'questions/common/analyzeQuestions';
+export const QUESTION_PROMPT_VERSION = 'learning_resource/common/analyzeLearningResource';
 
 export interface QuestionProgressSnapshot {
   phase:
@@ -44,8 +44,8 @@ export interface QuestionPipelineOptions {
   onProgress?: (snap: QuestionProgressSnapshot) => void;
 }
 
-export type QuestionPipelineResult = Awaited<ReturnType<typeof analyzeQuestions>>;
-export type QuestionAnalyzeRequest = Parameters<typeof analyzeQuestions>[0];
+export type QuestionPipelineResult = Awaited<ReturnType<typeof analyzeLearningResource>>;
+export type QuestionAnalyzeRequest = Parameters<typeof analyzeLearningResource>[0];
 
 export async function runQuestionAnalysis(
   opts: QuestionPipelineOptions,
@@ -73,9 +73,9 @@ export async function runQuestionAnalysis(
     });
   };
 
-  emit({ phase: 'preparing', lastEvent: 'started analyzeQuestions' });
+  emit({ phase: 'preparing', lastEvent: 'started analyzeLearningResource' });
 
-  const result = await analyzeQuestions(
+  const result = await analyzeLearningResource(
     buildQuestionAnalyzeRequest(opts, (event) => {
       const snapshot = progressToSnapshot(event);
       if (event.stage === 'pdf_to_pages_done') {
@@ -90,12 +90,9 @@ export async function runQuestionAnalysis(
 
   emit({
     phase: 'done',
-    questionCount: result.questions.length,
-    figureCount: result.questions.reduce((sum, question) => {
-      const figures = (question as { figures?: unknown }).figures;
-      return sum + (Array.isArray(figures) ? figures.length : 0);
-    }, 0),
-    lastEvent: `done: ${result.questions.length} questions`,
+    questionCount: learningResourceQuestionCount(result),
+    figureCount: learningResourceFigureCount(result),
+    lastEvent: `done: ${learningResourceQuestionCount(result)} questions`,
   });
 
   return result;
@@ -156,10 +153,31 @@ export function buildQuestionAnalyzeRequest(
   return {
     providerId: opts.providerId,
     file: opts.file,
+    subjectName: opts.subject.name,
     knowledge: opts.knowledge,
     concurrency: opts.concurrency ?? runtime.concurrency,
     maxRetries: opts.maxRetries ?? runtime.maxRetries,
     cache: opts.cache ?? createQuestionAnalysisCache(),
     onProgress,
   };
+}
+
+function learningResourceQuestionCount(result: QuestionPipelineResult): number {
+  return (result.knowledge_threads ?? []).reduce(
+    (sum, thread) => sum + (Array.isArray(thread.questions) ? thread.questions.length : 0),
+    0,
+  );
+}
+
+function learningResourceFigureCount(result: QuestionPipelineResult): number {
+  return (result.knowledge_threads ?? []).reduce((sum, thread) => {
+    if (!Array.isArray(thread.questions)) return sum;
+    return (
+      sum +
+      thread.questions.reduce((questionSum, question) => {
+        const figures = (question as { figures?: unknown }).figures;
+        return questionSum + (Array.isArray(figures) ? figures.length : 0);
+      }, 0)
+    );
+  }, 0);
 }

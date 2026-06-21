@@ -1,4 +1,4 @@
-export type UploadHistoryPurpose = 'knowledge_point' | 'question';
+export type UploadHistoryPurpose = 'knowledge_point' | 'question' | 'mixed_learning_material';
 
 export interface UploadHistoryRecord {
   id: string;
