@@ -29,7 +29,6 @@ export function StagingRow(props: StagingRowProps) {
     <div className="border rounded-lg p-3">
       <div className="flex items-baseline gap-2 mb-2 text-xs opacity-60">
         <span>学科：{props.subjectLabel}</span>
-        <span className="font-mono">staging:{props.stagingId.slice(0, 8)}</span>
         <span>· 题型 {payload.question_type ?? '?'}</span>
         <span>· 难度 {payload.difficulty ?? '?'}</span>
         {payload.source_hint?.page ? <span>· 原文 p{payload.source_hint.page}</span> : null}

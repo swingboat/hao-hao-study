@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildQuestionAnalyzeRequest } from './question-pipeline.ts';
+import { QUESTION_PROMPT_VERSION, buildQuestionAnalyzeRequest } from './question-pipeline.ts';
 
-test('buildQuestionAnalyzeRequest forwards runtime controls to analyzeQuestions', () => {
+test('buildQuestionAnalyzeRequest forwards runtime controls to analyzeLearningResource', () => {
   const cache = {
     type: 'storage' as const,
     namespace: 'test',
@@ -35,8 +35,10 @@ test('buildQuestionAnalyzeRequest forwards runtime controls to analyzeQuestions'
   );
 
   assert.equal(request.providerId, 'openai-chat-gemini-3.1-pro');
+  assert.equal(request.subjectName, '高中数学');
   assert.equal(request.concurrency, 1);
   assert.equal(request.maxRetries, 2);
   assert.equal(request.cache, cache);
   assert.equal(request.onProgress, onProgress);
+  assert.equal(QUESTION_PROMPT_VERSION, 'learning_resource/common/analyzeLearningResource');
 });

@@ -54,13 +54,6 @@ export interface DiffDrawerProps {
   onClose: () => void;
 }
 
-const CURRENT_PROVIDER_PREFIXES = ['openai-chat-', 'bedrock-converse-', 'google-generate-content-'];
-
-function displayProviderId(id: string): string {
-  if (CURRENT_PROVIDER_PREFIXES.some((prefix) => id.startsWith(prefix))) return id;
-  return '旧 Provider';
-}
-
 const ACCEPT_INITIAL: StagingActionState = { error: null };
 const RERUN_INITIAL: RerunActionState = { error: null };
 
@@ -188,13 +181,13 @@ export function DiffDrawer(props: DiffDrawerProps) {
       <aside className="bg-white dark:bg-neutral-900 w-full max-w-5xl shadow-2xl overflow-y-auto">
         <header className="sticky top-0 bg-white dark:bg-neutral-900 border-b px-6 py-3 flex items-center justify-between z-10">
           <div>
-            <h2 className="font-semibold text-lg">单题 diff · F3.4 / F3.5 / F3.6</h2>
+            <h2 className="font-semibold text-lg">题目审核</h2>
             <p className="text-xs opacity-60 mt-0.5">
               学科：{props.subjectLabel}
               {payload.source_hint?.page ? ` · 原文 p${payload.source_hint.page}` : ''}
               {payload.source_hint?.question_no ? ` · ${payload.source_hint.question_no}` : ''}
               {payload._rerun?.previous_provider_id
-                ? ` · 已重跑（原 ${displayProviderId(payload._rerun.previous_provider_id)} → 新结果 via ${payload._rerun.matched_strategy ?? '?'} 匹配）`
+                ? ` · 已重跑（${rerunStrategyLabel(payload._rerun.matched_strategy)}匹配）`
                 : ''}
             </p>
           </div>
@@ -476,7 +469,7 @@ export function DiffDrawer(props: DiffDrawerProps) {
                 >
                   {props.providers.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.id}（{p.model}）
+                      {p.model}
                     </option>
                   ))}
                 </select>
@@ -502,6 +495,10 @@ export function DiffDrawer(props: DiffDrawerProps) {
       </aside>
     </div>
   );
+}
+
+function rerunStrategyLabel(value: string | undefined): string {
+  return value === 'question_no' ? '题号' : '题干';
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

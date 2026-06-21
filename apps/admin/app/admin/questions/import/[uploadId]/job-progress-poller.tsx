@@ -27,13 +27,13 @@ function phaseLabel(p: JobProgressView['progress']): string {
     case 'rendering':
       return '② 文档页面处理中';
     case 'analyzing':
-      return `③ 解析试题中（${p.pagesDone}/${p.pageCount ?? '?'} 页）`;
+      return `③ 学习资料解析中（${p.pagesDone}/${p.pageCount ?? '?'} 页）`;
     case 'synthesizing':
-      return '④ 汇总试题结果';
+      return '④ 汇总学习资料结果';
     case 'persisting':
       return '⑤ 写 staging 中…';
     case 'done':
-      return `✅ 完成（${p.questionCount ?? '?'} 题 / ${p.figureCount ?? 0} figures）`;
+      return `完成（已提取 ${p.questionCount ?? '?'} 道题）`;
     case 'failed':
       return '❌ 解析失败';
     default:
@@ -104,8 +104,7 @@ export function JobProgressPoller({ jobId, initialStatus }: JobProgressPollerPro
     return (
       <section className="border-2 border-blue-400 rounded-lg p-4 bg-blue-50/40 dark:bg-blue-950/30">
         <p className="text-sm flex items-center gap-2">
-          <Spinner /> 解析任务 <code className="text-xs">{jobId.slice(0, 8)}</code> 状态加载中（初始
-          status: {initialStatus}）…
+          <Spinner /> 解析任务状态加载中（{statusLabel(initialStatus)}）…
         </p>
       </section>
     );
@@ -151,9 +150,9 @@ export function JobProgressPoller({ jobId, initialStatus }: JobProgressPollerPro
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-        <Metric label="status" value={view.status} mono />
+        <Metric label="状态" value={statusLabel(view.status)} />
         <Metric
-          label="pages"
+          label="页数"
           value={
             p
               ? `${p.pagesDone}/${p.pageCount ?? '?'}${p.pagesFailed ? ` (fail ${p.pagesFailed})` : ''}`
@@ -171,7 +170,7 @@ export function JobProgressPoller({ jobId, initialStatus }: JobProgressPollerPro
           mono
         />
         <Metric
-          label="questions"
+          label="已提取题目"
           value={p?.questionCount != null ? String(p.questionCount) : '—'}
           mono
         />
@@ -188,6 +187,17 @@ export function JobProgressPoller({ jobId, initialStatus }: JobProgressPollerPro
         </p>
       ) : null}
     </section>
+  );
+}
+
+function statusLabel(status: JobProgressPollerProps['initialStatus']): string {
+  return (
+    {
+      queued: '排队中',
+      running: '学习资料解析中',
+      succeeded: '解析完成',
+      failed: '解析失败',
+    }[status] ?? status
   );
 }
 

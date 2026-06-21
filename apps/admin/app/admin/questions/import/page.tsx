@@ -23,7 +23,7 @@ export default async function QuestionsImportPage() {
     prisma.subject.findMany().then(sortSubjectsByStage),
     listLlmProviders({ enabledOnly: true }),
     prisma.content_upload.findMany({
-      where: { purpose: 'question' },
+      where: { purpose: 'mixed_learning_material' },
       orderBy: { created_at: 'desc' },
       take: 10,
       include: {
@@ -37,7 +37,7 @@ export default async function QuestionsImportPage() {
     }),
   ]);
 
-  // analyzeQuestions 当前只开放已接入公共文档解析能力的 vision provider。
+  // 学习资料解析当前只开放已接入公共文档解析能力的 vision provider。
   const visionProviders = providers.filter(isDocumentAnalysisProvider);
 
   const envDefault = resolveLlmProviderId(process.env[TASK_KIND_DEFAULT_ENV] ?? '', providers);
@@ -50,9 +50,9 @@ export default async function QuestionsImportPage() {
     <main className="p-8 max-w-6xl mx-auto space-y-8">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">题集文件上传 → 解析试题（F3.1–F3.2）</h1>
+          <h1 className="text-2xl font-semibold">学习资料上传与解析</h1>
           <p className="text-sm opacity-60 mt-1">
-            上传后通过 analyzeQuestions 抽取试题，落 staging 等运营审核。
+            上传讲义、练习册、试卷或答案册后，统一提取来源资料、学习材料和题目，进入运营审核。
           </p>
         </div>
         <Link href="/admin/questions" className="text-sm underline opacity-70 hover:opacity-100">
@@ -93,7 +93,7 @@ export default async function QuestionsImportPage() {
                   <th className="p-2">文件</th>
                   <th className="p-2 text-right">大小</th>
                   <th className="p-2">状态</th>
-                  <th className="p-2 text-right">staging 数</th>
+                  <th className="p-2 text-right">待审核内容</th>
                   <th className="p-2 text-right w-32">操作</th>
                 </tr>
               </thead>

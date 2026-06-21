@@ -15,6 +15,15 @@ export interface ImportFormProps {
   defaultProvider: string;
 }
 
+const SOURCE_TYPE_OPTIONS = [
+  { value: 'lesson_handout', label: '辅导讲义 / PPT' },
+  { value: 'workbook', label: '练习册 / 辅导教材' },
+  { value: 'question_pack', label: '题集 / 习题图' },
+  { value: 'exam_paper', label: '完整试卷' },
+  { value: 'answer_book', label: '答案解析册' },
+  { value: 'mixed_material', label: '混合学习资料' },
+] as const;
+
 export function ImportForm({ subjects, providers, defaultProvider }: ImportFormProps) {
   const [state, formAction, pending] = useActionState(uploadAndParseAction, INITIAL);
   const [pickedFile, setPickedFile] = useState<{ name: string; size: number } | null>(null);
@@ -22,7 +31,7 @@ export function ImportForm({ subjects, providers, defaultProvider }: ImportFormP
   return (
     <>
       <form action={formAction} className="border rounded-lg p-5 space-y-5">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm mb-1" htmlFor="subject_id">
               学科 <span className="text-red-600">*</span>
@@ -36,7 +45,25 @@ export function ImportForm({ subjects, providers, defaultProvider }: ImportFormP
             >
               {subjects.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name}（{s.id} / {s.stage}）
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm mb-1" htmlFor="source_type">
+              资料类型 <span className="text-red-600">*</span>
+            </label>
+            <select
+              id="source_type"
+              name="source_type"
+              required
+              defaultValue="mixed_material"
+              className="w-full px-3 py-2 border rounded text-sm bg-transparent"
+            >
+              {SOURCE_TYPE_OPTIONS.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
                 </option>
               ))}
             </select>
@@ -54,7 +81,7 @@ export function ImportForm({ subjects, providers, defaultProvider }: ImportFormP
             >
               {providers.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.id}（{p.model}）
+                  {p.model}
                 </option>
               ))}
             </select>
@@ -94,16 +121,16 @@ export function ImportForm({ subjects, providers, defaultProvider }: ImportFormP
             ) : (
               <>
                 <p className="text-sm font-medium">
-                  点击选择题集 PDF / Word <span className="text-red-600">*</span>
+                  点击选择学习资料 PDF / Word / 图片 <span className="text-red-600">*</span>
                 </p>
-                <p className="text-xs opacity-60">≤ 50MB · 使用 analyzeQuestions 公共入口解析</p>
+                <p className="text-xs opacity-60">≤ 50MB · 统一提取来源、学习材料和题目</p>
               </>
             )}
             <input
               id="file"
               name="file"
               type="file"
-              accept="application/pdf,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              accept="application/pdf,.pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
               required
               className="sr-only"
               onChange={(e) => {
@@ -129,7 +156,7 @@ export function ImportForm({ subjects, providers, defaultProvider }: ImportFormP
             {pending ? '上传中…' : '上传并开始解析'}
           </button>
           <span className="text-xs opacity-60">
-            {pickedFile ? '上传完会自动跳转到审核页。' : '先选一个 PDF / Word 文件。'}
+            {pickedFile ? '上传完会自动跳转到审核页。' : '先选一个 PDF / Word / 图片文件。'}
           </span>
         </div>
       </form>

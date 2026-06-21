@@ -23,6 +23,7 @@ import type { LlmQuestionPayload } from './diff-drawer';
 import { JobProgressPoller } from './job-progress-poller';
 import { MathText } from './math-text';
 import { StagingRow } from './staging-row';
+import { SupportingStagingCard } from './supporting-staging-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +39,6 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
     include: {
       llm_parse_jobs: { orderBy: { created_at: 'desc' }, take: 1 },
       llm_parse_stagings: {
-        where: { entity_kind: 'question' },
         orderBy: { created_at: 'asc' },
       },
     },
@@ -67,17 +67,33 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
   const lastJobProviderId = lastJob
     ? resolveLlmProviderId(lastJob.provider_id, allProviders)
     : null;
-  const lastJobProviderLabel = lastJob
+  const lastJobProvider = lastJob
+    ? allProviders.find((provider) => provider.id === lastJob.provider_id || provider.db_id === lastJob.provider_id)
+    : null;
+  const lastJobProviderTechnicalLabel = lastJob
     ? displayLlmProviderId(lastJob.provider_id, allProviders)
     : null;
-  const pending = upload.llm_parse_stagings.filter((s) => s.review_status === 'pending');
-  const processed = upload.llm_parse_stagings.filter((s) => s.review_status !== 'pending');
+  const lastJobProviderLabel = lastJobProvider?.model ?? lastJobProviderTechnicalLabel;
+  const sourceDocuments = upload.llm_parse_stagings.filter(
+    (s) => s.entity_kind === 'source_document',
+  );
+  const learningMaterials = upload.llm_parse_stagings.filter(
+    (s) => s.entity_kind === 'learning_material',
+  );
+  const questionStagings = upload.llm_parse_stagings.filter((s) => s.entity_kind === 'question');
+  const pending = questionStagings.filter((s) => s.review_status === 'pending');
+  const processed = questionStagings.filter((s) => s.review_status !== 'pending');
+  const pendingSupporting = [...sourceDocuments, ...learningMaterials].filter(
+    (s) => s.review_status === 'pending',
+  );
+  const acceptedSources = sourceDocuments.filter((s) => s.review_status === 'accepted').length;
+  const acceptedMaterials = learningMaterials.filter((s) => s.review_status === 'accepted').length;
 
   return (
     <main className="p-8 max-w-6xl mx-auto space-y-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">题目解析审核</h1>
+          <h1 className="text-2xl font-semibold">学习资料解析审核</h1>
           <p className="text-sm opacity-60 mt-1">
             上传：{upload.original_name ?? '(未命名)'} · {upload.created_at.toLocaleString('zh-CN')}
           </p>
@@ -124,7 +140,7 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
               >
                 {subjects.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name}（{s.id}）
+                    {s.name}
                   </option>
                 ))}
               </select>
@@ -140,7 +156,37 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
       ) : null}
 
       {lastJob ? (
-        <section className="border rounded-lg p-3 text-sm flex flex-wrap items-baseline gap-x-6 gap-y-1">
+        <section className="border rounded-lg p-3 text-sm space-y-2">
+          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+            <span>
+              <span className="opacity-60">解析状态</span>{' '}
+              <span
+                className={
+                  lastJob.status === 'failed'
+                    ? 'text-red-600'
+                    : lastJob.status === 'succeeded'
+                      ? 'text-green-600'
+                      : ''
+                }
+              >
+                {jobStatusLabel(lastJob.status)}
+              </span>
+            </span>
+            {lastJob.token_usage ? (
+              <span>
+                <span className="opacity-60">tokens</span>{' '}
+                {(lastJob.token_usage as { total?: number }).total ?? '?'}
+              </span>
+            ) : null}
+            {lastJob.error_message ? (
+              <span className="basis-full text-xs text-red-600 mt-1">
+                错误：{lastJob.error_message}
+              </span>
+            ) : null}
+          </div>
+          <details className="text-xs opacity-70">
+            <summary className="cursor-pointer">技术详情</summary>
+            <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
           <span>
             <span className="opacity-60">job</span>{' '}
             <span
@@ -155,9 +201,9 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
               {lastJob.status}
             </span>
           </span>
-          <span>
-            <span className="opacity-60">provider</span>{' '}
-            <code className="text-xs">{lastJobProviderLabel}</code>
+            <span>
+              <span className="opacity-60">provider</span>{' '}
+            <code className="text-xs">{lastJobProviderTechnicalLabel}</code>
           </span>
           <span>
             <span className="opacity-60">prompt</span>{' '}
@@ -174,13 +220,51 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
               错误：{lastJob.error_message}
             </span>
           ) : null}
+            </div>
+          </details>
+        </section>
+      ) : null}
+
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+        <MetricCard label="待审核来源" value={sourceDocuments.length - acceptedSources} />
+        <MetricCard
+          label="已提取学习材料"
+          value={learningMaterials.length}
+          detail={`已发布 ${acceptedMaterials}`}
+        />
+        <MetricCard
+          label="已提取题目"
+          value={questionStagings.length}
+          detail={`待审核 ${pending.length}`}
+        />
+      </section>
+
+      {pendingSupporting.length > 0 ? (
+        <section>
+          <h2 className="font-medium mb-3">待审核来源与学习材料（{pendingSupporting.length}）</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {pendingSupporting.map((s) => {
+              const payload = asRecord(s.llm_payload) ?? {};
+              const subjectId = stringValue(payload._subject_id) || subjects[0]?.id || '';
+              return (
+                <SupportingStagingCard
+                  key={s.id}
+                  stagingId={s.id}
+                  uploadId={upload.id}
+                  subjectId={subjectId}
+                  entityKind={s.entity_kind as 'source_document' | 'learning_material'}
+                  payload={payload}
+                />
+              );
+            })}
+          </div>
         </section>
       ) : null}
 
       <section>
         <h2 className="font-medium mb-3 flex items-center justify-between gap-3 flex-wrap">
           <span>
-            待审核（{pending.length}）
+            待审核题目（{pending.length}）
             {pending.length === 0 ? (
               <span className="opacity-50 text-sm font-normal"> — 已全部处理</span>
             ) : null}
@@ -202,7 +286,7 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
                   uploadId={upload.id}
                   payload={payload}
                   subjectId={subjectId}
-                  subjectLabel={sub ? `${sub.name}（${subjectId}）` : subjectId}
+                  subjectLabel={sub ? sub.name : '未识别学科'}
                   providers={visionProviders.map((p) => ({ id: p.id, model: p.model }))}
                 />
               );
@@ -224,7 +308,6 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
                     <th className="p-2">摘要</th>
                     <th className="p-2">状态</th>
                     <th className="p-2">审核者</th>
-                    <th className="p-2 font-mono text-xs">published_id</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -244,13 +327,10 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
                               s.review_status === 'accepted' ? 'text-green-600' : 'opacity-60'
                             }
                           >
-                            {s.review_status}
+                            {reviewStatusLabel(s.review_status)}
                           </span>
                         </td>
                         <td className="p-2 text-xs opacity-80">{s.reviewed_by ?? '—'}</td>
-                        <td className="p-2 font-mono text-xs truncate max-w-[16ch]">
-                          {s.published_id ?? '—'}
-                        </td>
                       </tr>
                     );
                   })}
@@ -262,4 +342,49 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
       ) : null}
     </main>
   );
+}
+
+function MetricCard({ label, value, detail }: { label: string; value: number; detail?: string }) {
+  return (
+    <div className="border rounded-lg p-3">
+      <p className="text-xs opacity-60">{label}</p>
+      <p className="text-2xl font-semibold tabular-nums">{value}</p>
+      {detail ? <p className="text-xs opacity-60 mt-1">{detail}</p> : null}
+    </div>
+  );
+}
+
+function jobStatusLabel(status: string): string {
+  return (
+    {
+      queued: '排队中',
+      running: '学习资料解析中',
+      succeeded: '解析完成',
+      failed: '解析失败',
+    }[status] ?? status
+  );
+}
+
+function reviewStatusLabel(status: string): string {
+  return (
+    {
+      pending: '待审核',
+      accepted: '已发布',
+      rejected: '已丢弃',
+      edited: '已编辑',
+    }[status] ?? status
+  );
+}
+
+function stringValue(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
