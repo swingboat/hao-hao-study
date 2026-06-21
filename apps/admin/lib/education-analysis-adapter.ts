@@ -364,7 +364,9 @@ function normalizeSourceRef(value: unknown):
   return Object.keys(ref).length > 0 ? ref : undefined;
 }
 
-function sourceUnitsFromLearningResource(result: LearningResourceAnalysisParserResult): JsonRecord[] {
+function sourceUnitsFromLearningResource(
+  result: LearningResourceAnalysisParserResult,
+): JsonRecord[] {
   const sourceRefs: Array<ReturnType<typeof normalizeSourceRef>> = [];
   for (const thread of result.knowledge_threads ?? []) {
     const threadRecord = asRecord(thread) ?? {};

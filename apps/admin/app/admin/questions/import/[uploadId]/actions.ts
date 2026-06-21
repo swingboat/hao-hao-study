@@ -34,6 +34,11 @@ import {
   tokenUsageTotal,
 } from '../../../../../lib/education-analysis-adapter';
 import {
+  createQuestionSourceForPayload,
+  ensurePublishedSourceDocumentForUpload,
+  publishLearningMaterialStaging,
+} from '../../../../../lib/learning-resource-publish';
+import {
   documentAnalysisProtocolLabel,
   getLlmProviderById,
   isDocumentAnalysisProvider,
@@ -43,11 +48,6 @@ import {
   resolveQuestionAnalysisRuntime,
 } from '../../../../../lib/question-analysis-runtime';
 import { createAndPersistQuestionFigureCropAssets } from '../../../../../lib/question-figure-assets';
-import {
-  createQuestionSourceForPayload,
-  ensurePublishedSourceDocumentForUpload,
-  publishLearningMaterialStaging,
-} from '../../../../../lib/learning-resource-publish';
 import {
   QUESTION_PROMPT_VERSION,
   type QuestionProgressSnapshot,
@@ -293,7 +293,8 @@ export async function acceptSourceDocumentStagingAction(
 
   const staging = await prisma.llm_parse_staging.findUnique({ where: { id: stagingId } });
   if (!staging) return { error: 'staging 不存在' };
-  if (staging.entity_kind !== 'source_document') return { error: '该 staging 不是 source_document' };
+  if (staging.entity_kind !== 'source_document')
+    return { error: '该 staging 不是 source_document' };
 
   try {
     await prisma.$transaction(async (tx) => {

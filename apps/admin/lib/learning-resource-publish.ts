@@ -1,10 +1,10 @@
-import {
+import type {
+  Grade,
+  LearningMaterialType,
   Prisma,
-  type Grade,
-  type LearningMaterialType,
-  type SourceDocumentType,
-  type SourceUnitKind,
-  type Stage,
+  SourceDocumentType,
+  SourceUnitKind,
+  Stage,
 } from '@hao/db';
 
 type Tx = Prisma.TransactionClient;
@@ -37,20 +37,7 @@ const LEARNING_MATERIAL_TYPES = new Set([
   'study_advice',
 ]);
 const STAGES = new Set(['primary', 'junior', 'senior']);
-const GRADES = new Set([
-  'g1',
-  'g2',
-  'g3',
-  'g4',
-  'g5',
-  'g6',
-  'g7',
-  'g8',
-  'g9',
-  'g10',
-  'g11',
-  'g12',
-]);
+const GRADES = new Set(['g1', 'g2', 'g3', 'g4', 'g5', 'g6', 'g7', 'g8', 'g9', 'g10', 'g11', 'g12']);
 
 export interface SourceRefForPublish {
   page?: number | null;
@@ -352,9 +339,7 @@ function optionalFloat(value: unknown): number | null {
 
 function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => stringValue(item).trim())
-    .filter((item) => item.length > 0);
+  return value.map((item) => stringValue(item).trim()).filter((item) => item.length > 0);
 }
 
 function stringValue(value: unknown): string {

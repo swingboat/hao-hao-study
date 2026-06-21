@@ -68,7 +68,9 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
     ? resolveLlmProviderId(lastJob.provider_id, allProviders)
     : null;
   const lastJobProvider = lastJob
-    ? allProviders.find((provider) => provider.id === lastJob.provider_id || provider.db_id === lastJob.provider_id)
+    ? allProviders.find(
+        (provider) => provider.id === lastJob.provider_id || provider.db_id === lastJob.provider_id,
+      )
     : null;
   const lastJobProviderTechnicalLabel = lastJob
     ? displayLlmProviderId(lastJob.provider_id, allProviders)
@@ -187,39 +189,39 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
           <details className="text-xs opacity-70">
             <summary className="cursor-pointer">技术详情</summary>
             <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-          <span>
-            <span className="opacity-60">job</span>{' '}
-            <span
-              className={
-                lastJob.status === 'failed'
-                  ? 'text-red-600'
-                  : lastJob.status === 'succeeded'
-                    ? 'text-green-600'
-                    : ''
-              }
-            >
-              {lastJob.status}
-            </span>
-          </span>
-            <span>
-              <span className="opacity-60">provider</span>{' '}
-            <code className="text-xs">{lastJobProviderTechnicalLabel}</code>
-          </span>
-          <span>
-            <span className="opacity-60">prompt</span>{' '}
-            <code className="text-xs">{lastJob.prompt_version}</code>
-          </span>
-          {lastJob.token_usage ? (
-            <span>
-              <span className="opacity-60">tokens</span>{' '}
-              {(lastJob.token_usage as { total?: number }).total ?? '?'}
-            </span>
-          ) : null}
-          {lastJob.error_message ? (
-            <span className="basis-full text-xs text-red-600 mt-1">
-              错误：{lastJob.error_message}
-            </span>
-          ) : null}
+              <span>
+                <span className="opacity-60">job</span>{' '}
+                <span
+                  className={
+                    lastJob.status === 'failed'
+                      ? 'text-red-600'
+                      : lastJob.status === 'succeeded'
+                        ? 'text-green-600'
+                        : ''
+                  }
+                >
+                  {lastJob.status}
+                </span>
+              </span>
+              <span>
+                <span className="opacity-60">provider</span>{' '}
+                <code className="text-xs">{lastJobProviderTechnicalLabel}</code>
+              </span>
+              <span>
+                <span className="opacity-60">prompt</span>{' '}
+                <code className="text-xs">{lastJob.prompt_version}</code>
+              </span>
+              {lastJob.token_usage ? (
+                <span>
+                  <span className="opacity-60">tokens</span>{' '}
+                  {(lastJob.token_usage as { total?: number }).total ?? '?'}
+                </span>
+              ) : null}
+              {lastJob.error_message ? (
+                <span className="basis-full text-xs text-red-600 mt-1">
+                  错误：{lastJob.error_message}
+                </span>
+              ) : null}
             </div>
           </details>
         </section>

@@ -162,9 +162,7 @@ test('learningResourceToStagingPayloads flattens knowledge threads into staging 
         textbook_deep_dives: [
           threadItem('教材深挖', '教材定义强调对象确定性。', 'source_extract', 6),
         ],
-        solution_summaries: [
-          threadItem('解析总结', '分类讨论能减少漏解。', 'model_summary', 2),
-        ],
+        solution_summaries: [threadItem('解析总结', '分类讨论能减少漏解。', 'model_summary', 2)],
         study_advice: [threadItem('学习建议', '先用韦恩图辅助理解。', 'model_summary', 3)],
         questions: [
           {
