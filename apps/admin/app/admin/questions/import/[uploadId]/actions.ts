@@ -53,6 +53,7 @@ import {
   type QuestionProgressSnapshot,
   runQuestionAnalysis,
 } from '../../../../../lib/question-pipeline';
+import { buildSupportingAcceptPlan } from '../../../../../lib/supporting-staging-bulk';
 
 async function requireAdmin() {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -363,6 +364,124 @@ export async function acceptLearningMaterialStagingAction(
   const uploadId = String(formData.get('upload_id') ?? '');
   if (uploadId) revalidatePath(`/admin/questions/import/${uploadId}`);
   return { error: null, ok: true };
+}
+
+export async function bulkAcceptSupportingStagingsAction(
+  _prev: BulkActionState,
+  formData: FormData,
+): Promise<BulkActionState> {
+  const session = await requireAdmin();
+  const uploadId = String(formData.get('upload_id') ?? '');
+  const fallbackSubjectId = String(formData.get('subject_id') ?? '');
+  if (!uploadId) return { error: 'upload_id 缺失' };
+
+  const stagings = await prisma.llm_parse_staging.findMany({
+    where: {
+      upload_id: uploadId,
+      review_status: 'pending',
+      entity_kind: { in: ['source_document', 'learning_material'] },
+    },
+    select: {
+      id: true,
+      upload_id: true,
+      entity_kind: true,
+      review_status: true,
+      llm_payload: true,
+    },
+    orderBy: { created_at: 'asc' },
+  });
+  const stagingById = new Map(stagings.map((staging) => [staging.id, staging]));
+  const plan = buildSupportingAcceptPlan(stagings, fallbackSubjectId);
+  let accepted = 0;
+  const skipReasons = [...plan.skipReasons];
+
+  for (const item of plan.items) {
+    const staging = stagingById.get(item.id);
+    if (!staging) {
+      skipReasons.push(`${item.id.slice(0, 8)} 已不存在`);
+      continue;
+    }
+
+    try {
+      if (item.entityKind === 'source_document') {
+        await prisma.$transaction(async (tx) => {
+          const { sourceDocumentId, sourcePayload } = await ensurePublishedSourceDocumentForUpload(
+            tx,
+            {
+              uploadId,
+              subjectId: item.subjectId,
+              reviewedBy: session.sub,
+            },
+          );
+          await tx.llm_parse_staging.update({
+            where: { id: item.id },
+            data: {
+              review_status: 'accepted',
+              review_payload: {
+                ...sourcePayload,
+                subject_id: item.subjectId,
+                bulk: true,
+              } as Prisma.InputJsonValue,
+              reviewed_by: session.sub,
+              reviewed_at: new Date(),
+              published_id: sourceDocumentId,
+            },
+          });
+          await tx.audit_log.create({
+            data: {
+              actor_id: session.sub,
+              action: 'publish_source_document',
+              target_type: 'source_document',
+              target_id: sourceDocumentId,
+              payload: {
+                staging_id: item.id,
+                subject_id: item.subjectId,
+                bulk: true,
+              } as Prisma.InputJsonValue,
+            },
+          });
+        });
+      } else {
+        await prisma.$transaction(async (tx) => {
+          const materialId = await publishLearningMaterialStaging(tx, {
+            stagingId: item.id,
+            subjectId: item.subjectId,
+            reviewedBy: session.sub,
+          });
+          await tx.audit_log.create({
+            data: {
+              actor_id: session.sub,
+              action: 'publish_learning_material',
+              target_type: 'learning_material',
+              target_id: materialId,
+              payload: {
+                staging_id: item.id,
+                subject_id: item.subjectId,
+                bulk: true,
+              } as Prisma.InputJsonValue,
+            },
+          });
+        });
+      }
+      accepted += 1;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      skipReasons.push(`${supportingKindLabel(item.entityKind)} ${item.id.slice(0, 8)}：${msg}`);
+    }
+  }
+
+  revalidatePath(`/admin/questions/import/${uploadId}`);
+  return {
+    error: null,
+    ok: true,
+    accepted,
+    skipped: skipReasons.length,
+    skipReasons: skipReasons.slice(0, 20),
+  };
+}
+
+function supportingKindLabel(kind: 'source_document' | 'learning_material'): string {
+  return kind === 'source_document' ? '来源资料' : '学习材料';
 }
 
 // ────────── KP 候选搜索（F3.5） ──────────

@@ -23,6 +23,7 @@ import type { LlmQuestionPayload } from './diff-drawer';
 import { JobProgressPoller } from './job-progress-poller';
 import { MathText } from './math-text';
 import { StagingRow } from './staging-row';
+import { SupportingBulkAcceptButton } from './supporting-bulk-accept-button';
 import { SupportingStagingCard } from './supporting-staging-card';
 
 export const dynamic = 'force-dynamic';
@@ -88,6 +89,12 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
   const pendingSupporting = [...sourceDocuments, ...learningMaterials].filter(
     (s) => s.review_status === 'pending',
   );
+  const supportingFallbackSubjectId =
+    pendingSupporting
+      .map((s) => stringValue(asRecord(s.llm_payload)?._subject_id))
+      .find(Boolean) ||
+    subjects[0]?.id ||
+    '';
   const acceptedSources = sourceDocuments.filter((s) => s.review_status === 'accepted').length;
   const acceptedMaterials = learningMaterials.filter((s) => s.review_status === 'accepted').length;
 
@@ -243,7 +250,14 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
 
       {pendingSupporting.length > 0 ? (
         <section>
-          <h2 className="font-medium mb-3">待审核来源与学习材料（{pendingSupporting.length}）</h2>
+          <h2 className="font-medium mb-3 flex items-center justify-between gap-3 flex-wrap">
+            <span>待审核来源与学习材料（{pendingSupporting.length}）</span>
+            <SupportingBulkAcceptButton
+              uploadId={upload.id}
+              subjectId={supportingFallbackSubjectId}
+              pendingCount={pendingSupporting.length}
+            />
+          </h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {pendingSupporting.map((s) => {
               const payload = asRecord(s.llm_payload) ?? {};

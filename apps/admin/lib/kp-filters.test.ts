@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { resolveTextbookFilter } from './kp-filters.ts';
+import { buildTextbookSelectState, resolveTextbookFilter } from './kp-filters.ts';
 
 const groups = [
   {
@@ -40,4 +40,15 @@ test('resolveTextbookFilter accepts upload ids from the selected textbook group'
   const result = resolveTextbookFilter('math_senior', 'senior-book-old', groups);
 
   assert.equal(result.currentGroup?.canonicalId, 'senior-book');
+});
+
+test('buildTextbookSelectState enables textbooks and limits options after selecting a subject', () => {
+  const result = buildTextbookSelectState('math_senior', '', groups);
+
+  assert.equal(result.disabled, false);
+  assert.equal(result.placeholder, '— 请选择教材 —');
+  assert.deepEqual(
+    result.textbooks.map((group) => group.canonicalId),
+    ['senior-book'],
+  );
 });
