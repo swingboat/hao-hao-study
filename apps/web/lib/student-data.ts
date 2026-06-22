@@ -21,8 +21,14 @@ import { buildResolvedMistakeFeedback } from './session-result-feedback';
 import {
   type SessionResultKnowledgeGroup,
   buildSessionResultKnowledgeGroups,
+  buildSessionResultReviewPlan,
   collectSessionKnowledgePointIds,
 } from './session-result-materials';
+import {
+  type SessionResultReviewPlanView,
+  readPersistedSessionReviewAdvice,
+  selectSessionResultReviewPlan,
+} from './session-review-advice';
 
 export interface CurrentStudent {
   id: string;
@@ -91,6 +97,7 @@ export interface SessionResultData {
   }>;
   resolvedMistakeCount: number;
   resolvedMistakeHeadline: string | null;
+  reviewPlan: SessionResultReviewPlanView | null;
   relatedKnowledgeGroups: SessionResultKnowledgeGroup[];
 }
 
@@ -241,53 +248,56 @@ export async function getSessionResultData(
   const questionById = new Map(questions.map((question) => [question.id, question]));
   const sessionKpIds = collectSessionKnowledgePointIds(questions, student.unlocked_kp_ids);
   const endedAt = session.ended_at ?? new Date();
-  const [resolvedMistakes, knowledgePoints, learningMaterials] = await Promise.all([
-    prisma.mistake_book_entry.findMany({
-      where: {
-        student_id: student.id,
-        question_id: { in: session.question_attempts.map((attempt) => attempt.question_id) },
-        status: 'resolved',
-        resolved_at: {
-          gte: session.started_at,
-          lte: endedAt,
+  const [resolvedMistakes, knowledgePoints, learningMaterials, persistedAdvice] = await Promise.all(
+    [
+      prisma.mistake_book_entry.findMany({
+        where: {
+          student_id: student.id,
+          question_id: { in: session.question_attempts.map((attempt) => attempt.question_id) },
+          status: 'resolved',
+          resolved_at: {
+            gte: session.started_at,
+            lte: endedAt,
+          },
         },
-      },
-      select: {
-        question_id: true,
-      },
-    }),
-    sessionKpIds.length
-      ? prisma.knowledge_point.findMany({
-          where: {
-            id: { in: sessionKpIds },
-            subject_id: student.primary_subject_id,
-          },
-          select: {
-            id: true,
-            name: true,
-          },
-        })
-      : Promise.resolve([]),
-    sessionKpIds.length
-      ? prisma.learning_material.findMany({
-          where: {
-            subject_id: student.primary_subject_id,
-            OR: [{ primary_kp_id: { in: sessionKpIds } }, { kp_ids: { hasSome: sessionKpIds } }],
-          },
-          select: {
-            id: true,
-            material_type: true,
-            title: true,
-            content: true,
-            student_summary: true,
-            primary_kp_id: true,
-            kp_ids: true,
-            created_at: true,
-          },
-          orderBy: [{ created_at: 'desc' }],
-        })
-      : Promise.resolve([]),
-  ]);
+        select: {
+          question_id: true,
+        },
+      }),
+      sessionKpIds.length
+        ? prisma.knowledge_point.findMany({
+            where: {
+              id: { in: sessionKpIds },
+              subject_id: student.primary_subject_id,
+            },
+            select: {
+              id: true,
+              name: true,
+            },
+          })
+        : Promise.resolve([]),
+      sessionKpIds.length
+        ? prisma.learning_material.findMany({
+            where: {
+              subject_id: student.primary_subject_id,
+              OR: [{ primary_kp_id: { in: sessionKpIds } }, { kp_ids: { hasSome: sessionKpIds } }],
+            },
+            select: {
+              id: true,
+              material_type: true,
+              title: true,
+              content: true,
+              student_summary: true,
+              primary_kp_id: true,
+              kp_ids: true,
+              created_at: true,
+            },
+            orderBy: [{ created_at: 'desc' }],
+          })
+        : Promise.resolve([]),
+      readPersistedSessionReviewAdvice(session.id),
+    ],
+  );
   const feedback = buildResolvedMistakeFeedback({
     attempts: session.question_attempts.map((attempt) => ({
       questionId: attempt.question_id,
@@ -326,6 +336,16 @@ export async function getSessionResultData(
       createdAt: material.created_at,
     })),
   });
+  const deterministicPlan = buildSessionResultReviewPlan({
+    correctCount: attempts.filter((attempt) => attempt.is_correct).length,
+    totalCount: attempts.length,
+    groups: relatedKnowledgeGroups,
+  });
+  const reviewPlan = selectSessionResultReviewPlan({
+    persistedAdvice,
+    deterministicPlan,
+    knowledgeGroups: relatedKnowledgeGroups,
+  });
 
   return {
     id: session.id,
@@ -334,6 +354,7 @@ export async function getSessionResultData(
     attempts,
     resolvedMistakeCount: feedback.resolvedCount,
     resolvedMistakeHeadline: feedback.headline,
+    reviewPlan,
     relatedKnowledgeGroups,
   };
 }

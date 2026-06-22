@@ -11,7 +11,7 @@ export function LoginForm({ next }: { next: string }) {
   return (
     <form action={formAction} className="auth-panel">
       <div>
-        <p className="eyebrow">学生端</p>
+        <p className="eyebrow">web端</p>
         <h1 className="page-title">登录好好学习</h1>
         <p className="muted mt-2">使用老师下发的账号和一次性密码进入今日学习。</p>
       </div>

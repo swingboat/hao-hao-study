@@ -20,6 +20,24 @@ export interface SessionResultKnowledgeGroup {
   materials: SessionResultLearningMaterial[];
 }
 
+export interface SessionResultReviewFocusItem {
+  kpId: string;
+  knowledgePointName: string;
+  priorityLabel: string;
+  scoreText: string;
+  reason?: string;
+  suggestion: string;
+  recommendedLabels: string[];
+}
+
+export interface SessionResultReviewPlan {
+  headline: string;
+  summary: string;
+  steps: string[];
+  encouragement?: string;
+  focusItems: SessionResultReviewFocusItem[];
+}
+
 export interface SessionResultMaterialQuestion {
   id: string;
   isCorrect: boolean;
@@ -188,6 +206,50 @@ export function buildSessionResultKnowledgeGroups(input: {
     .map(({ firstSeenIndex: _firstSeenIndex, ...group }) => group);
 }
 
+export function buildSessionResultReviewPlan(input: {
+  correctCount: number;
+  totalCount: number;
+  groups: readonly SessionResultKnowledgeGroup[];
+}): SessionResultReviewPlan | null {
+  if (input.groups.length === 0) return null;
+
+  const needsWorkGroups = input.groups.filter((group) => group.status === 'needs_work');
+  const primaryGroup = needsWorkGroups[0] ?? input.groups[0];
+  if (!primaryGroup) return null;
+
+  const hasNeedsWork = needsWorkGroups.length > 0;
+  const scoreText = `答对 ${input.correctCount} / ${input.totalCount}`;
+  const headline = hasNeedsWork
+    ? `先把“${primaryGroup.knowledgePointName}”补牢`
+    : `这次整体不错，顺手复习“${primaryGroup.knowledgePointName}”`;
+  const summary = hasNeedsWork
+    ? `${scoreText}，错题主要落在 ${needsWorkGroups.length} 个知识点上。先看易错提醒和解题方法，再回到错题解析核对每一步。`
+    : `${scoreText}，这次相关知识点基本过关。用几分钟看概念回顾和题型总结，把做对的思路固定下来。`;
+
+  return {
+    headline,
+    summary,
+    steps: buildReviewSteps(input.groups, hasNeedsWork),
+    focusItems: input.groups.slice(0, 3).map((group) => {
+      const recommendedLabels = uniqueLabels(
+        group.materials.map((material) => material.label),
+      ).slice(0, group.status === 'needs_work' ? 3 : 2);
+      const labelText = recommendedLabels.length ? recommendedLabels.join('、') : '本组材料';
+      return {
+        kpId: group.kpId,
+        knowledgePointName: group.knowledgePointName,
+        priorityLabel: group.status === 'needs_work' ? '优先巩固' : '顺手复习',
+        scoreText: `本次 ${group.correctCount} / ${group.totalCount}`,
+        suggestion:
+          group.status === 'needs_work'
+            ? `先看${labelText}，再回到错题解析核对思路。`
+            : `快速扫过${labelText}，把做对的思路固定下来。`,
+        recommendedLabels,
+      };
+    }),
+  };
+}
+
 function getMatchingMaterialKpIds(
   material: SessionResultMaterialRow,
   statsByKp: ReadonlyMap<string, KnowledgePointStats>,
@@ -248,4 +310,37 @@ function uniqueKpIds(kpIds: readonly string[]): string[] {
     result.push(kpId);
   }
   return result;
+}
+
+function uniqueLabels(labels: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const label of labels) {
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    result.push(label);
+  }
+  return result;
+}
+
+function buildReviewSteps(
+  groups: readonly SessionResultKnowledgeGroup[],
+  hasNeedsWork: boolean,
+): string[] {
+  const firstGroup = groups[0];
+  if (!firstGroup) return [];
+
+  if (!hasNeedsWork) {
+    return [
+      `快速扫一遍“${firstGroup.knowledgePointName}”的概念回顾。`,
+      '把这次做对的关键判断方法用一句话说出来。',
+      '再回看逐题解析，确认没有靠猜对的地方。',
+    ];
+  }
+
+  return [
+    `先处理“${firstGroup.knowledgePointName}”的易错点。`,
+    '再看解题方法，把判断步骤按顺序走一遍。',
+    '最后回到错题解析，确认自己能说出错因。',
+  ];
 }

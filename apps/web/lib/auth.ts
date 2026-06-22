@@ -67,7 +67,7 @@ function readAuthSecret(): string {
   const secret = process.env.WEB_AUTH_SECRET ?? process.env.AUTH_SECRET;
   if (secret) return secret;
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('缺少学生端鉴权 env：WEB_AUTH_SECRET 或 AUTH_SECRET');
+    throw new Error('缺少web端鉴权 env：WEB_AUTH_SECRET 或 AUTH_SECRET');
   }
   return 'local-web-dev-secret-change-before-production';
 }
