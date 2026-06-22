@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────
-#  运营端 Next.js dev server 守护脚本
+#  admin端 Next.js dev server 守护脚本
 #
 #  用法（在 apps/admin/ 目录下）：
 #      ./scripts/dev-server.sh start      # 后台启动（端口 3001）

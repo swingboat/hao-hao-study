@@ -21,7 +21,7 @@ interface AuthEnv {
 }
 
 /**
- * 读取并校验运营端鉴权所需的 env 变量。缺失任何一个都直接抛错——
+ * 读取并校验 admin端鉴权所需的 env 变量。缺失任何一个都直接抛错——
  * 启动时就暴露配置错误，比"登录页一直 401"更友好。
  */
 function readAuthEnv(): AuthEnv {
@@ -30,7 +30,7 @@ function readAuthEnv(): AuthEnv {
   const secret = process.env.AUTH_SECRET;
   if (!username || !passwordHash || !secret) {
     throw new Error(
-      '缺少运营端鉴权 env：ADMIN_USERNAME / ADMIN_PASSWORD_HASH / AUTH_SECRET（参见 .env.example）',
+      '缺少 admin端鉴权 env：ADMIN_USERNAME / ADMIN_PASSWORD_HASH / AUTH_SECRET（参见 .env.example）',
     );
   }
   if (secret.length < 32) {
