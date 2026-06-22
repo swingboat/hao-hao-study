@@ -45,6 +45,13 @@ enum LearningSessionStatus {
   abandoned /// 已放弃：超过 25 分钟未提交，下次进入首页时被清扫
 }
 
+/// 学生练习复盘建议生成状态
+enum SessionReviewAdviceStatus {
+  pending /// 已创建生成记录，等待 LLM 返回或 worker 处理
+  generated /// 已生成可展示的结构化复盘建议
+  failed /// 生成失败；学生端应降级展示确定性复盘计划
+}
+
 /// 学生 Planner 偏好模式
 enum PlannerPreferenceMode {
   auto /// 自动：使用系统默认 planner 策略，未来可接入 AI 推荐
@@ -206,6 +213,7 @@ model subject {
   textbooks                 textbook[]
   source_documents          source_document[]
   learning_materials        learning_material[]
+  session_review_advices    session_review_advice[]
 
   @@map("subject")
 }
@@ -250,6 +258,7 @@ model student {
   mistake_entries           mistake_book_entry[]
   spaced_reviews            spaced_review[]
   planner_preference        student_planner_preference?
+  session_review_advices    session_review_advice[]
 
   @@index([username])
   @@index([soft_deleted_at])
@@ -436,6 +445,7 @@ model learning_session {
 
   // 反向关系
   question_attempts question_attempt[]
+  review_advice     session_review_advice?
 
   @@index([student_id, started_at])
   @@index([status])
@@ -465,6 +475,51 @@ model question_attempt {
   @@index([student_id, answered_at])
   @@index([question_id, is_correct])
   @@map("question_attempt")
+}
+
+/// 学生练习结果复盘建议
+/// 一次 learning_session 最多生成一份 AI 复盘建议；失败时保留确定性兜底计划和诊断，
+/// 结果页读取本表，避免每次打开页面重复调用 LLM。
+model session_review_advice {
+  /// 主键 UUID
+  id                 String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// 所属练习会话；一对一
+  session_id         String                    @unique @db.Uuid
+  session            learning_session          @relation(fields: [session_id], references: [id], onDelete: Cascade)
+  /// 学生外键（冗余，便于按学生查询历史复盘）
+  student_id         String                    @db.Uuid
+  student            student                   @relation(fields: [student_id], references: [id], onDelete: Cascade)
+  /// 学科外键（冗余，便于按学科查询）
+  subject_id         String
+  subject            subject                   @relation(fields: [subject_id], references: [id])
+  /// 生成状态
+  status             SessionReviewAdviceStatus @default(pending)
+  /// 面向学生/家长展示的结构化复盘建议；必须符合 @hao/llm 的 SessionReviewAdvice schema
+  advice             Json?
+  /// 生成时使用的输入快照：本次表现、知识点分组、掌握度和精选学习材料摘要
+  input_snapshot     Json?
+  /// LLM 不可用时可直接展示的确定性复盘计划
+  deterministic_plan Json?
+  /// LLM 调用元数据，如 usage、latency、finish reason；不得直接展示给学生
+  llm_metadata       Json?
+  /// 解析/校验/超时等诊断信息；仅用于排障
+  diagnostics        Json?
+  /// 质量标记，如 materials_insufficient、history_insufficient；学生端需转译后再展示
+  quality_flags      String[]                  @default([])
+  /// prompt 版本，便于后续评估和重算
+  prompt_version     String?
+  /// 失败原因摘要
+  error_message      String?
+  /// 成功生成时间
+  generated_at       DateTime?                 @db.Timestamptz()
+  /// 创建时间
+  created_at         DateTime                  @default(now()) @db.Timestamptz()
+  /// 最近更新
+  updated_at         DateTime                  @updatedAt @db.Timestamptz()
+
+  @@index([student_id, created_at])
+  @@index([subject_id, status])
+  @@map("session_review_advice")
 }
 
 // ══════════════════════════════════════════════════════════════════

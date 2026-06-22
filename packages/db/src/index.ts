@@ -27,6 +27,7 @@ export { Prisma } from '@prisma/client';
 export {
   LearningMaterialType,
   ParseEntityKind,
+  SessionReviewAdviceStatus,
   SourceDocumentType,
   SourceUnitKind,
 } from '@prisma/client';

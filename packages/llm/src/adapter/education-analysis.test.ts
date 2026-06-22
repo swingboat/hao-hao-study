@@ -15,6 +15,7 @@ const {
   analyzeLearningResource,
   analyzeMixedLearningMaterial,
   analyzeQuestions,
+  generateSessionReviewAdvice,
 } = await import('./index');
 
 const OPENAI_PROVIDER = {
@@ -454,5 +455,98 @@ describe('@hao/llm adapter education analysis API', () => {
       expect.arrayContaining(['advertisement', 'qr_code']),
     );
     expect(result.diagnostics.fallback_used).toBe('page_results');
+  });
+
+  it('resolves providerId and calls session review advice through the synced public method', async () => {
+    findUnique.mockResolvedValue(OPENAI_PROVIDER);
+    const callLlmImpl = vi.fn(async (request) => {
+      expect(request.apiKey).toBe('test-token-xyz');
+      expect(request.llmTarget).toEqual(
+        expect.objectContaining({
+          id: 'openai-chat-gemini-3.1-pro',
+          provider: 'openai_chat',
+          api_shape: 'openai-chat-completions',
+          model: 'google.gemini-3.1-pro-global',
+        }),
+      );
+      expect(request.input).toContain('集合中元素的互异性');
+      expect(request.input).toContain('只返回 JSON');
+
+      return {
+        ok: true,
+        target_id: request.llmTarget.id,
+        llm_target_id: request.llmTarget.id,
+        provider: request.llmTarget.provider,
+        model: request.llmTarget.model,
+        api_shape: request.llmTarget.api_shape,
+        latency_ms: 20,
+        usage: { total_tokens: 1200 },
+        text: JSON.stringify({
+          headline: '这次主要卡在含参集合的回代检验',
+          summary:
+            '你这次 5 题答对 3 题，基础判断比较稳。主要问题集中在含参集合求参后的互异性检验。',
+          focusItems: [
+            {
+              knowledgePointName: '集合中元素的互异性',
+              priorityLabel: '优先巩固',
+              reason: '相关题目出现错误，且材料中也提示这是常见漏检点。',
+              suggestedAction: '先重看易错提醒，再把错题按“求参后回代”步骤复盘一遍。',
+              recommendedMaterialTypes: ['易错提醒', '解题方法'],
+            },
+          ],
+          nextSteps: [
+            '先重看“含参问题回代检验互异性”。',
+            '把错题中求出的参数代回原集合检查一遍。',
+            '再做 1-2 道同类含参集合题。',
+          ],
+          encouragement: '这类题一旦养成回代习惯，失分会明显减少。',
+          warnings: [],
+          qualityFlags: [],
+        }),
+      };
+    });
+
+    const result = await generateSessionReviewAdvice({
+      providerId: 'openai-chat-gemini-3.1-pro',
+      input: {
+        student: {
+          gradeLabel: '高二',
+          stageLabel: '高中',
+          targetExam: '高考',
+          subjectName: '高中数学',
+        },
+        session: {
+          correctCount: 3,
+          totalCount: 5,
+          completedAt: '2026-06-22T09:00:00.000Z',
+          isMistakeReview: false,
+        },
+        knowledgeGroups: [
+          {
+            knowledgePointName: '集合中元素的互异性',
+            status: 'needs_work',
+            correctCount: 0,
+            totalCount: 2,
+          },
+        ],
+        materials: [
+          {
+            knowledgePointName: '集合中元素的互异性',
+            materialType: 'common_mistake',
+            label: '易错提醒',
+            title: '含参问题回代检验互异性',
+            summary: '求出参数后先回代，检查集合元素不能重复。',
+          },
+        ],
+      },
+      callLlmImpl,
+    });
+
+    expect(callLlmImpl).toHaveBeenCalledTimes(1);
+    expect(result.kind).toBe('session_review_advice');
+    expect(result.status).toBe('ok');
+    expect(result.advice?.focusItems[0]?.knowledgePointName).toBe('集合中元素的互异性');
+    expect(result.llm.target_id).toBe('openai-chat-gemini-3.1-pro');
+    expect(result.diagnostics.validation_error).toBeNull();
   });
 });

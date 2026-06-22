@@ -4,6 +4,10 @@ import {
   analyzeMixedLearningMaterial as analyzeMixedLearningMaterialCommon,
   analyzeQuestions as analyzeQuestionsCommon,
 } from '../business/education-analysis.ts';
+import {
+  generateSessionReviewAdvice as generateSessionReviewAdviceCommon,
+  sessionReviewAdviceSchema,
+} from '../business/session-review-advice.ts';
 import type {
   KnowledgePointsAnalysisResult,
   LearningResourceAnalysisBatch,
@@ -11,10 +15,16 @@ import type {
   LlmTarget,
   MixedLearningMaterialBatch,
   QuestionAnalysisResult,
+  SessionReviewAdviceResult,
   SourceFile,
 } from '../types/public-types.ts';
 import { resolveProviderTarget } from './provider-target';
 
+export type {
+  SessionReviewAdvice,
+  SessionReviewAdviceFocusItem,
+  SessionReviewAdviceResult,
+} from '../types/public-types.ts';
 export {
   formatDisplayText,
   formatExamText,
@@ -24,6 +34,7 @@ export {
   learningResourceAnalysisBatchSchema,
   mixedLearningMaterialBatchSchema,
 } from '../business/mixed-learning-material-parser.ts';
+export { sessionReviewAdviceSchema };
 
 interface AdapterCommonOptions {
   concurrency?: number;
@@ -98,6 +109,12 @@ export type KnowledgePointAnalysisParserResult = KnowledgePointsAnalysisResult;
 export type LearningResourceAnalysisParserResult = LearningResourceAnalysisBatch;
 export type MixedLearningMaterialAnalysisParserResult = MixedLearningMaterialBatch;
 export type QuestionAnalysisParserResult = QuestionAnalysisResult;
+export type SessionReviewAdviceParserResult = SessionReviewAdviceResult;
+
+export interface GenerateSessionReviewAdviceOptions extends AdapterCommonOptions {
+  providerId?: string;
+  input: Record<string, unknown>;
+}
 
 export interface AnalyzeLearningResourceOptions extends AdapterCommonOptions {
   providerId?: string;
@@ -161,6 +178,22 @@ export async function analyzeLearningResource(
   });
 }
 
+export async function generateSessionReviewAdvice(
+  opts: GenerateSessionReviewAdviceOptions,
+): Promise<SessionReviewAdviceResult> {
+  const { providerId, ...commonOptions } = opts;
+  if (!providerId) {
+    return callCommonSessionReviewAdvice(commonOptions);
+  }
+
+  const provider = await resolveProviderTarget(providerId);
+  return callCommonSessionReviewAdvice({
+    ...withProviderDefaults(commonOptions, provider.defaults),
+    llmTarget: provider.llmTarget,
+    apiKey: provider.apiKey,
+  });
+}
+
 export async function analyzeMixedLearningMaterial(
   opts: AnalyzeMixedLearningMaterialOptions,
 ): Promise<MixedLearningMaterialBatch> {
@@ -188,6 +221,10 @@ const callCommonQuestionAnalysis = analyzeQuestionsCommon as unknown as (
 const callCommonLearningResourceAnalysis = analyzeLearningResourceCommon as unknown as (
   opts: Record<string, unknown>,
 ) => Promise<LearningResourceAnalysisBatch>;
+
+const callCommonSessionReviewAdvice = generateSessionReviewAdviceCommon as unknown as (
+  opts: Record<string, unknown>,
+) => Promise<SessionReviewAdviceResult>;
 
 const callCommonMixedLearningMaterialAnalysis = analyzeMixedLearningMaterialCommon as unknown as (
   opts: Record<string, unknown>,

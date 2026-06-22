@@ -15,7 +15,7 @@
     "seed": "tsx prisma/seed.ts",
     "studio": "prisma studio",
     "format": "prisma format",
-    "test": "tsx prisma/demo-student-password.test.ts && tsx src/textbook-scope.test.ts && tsx src/learning-material-source.test.ts",
+    "test": "tsx prisma/demo-student-password.test.ts && tsx src/textbook-scope.test.ts && tsx src/learning-material-source.test.ts && tsx src/session-review-advice.test.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit"
   },

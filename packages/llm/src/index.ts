@@ -9,6 +9,10 @@ import {
   mixedLearningMaterialBatchSchema as mixedLearningMaterialBatchSchemaImpl,
 } from './business/mixed-learning-material-parser.ts';
 import {
+  generateSessionReviewAdvice as generateSessionReviewAdviceImpl,
+  sessionReviewAdviceSchema as sessionReviewAdviceSchemaImpl,
+} from './business/session-review-advice.ts';
+import {
   buildDisplayTextFormatterBrowserScript as buildDisplayTextFormatterBrowserScriptImpl,
   formatDisplayText as formatDisplayTextImpl,
   formatExamText as formatExamTextImpl,
@@ -48,6 +52,7 @@ import type {
   CallLlm,
   DocumentCache,
   FileSystemDocumentCacheOptions,
+  GenerateSessionReviewAdvice,
   JsonObject,
   ParseDocumentPages,
   ParseImage,
@@ -65,6 +70,7 @@ export type {
   DocumentCache,
   DocumentParseResult,
   FileSystemDocumentCacheOptions,
+  GenerateSessionReviewAdviceRequest,
   JsonObject,
   KnowledgeChapter,
   KnowledgePoint,
@@ -95,17 +101,23 @@ export type {
   Question,
   QuestionAnalysisResult,
   RelatedKnowledgePoint,
+  SessionReviewAdvice,
+  SessionReviewAdviceFocusItem,
+  SessionReviewAdviceResult,
   SourceFile,
   TargetConfig,
 } from './types/public-types.ts';
 
 export const analyzeKnowledgePoints =
   analyzeKnowledgePointsImpl as unknown as AnalyzeKnowledgePoints;
+export const generateSessionReviewAdvice =
+  generateSessionReviewAdviceImpl as unknown as GenerateSessionReviewAdvice;
 export const analyzeLearningResource =
   analyzeLearningResourceImpl as unknown as AnalyzeLearningResource;
 export const analyzeMixedLearningMaterial =
   analyzeMixedLearningMaterialImpl as unknown as AnalyzeMixedLearningMaterial;
 export const analyzeQuestions = analyzeQuestionsImpl as unknown as AnalyzeQuestions;
+export const sessionReviewAdviceSchema = sessionReviewAdviceSchemaImpl;
 export const learningResourceAnalysisBatchSchema = learningResourceAnalysisBatchSchemaImpl;
 export const mixedLearningMaterialBatchSchema = mixedLearningMaterialBatchSchemaImpl;
 

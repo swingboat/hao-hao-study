@@ -412,6 +412,53 @@ export interface AnalyzeMixedLearningMaterialRequest extends CommonParserOptions
 
 export interface AnalyzeLearningResourceRequest extends AnalyzeMixedLearningMaterialRequest {}
 
+export interface SessionReviewAdviceFocusItem {
+  knowledgePointName: string;
+  priorityLabel: string;
+  reason: string;
+  suggestedAction: string;
+  recommendedMaterialTypes: string[];
+  [key: string]: unknown;
+}
+
+export interface SessionReviewAdvice {
+  headline: string;
+  summary: string;
+  focusItems: SessionReviewAdviceFocusItem[];
+  nextSteps: string[];
+  encouragement: string;
+  warnings?: string[];
+  qualityFlags?: string[];
+  [key: string]: unknown;
+}
+
+export interface SessionReviewAdviceResult {
+  kind: 'session_review_advice';
+  status: 'ok' | 'partial' | 'failed';
+  advice: SessionReviewAdvice | null;
+  llm: LlmInfo;
+  diagnostics: {
+    parse_error: unknown | null;
+    validation_error: unknown | null;
+    payload_log_path: string;
+    [key: string]: unknown;
+  };
+  usage?: JsonObject | null;
+  latency_ms?: number | null;
+  ok?: boolean;
+  [key: string]: unknown;
+}
+
+export interface GenerateSessionReviewAdviceRequest extends CommonParserOptions {
+  input: JsonObject;
+  llmConfig?: LlmConfig;
+  llmTarget?: LlmTarget;
+  llmTargetId?: string;
+  targetConfig?: LlmConfig;
+  target?: LlmTarget;
+  targetId?: string;
+}
+
 export interface PageImage {
   pageNumber?: number;
   page_number?: number;
@@ -560,6 +607,9 @@ export interface DocumentCache {
 export type AnalyzeKnowledgePoints = (
   request?: AnalyzeKnowledgePointsRequest,
 ) => Promise<KnowledgePointsAnalysisResult>;
+export type GenerateSessionReviewAdvice = (
+  request: GenerateSessionReviewAdviceRequest,
+) => Promise<SessionReviewAdviceResult>;
 export type AnalyzeLearningResource = (
   request?: AnalyzeLearningResourceRequest,
 ) => Promise<LearningResourceAnalysisBatch>;

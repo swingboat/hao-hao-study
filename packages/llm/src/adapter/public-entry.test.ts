@@ -9,8 +9,10 @@ import {
   formatDisplayText,
   formatExamText,
   formatQuestionText,
+  generateSessionReviewAdvice,
   learningResourceAnalysisBatchSchema,
   mixedLearningMaterialBatchSchema,
+  sessionReviewAdviceSchema,
 } from '@hao/llm';
 
 describe('@hao/llm package root', () => {
@@ -20,6 +22,8 @@ describe('@hao/llm package root', () => {
     expect(typeof analyzeLearningResource).toBe('function');
     expect(typeof analyzeMixedLearningMaterial).toBe('function');
     expect(typeof analyzeQuestions).toBe('function');
+    expect(typeof generateSessionReviewAdvice).toBe('function');
+    expect(typeof sessionReviewAdviceSchema.safeParse).toBe('function');
     expect(typeof learningResourceAnalysisBatchSchema.safeParse).toBe('function');
     expect(typeof mixedLearningMaterialBatchSchema.safeParse).toBe('function');
     expect(formatDisplayText('$A=\\{m+2, 2m^2+m\\}$')).toBe('A=m+2, 2m²+m');
