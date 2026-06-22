@@ -10,7 +10,7 @@
  *     的 STAGE_LABEL 字典对齐
  *   - student × 1（niki）—— 第一轮 MVP 先提供可展示、可本地演示登录的种子学生；
  *     每次 seed 会把当前 math_senior 已有知识点全部写入 unlocked_kp_ids。
- *   - student_planner_preference × 1（niki）—— 默认 Auto；weights 保留默认结构，便于学生端编辑。
+ *   - student_planner_preference × 1（niki）—— 默认 Auto；weights 保留默认结构，便于web端编辑。
  *   - textbook — 每次 seed 会先保留一个默认高中数学兜底教材，再把 parsed 教材上传中已发布的
  *     knowledge_point staging 回填为真实教材 / 章节 / 教材-KP 映射。
  *
@@ -20,7 +20,7 @@
  * Bedrock Converse 的协议差别。
  *
  * 待补：
- *   - knowledge_point 冷启动包 — 待运营端 F4 真实教材解析后注入
+ *   - knowledge_point 冷启动包 — 待admin端 F4 真实教材解析后注入
  */
 import { type Prisma, PrismaClient } from '@prisma/client';
 
@@ -356,7 +356,7 @@ async function main() {
   await seedDefaultTextbookScope();
   await seedPublishedTextbookScopes();
   await seedLLMProviders();
-  // TODO: knowledge_point 冷启动包待运营端 F4 上线后由真实数据填充
+  // TODO: knowledge_point 冷启动包待admin端 F4 上线后由真实数据填充
 }
 
 main()

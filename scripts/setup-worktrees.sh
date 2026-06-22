@@ -103,6 +103,6 @@ git worktree list
 echo ""
 echo "✅ 初始化完成。下一步："
 echo "   终端 1（总控 + 合并）: cd $(basename "$REPO_ROOT") && claude"
-echo "   终端 2（运营端 B）   : cd worktrees/admin && claude"
-echo "   终端 3（学生端 C）   : cd worktrees/web   && claude"
+echo "   终端 2（admin端 B）   : cd worktrees/admin && claude"
+echo "   终端 3（web端 C）   : cd worktrees/web   && claude"
 echo "   合并 feat → main    : bash scripts/merge-to-main.sh feat/admin|feat/web"

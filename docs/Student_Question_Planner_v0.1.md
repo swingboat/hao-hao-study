@@ -1,7 +1,7 @@
-# 学生端出题 Planner 设计 v0.1
+# web端出题 Planner 设计 v0.1
 
 > 记录日期：2026-06-16
-> 适用范围：学生端第一版学习 Session 规划。
+> 适用范围：web端第一版学习 Session 规划。
 > 核心原则：Planner 负责学习策略与题位分配，AI 只在单个题位内生成题目，不参与全局调度。
 
 ## 1. 目标
@@ -139,7 +139,7 @@ type FeynmanPromptSlot = BaseSlot & {
 用途：
 
 - 冷启动阶段的主要出题来源。
-- 第一版学生端若还没有章节进度字段，可先用 `new_knowledge` 替代 `chapter_practice`。
+- 第一版web端若还没有章节进度字段，可先用 `new_knowledge` 替代 `chapter_practice`。
 
 ### 5.3 `mistake_variant`
 
@@ -311,12 +311,12 @@ AI 输出必须经过自动 Validator：
 
 ## 11. 第一版实现建议
 
-第一版学生端可以先实现 Planner 的最小子集：
+第一版web端可以先实现 Planner 的最小子集：
 
 1. `daily_mixed` 模式。
 2. `new_knowledge` / `chapter_practice` 题库取题。
 3. `mistake_variant` 和 `spaced_review` 的数据结构预留，可先不接 AI。
-4. `feynman_check` 只写入设计，不进第一轮学生端答题闭环。
+4. `feynman_check` 只写入设计，不进第一轮web端答题闭环。
 5. 题库不足时先显示空数据态，不实时调用 AI。
 
 等题库 Session 闭环稳定后，再接入 AI 生成和 Validator。

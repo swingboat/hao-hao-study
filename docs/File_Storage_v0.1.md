@@ -76,7 +76,7 @@ export interface ObjectStore {
   list(prefix: string, opts?: { cursor?: string; limit?: number }): Promise<ListResult>;
 
   /**
-   * 生成可由前端 / 学生端直接 GET 的 URL，TTL 内有效。
+   * 生成可由前端 / web端直接 GET 的 URL，TTL 内有效。
    * - fs 模式：返回 `${PUBLIC_BASE_URL}/storage/${key}` 形式的本地路由
    * - s3 模式：返回真正的 presigned GET URL
    */

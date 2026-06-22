@@ -1868,7 +1868,7 @@ v1.5 实装时需补充 5 种下架原因（答案错 / 题干歧义 / 解析错
   - target_score ≥ 600 → mastery_threshold = 0.90
   - 500 ≤ target_score < 600 → mastery_threshold = 0.85
   - target_score < 500 → mastery_threshold = 0.80
-- **D3=(a) recommendation_mix_override**：MVP 仅运营可改，学生端不开放
+- **D3=(a) recommendation_mix_override**：MVP 仅运营可改，web端不开放
 - **"多套 Template 并行按分数切换"提法废弃**
 
 **字段变更：**
@@ -2399,7 +2399,7 @@ audit_log
 | 类别 | 确认项 | 状态 |
 |---|---|---|
 | 题库 | 实际覆盖 KP 范围已定（30-50 个 KP） | 待确认（运营冷启动数据包） |
-| 题库 | KP 表结构已定稿，可导入 | ✅ 已确认（见 [Tech Stack](../Tech_Stack_MVP_v0.1.md) M1 + 运营端 PRD F4） |
+| 题库 | KP 表结构已定稿，可导入 | ✅ 已确认（见 [Tech Stack](../Tech_Stack_MVP_v0.1.md) M1 + admin端 PRD F4） |
 | 题库 | 难度至少 3 档以上，选择+填空占比 ≥ 70% | 待确认（运营冷启动数据包） |
 | 部署 | Web 部署平台 | ✅ 已确认：Vercel（D1） |
 | 后端 | 后端框架选型 | ✅ 已确认：Next.js 15 Route Handlers + tRPC v11（D2/D5） |

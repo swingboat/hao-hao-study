@@ -49,7 +49,7 @@ enum LearningSessionStatus {
 enum SessionReviewAdviceStatus {
   pending /// 已创建生成记录，等待 LLM 返回或 worker 处理
   generated /// 已生成可展示的结构化复盘建议
-  failed /// 生成失败；学生端应降级展示确定性复盘计划
+  failed /// 生成失败；web端应降级展示确定性复盘计划
 }
 
 /// 学生 Planner 偏好模式
@@ -70,14 +70,14 @@ enum QuestionType {
   fill_in /// 填空题
 }
 
-/// LLM Provider 协议类型（运营端 §7）
+/// LLM Provider 协议类型（admin端 §7）
 enum LLMProtocol {
   openai_chat /// OpenAI /v1/chat/completions 协议
   google_generate_content /// Google /v1/models/*:generateContent 协议
   bedrock_converse /// Bedrock /converse 协议
 }
 
-/// LLM 解析任务种类（运营端 F2.2 默认 Provider 绑定维度）
+/// LLM 解析任务种类（admin端 F2.2 默认 Provider 绑定维度）
 enum ParseTaskKind {
   question /// 题目抽取
   knowledge_point /// 知识点抽取
@@ -162,7 +162,7 @@ enum ReviewStatus {
   edited /// 草稿（运营修改了一些字段但尚未发布）
 }
 
-/// LearningSession 中题目分配的来源池（用于事后分析；学生端不展示）
+/// LearningSession 中题目分配的来源池（用于事后分析；web端不展示）
 enum SessionPoolSource {
   error_review /// 池 A：错题重做
   spaced_repetition /// 池 B：Layer 3 间隔复习
@@ -222,9 +222,9 @@ model subject {
 model student {
   /// 主键 UUID（系统生成）
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  /// 登录用户名，全局唯一，由运营开户时下发（运营端 F5.2）
+  /// 登录用户名，全局唯一，由运营开户时下发（admin端 F5.2）
   username           String    @unique
-  /// 学生端登录密码 hash，明文永不入库；当前学生端认证契约为 scrypt:v1:<salt>:<hex>
+  /// web端登录密码 hash，明文永不入库；当前web端认证契约为 scrypt:v1:<salt>:<hex>
   password_hash      String
   /// 学生真实姓名
   name               String
@@ -237,17 +237,17 @@ model student {
   primary_subject    subject   @relation("student_primary_subject", fields: [primary_subject_id], references: [id])
   /// 目标考试文本标签，如"高考数学 2027"。MVP 仅展示
   target_exam        String
-  /// 监护人同意时间。NULL = 学生端 G1.3 尚未确认
-  /// 强约束：NULL 时禁止访问任何学习功能（学生端 T2）
+  /// 监护人同意时间。NULL = web端 G1.3 尚未确认
+  /// 强约束：NULL 时禁止访问任何学习功能（web端 T2）
   parent_consent_at  DateTime? @db.Timestamptz()
   /// 冷启动期标记。MVP 仅展示，不影响推荐
   cold_start_mode    Boolean   @default(true)
   /// 已解锁知识点 ID 数组（决议 S2-A）
-  /// 推荐器三池统一加过滤 kp_id ∈ unlocked_kp_ids（学生端 T3 / T9）
+  /// 推荐器三池统一加过滤 kp_id ∈ unlocked_kp_ids（web端 T3 / T9）
   unlocked_kp_ids    String[]  @db.Uuid
   /// 创建时间（开户时间）
   created_at         DateTime  @default(now()) @db.Timestamptz()
-  /// 软删时间。非 NULL 表示已注销（学生端 G5.3 / 运营端 F5.4）
+  /// 软删时间。非 NULL 表示已注销（web端 G5.3 / admin端 F5.4）
   /// 注销时本表软删，关联 5 张派生表硬删
   soft_deleted_at    DateTime? @db.Timestamptz()
 
@@ -265,7 +265,7 @@ model student {
   @@map("student")
 }
 
-/// 学生 Planner 偏好 — 学生端"今日练习"凑题配置
+/// 学生 Planner 偏好 — web端"今日练习"凑题配置
 model student_planner_preference {
   /// 学生外键；每个学生最多一条偏好记录
   student_id String                @id @db.Uuid
@@ -307,7 +307,7 @@ model knowledge_point {
   @@map("knowledge_point")
 }
 
-/// 教材 — 学生端按教材查看知识点进度的稳定归属维度
+/// 教材 — web端按教材查看知识点进度的稳定归属维度
 model textbook {
   /// 主键 UUID
   id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -363,7 +363,7 @@ model textbook_chapter {
   @@map("textbook_chapter")
 }
 
-/// 教材-知识点映射 — 学生端取"教材 ∩ 已解锁知识点"的正式依据
+/// 教材-知识点映射 — web端取"教材 ∩ 已解锁知识点"的正式依据
 model textbook_knowledge_point {
   /// 教材外键（复合主键 part 1）
   textbook_id     String            @db.Uuid
@@ -395,7 +395,7 @@ model question {
   content       String
   /// 标准答案
   answer        String
-  /// 题目解析全文（学生端 G3.4 展示）
+  /// 题目解析全文（web端 G3.4 展示）
   solution_text String
   /// 关联的所有知识点 ID 数组（决议 C1：N:M 通过数组）
   /// 必须包含 primary_kp_id
@@ -423,7 +423,7 @@ model question {
 //  §C  学习行为域 — Session / Attempt
 // ══════════════════════════════════════════════════════════════════
 
-/// 学习会话（学生端 G3.1）
+/// 学习会话（web端 G3.1）
 model learning_session {
   /// 主键 UUID
   id           String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -452,7 +452,7 @@ model learning_session {
   @@map("learning_session")
 }
 
-/// 答题记录（学生端 G3.3 提交事务步骤 1）
+/// 答题记录（web端 G3.3 提交事务步骤 1）
 model question_attempt {
   /// 主键 UUID
   id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -504,7 +504,7 @@ model session_review_advice {
   llm_metadata       Json?
   /// 解析/校验/超时等诊断信息；仅用于排障
   diagnostics        Json?
-  /// 质量标记，如 materials_insufficient、history_insufficient；学生端需转译后再展示
+  /// 质量标记，如 materials_insufficient、history_insufficient；web端需转译后再展示
   quality_flags      String[]                  @default([])
   /// prompt 版本，便于后续评估和重算
   prompt_version     String?
@@ -615,11 +615,11 @@ model audit_log {
   /// 双角色统一存 text 而非 uuid
   actor_id    String
   /// 受控集合：
-  ///   consent_confirmed     — 学生端 G1.3 监护人同意确认
-  ///   export_data_self      — 学生端 G5.2 自助导出
-  ///   export_data           — 运营端 F5.3 代导出
-  ///   delete_self           — 学生端 G5.3 自助注销
-  ///   delete_student        — 运营端 F5.4 代注销
+  ///   consent_confirmed     — web端 G1.3 监护人同意确认
+  ///   export_data_self      — web端 G5.2 自助导出
+  ///   export_data           — admin端 F5.3 代导出
+  ///   delete_self           — web端 G5.3 自助注销
+  ///   delete_student        — admin端 F5.4 代注销
   ///   consent_withdraw      — 监护人同意撤回（v0.2+）
   action      String
   /// 目标对象类型（如 "student" / "question"）
@@ -690,7 +690,7 @@ model llm_provider {
   @@map("llm_provider")
 }
 
-/// 内容上传存档（运营端 F3.1 / F4.3）
+/// 内容上传存档（admin端 F3.1 / F4.3）
 ///
 /// 与对象存储的对接（docs/File_Storage_v0.1.md）：
 ///   - `sha256` 内容指纹；不 UNIQUE，多次上传 / 多用户上传产生多 row；物理上同 sha256 只存一份
@@ -729,7 +729,7 @@ model content_upload {
   @@map("content_upload")
 }
 
-/// LLM 解析任务（运营端 F3.2 / F4.3 / F7.1）
+/// LLM 解析任务（admin端 F3.2 / F4.3 / F7.1）
 model llm_parse_job {
   /// 主键 UUID
   id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -772,7 +772,7 @@ model llm_parse_job {
   @@map("llm_parse_job")
 }
 
-/// 解析结果待审核中间层（运营端 F3.3–F3.7 / F4.3）
+/// 解析结果待审核中间层（admin端 F3.3–F3.7 / F4.3）
 /// 每抽出一个候选实体（一题 / 一 KP / 一个来源 / 一条学习材料）写一行
 model llm_parse_staging {
   /// 主键 UUID

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把教材、辅导讲义、题集、答案解析册、完整试卷等上传文件，稳定沉淀为可审核、可追溯、可在学生端使用的知识点、题目、学习材料和来源资产。
+**Goal:** 把教材、辅导讲义、题集、答案解析册、完整试卷等上传文件，稳定沉淀为可审核、可追溯、可在web端使用的知识点、题目、学习材料和来源资产。
 
-**Architecture:** 采用“文档画像识别 -> 分块分类 -> 按类型解析 -> 人工审核 -> 发布使用”的分层架构。新的 prompt、schema 和 LLM 解析策略先在 `how-to-use-llm-proxy` 验证；当前仓库只接入已验证的公共方法，并负责 DB、共享 schema、运营审核和学生端展示。
+**Architecture:** 采用“文档画像识别 -> 分块分类 -> 按类型解析 -> 人工审核 -> 发布使用”的分层架构。新的 prompt、schema 和 LLM 解析策略先在 `how-to-use-llm-proxy` 验证；当前仓库只接入已验证的公共方法，并负责 DB、共享 schema、运营审核和web端展示。
 
 **Tech Stack:** Prisma/PostgreSQL、`@hao/shared` zod schema、`@hao/llm` adapter、`@hao/storage` ObjectStore、BullMQ、Next.js admin/web、`how-to-use-llm-proxy` 公共解析层。
 
@@ -134,7 +134,7 @@ model source_document {
 
 ### 3.2 SourceUnit：来源定位
 
-用途：表示每条抽取结果来自原 PDF 的哪一页、哪个 slide、哪个题号或哪个视觉区域，支持人工审核和学生端“来源”展示。
+用途：表示每条抽取结果来自原 PDF 的哪一页、哪个 slide、哪个题号或哪个视觉区域，支持人工审核和web端“来源”展示。
 
 ```prisma
 enum SourceUnitKind {
@@ -297,7 +297,7 @@ type QuestionQualityStatus =
 发布规则：
 
 - `publishable`：题干、题型、答案、知识点齐全，可审核后发布。
-- `missing_solution`：可以作为低风险题进入审核，但学生端解析为空时要有运营确认。
+- `missing_solution`：可以作为低风险题进入审核，但web端解析为空时要有运营确认。
 - `missing_answer`：不能发布给学生正式练习。
 - `incomplete_stem`：保留原始定位，不入题库。
 - `needs_human_review`：运营确认后才可发布。
@@ -312,7 +312,7 @@ type QuestionQualityStatus =
 - Modify: `docs/Tech_Stack_MVP_v0.1.md`
 - Reference: `docs/File_Storage_v0.1.md`
 
-- [ ] **Step 1: 在运营端 PRD 增加“辅导资料资产化”章节**
+- [ ] **Step 1: 在admin端 PRD 增加“辅导资料资产化”章节**
 
 写入内容要覆盖：
 
@@ -328,15 +328,15 @@ type QuestionQualityStatus =
 - 题目资产：选择题、填空题及其答案、解析和知识点关联。
 - 学习材料资产：大招、技巧、易错提醒、题型总结、考情分析、教材深挖和解析总结。
 
-缺答案题目不得直接发布到学生端正式练习；有答案但缺解析的题目必须在审核界面明确标记。
+缺答案题目不得直接发布到web端正式练习；有答案但缺解析的题目必须在审核界面明确标记。
 ```
 
-- [ ] **Step 2: 在学生端 PRD 增加学习材料消费场景**
+- [ ] **Step 2: 在web端 PRD 增加学习材料消费场景**
 
 写入内容要覆盖：
 
 ```markdown
-学生端在知识点详情、今日练习准备页、答题结果页和错题详情页展示学习材料。
+web端在知识点详情、今日练习准备页、答题结果页和错题详情页展示学习材料。
 
 展示语言必须面向学生：
 
@@ -995,7 +995,7 @@ git add packages/llm/src
 git commit -m "feat(llm): expose mixed learning material analysis"
 ```
 
-### Task 6: 运营端混合解析审核
+### Task 6: admin端混合解析审核
 
 **Owner:** B 进程，`worktrees/admin/`。
 
@@ -1049,7 +1049,7 @@ git commit -m "feat(llm): expose mixed learning material analysis"
 
 - [ ] **Step 4: 缺答案题处理**
 
-缺答案题在运营端显示为“缺答案，不能发布到学生端练习”，动作只有：
+缺答案题在admin端显示为“缺答案，不能发布到web端练习”，动作只有：
 
 ```text
 补答案
@@ -1078,7 +1078,7 @@ git add apps/admin
 git commit -m "feat(admin): review mixed learning materials"
 ```
 
-### Task 7: 学生端学习材料消费
+### Task 7: web端学习材料消费
 
 **Owner:** C 进程，`worktrees/web/`。
 
@@ -1090,7 +1090,7 @@ git commit -m "feat(admin): review mixed learning materials"
 - Modify: `worktrees/web/apps/web/lib/mistake-book.ts`
 - Modify student-facing pages under `worktrees/web/apps/web/app/study/**`
 
-- [ ] **Step 1: 增加学生端查询 helper**
+- [ ] **Step 1: 增加web端查询 helper**
 
 Create `apps/web/lib/learning-materials.ts`:
 
@@ -1140,7 +1140,7 @@ export function toStudentMaterialTypeLabel(type: string): string {
 
 - [ ] **Step 4: 隐藏内部字段**
 
-学生端不得展示：
+web端不得展示：
 
 ```text
 source_document_id
@@ -1252,9 +1252,9 @@ main 已更新，B/C 进程请在各自 worktree 内执行 `bash ../../scripts/s
 - 正式题目能关联到 `question_source`。
 - 学习材料能关联到 `knowledge_point`。
 - 每条学习材料至少有一个 `kp_hint` 或正式 `kp_id`。
-- 缺答案题不会进入学生端正式练习。
+- 缺答案题不会进入web端正式练习。
 
-### 6.2 运营端验收
+### 6.2 admin端验收
 
 - 运营能看到文档画像。
 - 运营能审核来源信息。
@@ -1262,7 +1262,7 @@ main 已更新，B/C 进程请在各自 worktree 内执行 `bash ../../scripts/s
 - 运营能识别缺答案、缺解析、题干不完整的题。
 - 运营能从审核项跳回原 PDF 页或 slide 缩略图。
 
-### 6.3 学生端验收
+### 6.3 web端验收
 
 - 学生能在复习前看到“这类题怎么做”和“常见失误”。
 - 学生做错题后能看到对应方法总结。
@@ -1286,8 +1286,8 @@ main 已更新，B/C 进程请在各自 worktree 内执行 `bash ../../scripts/s
 3. Task 2：主目录增加数据模型。
 4. Task 3：主目录增加共享 schema。
 5. Task 5：公共 LLM 方法验证通过后接入 adapter。
-6. Task 6：B 进程做运营端审核。
-7. Task 7：C 进程做学生端消费。
+6. Task 6：B 进程做admin端审核。
+7. Task 7：C 进程做web端消费。
 8. Task 8：A 进程合并和整体验收。
 
 ## 8. 风险与控制
@@ -1297,7 +1297,7 @@ main 已更新，B/C 进程请在各自 worktree 内执行 `bash ../../scripts/s
 | LLM 从无答案题中编造答案 | schema 增加质量状态，缺答案题禁止发布 |
 | 学习材料和知识点重复混乱 | 学习材料只挂 KP，不替代 KP |
 | 来源信息只存在文件名里 | 增加 `source_document` 结构化存储 |
-| 学生端暴露内部字段 | web helper 统一转换 label，页面测试覆盖 |
+| web端暴露内部字段 | web helper 统一转换 label，页面测试覆盖 |
 | admin/web 越界修改 | A 只改公共层，B 只改 `apps/admin`，C 只改 `apps/web` |
 | prompt 在当前仓库临时试验 | 新解析能力先在 `how-to-use-llm-proxy` 验证 |
 

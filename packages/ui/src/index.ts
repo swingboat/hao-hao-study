@@ -1,5 +1,5 @@
 /**
- * @hao/ui — 学生端 / 运营端共享的 React 组件层（基于 shadcn/ui + Tailwind 4）
+ * @hao/ui — web端 / admin端共享的 React 组件层（基于 shadcn/ui + Tailwind 4）
  *
  * 设计原则：
  *   - 仅放真正双端共用的组件（按钮、卡片、对话框、表单原子）

@@ -1,10 +1,10 @@
 # Web 进程 Prompt：学生一轮复习 MVP P0
 
-请在 `worktrees/web/` 中执行本 prompt。你是学生端 Claude C，只能修改 `apps/web/**`。如果发现必须修改 `packages/**`，请停止并把需要 main 处理的公共层改动写清楚，交给主目录进程处理。
+请在 `worktrees/web/` 中执行本 prompt。你是web端 Claude C，只能修改 `apps/web/**`。如果发现必须修改 `packages/**`，请停止并把需要 main 处理的公共层改动写清楚，交给主目录进程处理。
 
 ## 背景
 
-当前项目是“好好学习”高考备考 MVP。目标用户是一名高二学生，2027 年参加高考，现在处于数学第一轮复习。学生端的核心体验不是展示系统能力，而是每天让学生清楚：
+当前项目是“好好学习”高考备考 MVP。目标用户是一名高二学生，2027 年参加高考，现在处于数学第一轮复习。web端的核心体验不是展示系统能力，而是每天让学生清楚：
 
 - 今天练什么
 - 为什么练这些
@@ -23,7 +23,7 @@
 ## 硬性边界
 
 - 不要修改 `packages/**`、`apps/admin/**`、`docs/**`。
-- 不要在学生端展示数据库主键、Provider ID、Job ID、枚举原值、内部路径、`pool`、`fallback`、`ai_generated` 等工程标识。
+- 不要在web端展示数据库主键、Provider ID、Job ID、枚举原值、内部路径、`pool`、`fallback`、`ai_generated` 等工程标识。
 - 题干、答案、解析、公式、LLM 输出展示必须继续使用现有公共格式化入口，不要在页面里私自写正则替换。
 - 不做 AI 对话、不做多学科、不做学生上传题目、不做学生自由选题。
 - 使用 TDD：先写失败测试，再实现，再跑通过。
@@ -46,12 +46,12 @@
 
 只做第一轮 P0 学生价值闭环，不扩功能范围：
 
-1. G2：学生端文案去工程化。
+1. G2：web端文案去工程化。
 2. B1：学生错题本列表。
 3. B2：单题错题重做。
 4. C1：首页改成“今日复习任务台”。
 
-## Task 1：学生端文案去工程化
+## Task 1：web端文案去工程化
 
 ### 要做什么
 
@@ -59,7 +59,7 @@
 
 ### 验收标准
 
-- 学生端不出现 `pool`、`new_knowledge`、`mistake_variant`、`spaced_review`、`fallback`、`provider`、`job` 等词。
+- web端不出现 `pool`、`new_knowledge`、`mistake_variant`、`spaced_review`、`fallback`、`provider`、`job` 等词。
 - 不展示 `kp_id`、`question_id`、`session_id` 等内部 ID。
 - 空状态使用正向学习语言。
 - planner 设置如果暂时保留，必须转译为学生能理解的学习模式；如果难以转译，先从首页隐藏设置入口，不要让高二学生调权重。
@@ -109,7 +109,7 @@
 
 ### 要做什么
 
-新增学生端错题本页面。建议路径为 `/study/mistakes` 或 `/mistakes`，优先选择和现有 `/study/history` 风格一致的路径。页面按知识点分组展示当前学生 `open` 错题。
+新增web端错题本页面。建议路径为 `/study/mistakes` 或 `/mistakes`，优先选择和现有 `/study/history` 风格一致的路径。页面按知识点分组展示当前学生 `open` 错题。
 
 ### 数据要求
 

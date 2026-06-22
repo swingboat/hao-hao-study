@@ -49,7 +49,7 @@ export interface ObjectStore {
   list(prefix: string, opts?: { cursor?: string; limit?: number }): Promise<ListResult>;
 
   /**
-   * 给前端 / 学生端的直接可 GET 的 URL，TTL 内有效。
+   * 给前端 / web端的直接可 GET 的 URL，TTL 内有效。
    * - fs 实现：返回 ${publicBaseUrl}/storage/${key} 形式的本地路由（caller 在 Next.js 加 /storage/[...key] handler 映射）
    * - s3 实现：返回 SigV4 presigned GET URL
    */

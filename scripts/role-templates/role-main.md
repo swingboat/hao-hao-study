@@ -28,10 +28,10 @@
 
 🚫 **禁止**：
 
-- `apps/admin/**` — 运营端代码（Claude B 的领地，应在 `worktrees/admin/` 写）
-- `apps/web/**` — 学生端代码（Claude C 的领地，应在 `worktrees/web/` 写）
+- `apps/admin/**` — admin端代码（Claude B 的领地，应在 `worktrees/admin/` 写）
+- `apps/web/**` — web端代码（Claude C 的领地，应在 `worktrees/web/` 写）
 
-如果用户要求你改 `apps/**`，请回复："这属于运营端 / 学生端的工作边界，请切到对应 worktree 进程处理。" **不要越界。**
+如果用户要求你改 `apps/**`，请回复："这属于admin端 / web端的工作边界，请切到对应 worktree 进程处理。" **不要越界。**
 
 ## 提交规范
 

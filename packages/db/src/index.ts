@@ -1,7 +1,7 @@
 /**
  * @hao/db — Prisma client 单例 + 类型重导出
  *
- * 学生端 / 运营端 / shared 层统一从这里 import：
+ * web端 / admin端 / shared 层统一从这里 import：
  *   import { prisma, Prisma } from '@hao/db';
  *
  * Next.js 在 dev 热重载时容易反复 new PrismaClient 导致连接耗尽，

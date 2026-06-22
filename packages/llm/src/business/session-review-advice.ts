@@ -128,7 +128,7 @@ export function buildSessionReviewAdvicePrompt(input = {}) {
     '  ],',
     '  "nextSteps": ["最多 3 条复盘步骤"],',
     '  "encouragement": "一句正向收束语",',
-    '  "warnings": ["可选：输入不足、材料不足等诊断，不给学生端默认展示"],',
+    '  "warnings": ["可选：输入不足、材料不足等诊断，不给web端默认展示"],',
     '  "qualityFlags": ["可选：low_material_coverage | insufficient_history | partial_attempts"]',
     '}',
     '',
