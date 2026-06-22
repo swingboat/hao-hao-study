@@ -7,7 +7,7 @@ import Link from 'next/link';
 export default function AdminHomePage() {
   return (
     <main className="p-8 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-semibold mb-1">运营端控制台</h1>
+      <h1 className="text-2xl font-semibold mb-1">admin端控制台</h1>
       <p className="text-sm opacity-60 mb-6">v0.1 MVP — F1/F2/F3/F4/F5.1 已上线</p>
 
       <ul className="grid gap-3 sm:grid-cols-2">

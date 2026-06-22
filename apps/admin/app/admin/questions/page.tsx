@@ -7,7 +7,7 @@
  *
  * ⚠️ schema 缺口（v0.1）：`question` 表无 `options` 列，choice 题选项只在
  *   `llm_parse_staging.review_payload` JSONB 里（accept 时落进去）。这里靠
- *   `published_id` 反查 staging 把 options 拼回来仅用于展示；学生端读 question
+ *   `published_id` 反查 staging 把 options 拼回来仅用于展示；web端读 question
  *   暂时拿不到选项 —— 需要总控（A）给 schema 加列才能根治。
  */
 import { prisma } from '@hao/db';

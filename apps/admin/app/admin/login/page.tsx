@@ -22,7 +22,7 @@ export default function LoginPage() {
         action={formAction}
         className="w-full max-w-sm border rounded-lg p-6 shadow-sm bg-white dark:bg-neutral-900"
       >
-        <h1 className="text-xl font-semibold mb-1">运营端登录</h1>
+        <h1 className="text-xl font-semibold mb-1">admin端登录</h1>
         <p className="text-xs opacity-60 mb-5">好好学习 · Operator Console v0.1</p>
 
         <input type="hidden" name="next" value={next} />
