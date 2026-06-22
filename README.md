@@ -49,6 +49,7 @@ pnpm install
 
 # 3. 准备环境变量
 cp .env.example .env
+# 如需生成学生练习个性化复盘，确认 HAO_SESSION_REVIEW_PROVIDER_ID 指向已启用的 llm_provider.id
 
 # 4. 生成 Prisma client + 迁库
 pnpm db:generate
@@ -58,6 +59,8 @@ pnpm db:migrate
 pnpm dev:admin     # 运营端 http://localhost:3001
 pnpm dev:web       # 学生端 http://localhost:3000
 ```
+
+> B/C worktree 执行 `bash ../../scripts/sync-from-main.sh` 同步 main 后，会自动重新生成 Prisma Client，并在 `DATABASE_URL` 可用时执行 `prisma migrate deploy`，避免出现客户端类型已更新但共享数据库未建表的情况。
 
 ## 3 进程并行开发
 

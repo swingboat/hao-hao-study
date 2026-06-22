@@ -116,6 +116,8 @@ git add apps/admin -- ':!pnpm-lock.yaml'
 | ③ | B/C 把功能合入 main | 用户在主目录 | `bash scripts/merge-to-main.sh feat/admin` |
 | ④ | 合并完成后通知对端再 sync 一次 | A 提示用户 | 在另一 worktree 跑 `sync-from-main.sh` |
 
+`sync-from-main.sh` 会在 rebase 后重新生成 Prisma Client；如果 `DATABASE_URL` 可用，还会执行 `prisma migrate deploy`。这保证 B/C 同步公共 schema 后，共享本地数据库也会应用新增迁移，避免出现 Prisma Client 已包含新 delegate、但 PostgreSQL 尚未建表的运行时错误。
+
 **B 与 C 永远不直接交互**——切断横向冲突。**A 不再需要 rebase 一圈回来**（因为 A 本来就在 main 上）。
 
 ---
@@ -199,6 +201,7 @@ cd worktrees/admin
 
 # 收到 A "main 已更新" 通知后
 bash ../../scripts/sync-from-main.sh
+# 脚本会重新生成 Prisma Client，并在 DATABASE_URL 可用时自动执行 prisma migrate deploy
 
 # 改完 apps/admin/* 后
 git add apps/admin -- ':!pnpm-lock.yaml'
@@ -212,6 +215,7 @@ cd worktrees/web
 
 # 收到 A "main 已更新" 通知后
 bash ../../scripts/sync-from-main.sh
+# 脚本会重新生成 Prisma Client，并在 DATABASE_URL 可用时自动执行 prisma migrate deploy
 
 # 改完 apps/web/* 后
 git add apps/web -- ':!pnpm-lock.yaml'

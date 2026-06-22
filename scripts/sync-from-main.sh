@@ -50,5 +50,22 @@ if [ -f "../../packages/db/prisma/schema.prisma" ]; then
   pnpm --filter @hao/db generate 2>/dev/null || true
 fi
 
+# ─── 应用 Prisma migrations（避免 Client 已更新但共享 DB 未迁移）──
+if [ -f "../../packages/db/prisma/schema.prisma" ]; then
+  if [ -f "../../.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "../../.env"
+    set +a
+  fi
+
+  if [ -n "${DATABASE_URL:-}" ]; then
+    echo "🗄️  应用 Prisma migrations（prisma migrate deploy）..."
+    pnpm --filter @hao/db exec prisma migrate deploy
+  else
+    echo "⚠️  未设置 DATABASE_URL，跳过 Prisma migrations；请在共享数据库上手动执行 pnpm db:migrate。"
+  fi
+fi
+
 echo ""
 echo "✅ 同步完成。当前分支 $CURRENT_BRANCH 已 rebase 到最新 main。"
