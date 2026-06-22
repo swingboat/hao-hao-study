@@ -8,6 +8,7 @@ import {
   withUnlockedPrimaryKpFilter,
 } from './learning-rules';
 import { nextMistakeReviewState } from './mistake-redo';
+import { generateAndPersistSessionReviewAdviceForSession } from './session-review-advice';
 import type { CurrentStudent } from './student-data';
 
 export async function submitSessionAnswers(
@@ -214,6 +215,8 @@ export async function submitSessionAnswers(
       },
     });
   });
+
+  await generateAndPersistSessionReviewAdviceForSession(student, session.id);
 
   return `/study/${session.id}/result`;
 }

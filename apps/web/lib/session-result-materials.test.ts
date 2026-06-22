@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildSessionResultKnowledgeGroups,
+  buildSessionResultReviewPlan,
   getLearningMaterialLabel,
 } from './session-result-materials.ts';
 
@@ -154,6 +155,96 @@ test('formats returned material text and never uses raw enum values as labels', 
   assert.match(item?.studentSummary ?? '', /x/);
 });
 
+test('builds an action-oriented review plan from weak knowledge points', () => {
+  const plan = buildSessionResultReviewPlan({
+    correctCount: 2,
+    totalCount: 6,
+    groups: [
+      {
+        kpId: 'kp-a',
+        knowledgePointName: '充分条件与必要条件',
+        status: 'needs_work',
+        correctCount: 1,
+        totalCount: 2,
+        materials: [
+          materialView({ id: 'm-1', label: '易错提醒', title: '方向别看反' }),
+          materialView({ id: 'm-2', label: '解题方法', title: '从集合角度判断' }),
+        ],
+      },
+      {
+        kpId: 'kp-b',
+        knowledgePointName: '集合关系',
+        status: 'review',
+        correctCount: 1,
+        totalCount: 1,
+        materials: [materialView({ id: 'm-3', label: '概念回顾', title: '子集关系' })],
+      },
+    ],
+  });
+
+  assert.equal(plan?.headline, '先把“充分条件与必要条件”补牢');
+  assert.match(plan?.summary ?? '', /答对 2 \/ 6/);
+  assert.match(plan?.summary ?? '', /易错提醒和解题方法/);
+  assert.deepEqual(
+    plan?.focusItems.map((item) => ({
+      knowledgePointName: item.knowledgePointName,
+      priorityLabel: item.priorityLabel,
+      scoreText: item.scoreText,
+      recommendedLabels: item.recommendedLabels,
+    })),
+    [
+      {
+        knowledgePointName: '充分条件与必要条件',
+        priorityLabel: '优先巩固',
+        scoreText: '本次 1 / 2',
+        recommendedLabels: ['易错提醒', '解题方法'],
+      },
+      {
+        knowledgePointName: '集合关系',
+        priorityLabel: '顺手复习',
+        scoreText: '本次 1 / 1',
+        recommendedLabels: ['概念回顾'],
+      },
+    ],
+  );
+});
+
+test('builds a lighter review plan when the related knowledge points are all correct', () => {
+  const plan = buildSessionResultReviewPlan({
+    correctCount: 3,
+    totalCount: 3,
+    groups: [
+      {
+        kpId: 'kp-a',
+        knowledgePointName: '等差数列',
+        status: 'review',
+        correctCount: 2,
+        totalCount: 2,
+        materials: [
+          materialView({ id: 'm-1', label: '概念回顾', title: '通项公式' }),
+          materialView({ id: 'm-2', label: '题型总结', title: '求和题型' }),
+        ],
+      },
+    ],
+  });
+
+  assert.equal(plan?.headline, '这次整体不错，顺手复习“等差数列”');
+  assert.match(plan?.summary ?? '', /答对 3 \/ 3/);
+  assert.match(plan?.focusItems[0]?.suggestion ?? '', /固定下来/);
+  assert.doesNotMatch(plan?.focusItems[0]?.priorityLabel ?? '', /review|needs_work|_/);
+});
+
+test('omits review plan when there are no related knowledge groups', () => {
+  assert.equal(
+    buildSessionResultReviewPlan({
+      correctCount: 0,
+      totalCount: 0,
+      groups: [],
+    }),
+    null,
+  );
+});
+
 function material(overrides: {
   id: string;
   materialType?: string;
@@ -172,6 +263,22 @@ function material(overrides: {
     primaryKpId: 'kp-a',
     kpIds: ['kp-a'],
     createdAt: now,
+    ...overrides,
+  };
+}
+
+function materialView(overrides: {
+  id: string;
+  label: string;
+  title: string;
+  materialType?: string;
+  content?: string;
+  studentSummary?: string | null;
+}) {
+  return {
+    materialType: 'common_mistake',
+    content: '这是一段复盘内容。',
+    studentSummary: null,
     ...overrides,
   };
 }

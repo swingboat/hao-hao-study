@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { formatStudentDisplayText } from '../../../../lib/display-text';
+import { buildSessionResultChoiceOptions } from '../../../../lib/session-result-options';
 import { getSessionResultData, requireCurrentStudent } from '../../../../lib/student-data';
 import { QuestionContentBlock } from '../../question-content-block';
 
@@ -19,6 +20,9 @@ export default async function SessionResultPage({ params }: PageProps) {
   const correctCount = result.attempts.filter((attempt) => attempt.is_correct).length;
   const total = result.attempts.length;
   const percent = total === 0 ? 0 : Math.round((correctCount / total) * 100);
+  const knowledgeGroupById = new Map(
+    result.relatedKnowledgeGroups.map((group) => [group.kpId, group]),
+  );
 
   return (
     <main className="page-shell">
@@ -50,80 +54,137 @@ export default async function SessionResultPage({ params }: PageProps) {
         </section>
       ) : null}
 
-      {result.relatedKnowledgeGroups.length > 0 ? (
-        <section className="related-knowledge-section" aria-labelledby="related-knowledge-title">
-          <div className="section-heading-row">
+      {result.reviewPlan ? (
+        <section className="review-plan-section" aria-labelledby="review-plan-title">
+          <div className="review-advice-band">
             <div>
-              <h2 id="related-knowledge-title">本次复盘重点</h2>
-              <p>先看和这次练习最相关的知识点，再回到每道题的解析。</p>
+              <p className="eyebrow">本次复盘建议</p>
+              <h2 id="review-plan-title">{result.reviewPlan.headline}</h2>
+              <p>{result.reviewPlan.summary}</p>
+              {result.reviewPlan.encouragement ? (
+                <p className="review-encouragement">{result.reviewPlan.encouragement}</p>
+              ) : null}
             </div>
+            <ol className="review-step-list">
+              {result.reviewPlan.steps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
           </div>
 
-          <div className="related-knowledge-list">
-            {result.relatedKnowledgeGroups.map((group) => (
-              <article className="related-knowledge-group" key={group.kpId}>
-                <div className="related-knowledge-group-head">
-                  <div>
-                    <p className="related-knowledge-status">
-                      {group.status === 'needs_work' ? '这部分还需要巩固' : '这部分可以顺手复习'}
-                    </p>
-                    <h3>{group.knowledgePointName}</h3>
-                  </div>
-                  <span>
-                    本次 {group.correctCount} / {group.totalCount}
-                  </span>
-                </div>
+          <div className="review-focus-grid">
+            {result.reviewPlan.focusItems.map((item) => {
+              const group = knowledgeGroupById.get(item.kpId);
 
-                <div className="related-material-list">
-                  {group.materials.map((material) => (
-                    <article className="related-material-item" key={material.id}>
-                      <div className="related-material-head">
-                        <span>{material.label}</span>
-                        <h4>{material.title}</h4>
+              return (
+                <article className="review-focus-card" key={item.kpId}>
+                  <div className="review-focus-head">
+                    <span>{item.priorityLabel}</span>
+                    <strong>{item.scoreText}</strong>
+                  </div>
+                  <div>
+                    <h3>{item.knowledgePointName}</h3>
+                    {item.reason ? <p className="review-focus-reason">{item.reason}</p> : null}
+                    <p>{item.suggestion}</p>
+                  </div>
+                  {item.recommendedLabels.length > 0 ? (
+                    <div className="review-material-pills" aria-label="推荐先看">
+                      {item.recommendedLabels.map((label) => (
+                        <span key={label}>{label}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {group?.materials.length ? (
+                    <details className="review-material-details">
+                      <summary>查看推荐材料</summary>
+                      <div className="review-material-list">
+                        {group.materials.slice(0, 3).map((material) => (
+                          <div className="review-material-row" key={material.id}>
+                            <div className="review-material-row-head">
+                              <span>{material.label}</span>
+                              <h4>{material.title}</h4>
+                            </div>
+                            <p>{material.studentSummary || material.content}</p>
+                          </div>
+                        ))}
                       </div>
-                      {material.studentSummary ? (
-                        <p className="related-material-summary">{material.studentSummary}</p>
-                      ) : null}
-                      <p className="related-material-content">{material.content}</p>
-                    </article>
-                  ))}
-                </div>
-              </article>
-            ))}
+                    </details>
+                  ) : null}
+                </article>
+              );
+            })}
           </div>
         </section>
       ) : null}
 
       <div className="result-list">
-        {result.attempts.map((attempt, index) => (
-          <article
-            className={attempt.is_correct ? 'result-card correct' : 'result-card wrong'}
-            key={attempt.id}
-          >
-            <div className="result-head">
-              <span>第 {index + 1} 题</span>
-              <strong>{attempt.is_correct ? '正确' : '还需巩固'}</strong>
-            </div>
-            {attempt.mistakeResolved ? (
-              <p className="resolved-mistake-note">这道错题已攻克，已从错题复习中移除。</p>
-            ) : null}
-            <QuestionContentBlock parts={attempt.question.contentParts} />
-            <dl className="answer-grid">
-              <div>
-                <dt>你的答案</dt>
-                <dd>{formatStudentDisplayText(attempt.student_answer || '未作答')}</dd>
+        {result.attempts.map((attempt, index) => {
+          const choiceOptions = buildSessionResultChoiceOptions({
+            questionType: attempt.question.question_type,
+            options: attempt.question.options,
+            studentAnswer: attempt.student_answer,
+            correctAnswer: attempt.question.answer,
+          });
+
+          return (
+            <article
+              className={attempt.is_correct ? 'result-card correct' : 'result-card wrong'}
+              key={attempt.id}
+            >
+              <div className="result-head">
+                <span>第 {index + 1} 题</span>
+                <strong>{attempt.is_correct ? '正确' : '还需巩固'}</strong>
               </div>
-              <div>
-                <dt>正确答案</dt>
-                <dd>{formatStudentDisplayText(attempt.question.answer)}</dd>
+              {attempt.mistakeResolved ? (
+                <p className="resolved-mistake-note">这道错题已攻克，已从错题复习中移除。</p>
+              ) : null}
+              <QuestionContentBlock parts={attempt.question.contentParts} />
+              {choiceOptions.length > 0 ? (
+                <div className="result-choice-list" aria-label="选项">
+                  {choiceOptions.map((option) => {
+                    const markers = [
+                      option.isStudentAnswer ? '你的答案' : '',
+                      option.isCorrectAnswer ? '正确答案' : '',
+                    ].filter(Boolean);
+
+                    return (
+                      <div
+                        className={[
+                          'result-choice-option',
+                          option.isStudentAnswer ? 'student-answer' : '',
+                          option.isCorrectAnswer ? 'correct-answer' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        key={option.label}
+                      >
+                        <span className="result-option-label">{option.label}</span>
+                        <span className="result-option-text">{option.text}</span>
+                        {markers.length > 0 ? (
+                          <span className="result-choice-marker">{markers.join(' · ')}</span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+              <dl className="answer-grid">
+                <div>
+                  <dt>你的答案</dt>
+                  <dd>{formatStudentDisplayText(attempt.student_answer || '未作答')}</dd>
+                </div>
+                <div>
+                  <dt>正确答案</dt>
+                  <dd>{formatStudentDisplayText(attempt.question.answer)}</dd>
+                </div>
+              </dl>
+              <div className="solution-block">
+                <h2>解析</h2>
+                <QuestionContentBlock parts={attempt.question.solutionParts} />
               </div>
-            </dl>
-            <div className="solution-block">
-              <h2>解析</h2>
-              <QuestionContentBlock parts={attempt.question.solutionParts} />
-            </div>
-          </article>
-        ))}
+            </article>
+          );
+        })}
       </div>
     </main>
   );
