@@ -9,9 +9,11 @@ import {
   formatDisplayText,
   formatExamText,
   formatQuestionText,
+  generateQuestionAnswerDraft,
   generateSessionReviewAdvice,
   learningResourceAnalysisBatchSchema,
   mixedLearningMaterialBatchSchema,
+  questionAnswerDraftSchema,
   sessionReviewAdviceSchema,
 } from '@hao/llm';
 
@@ -22,7 +24,9 @@ describe('@hao/llm package root', () => {
     expect(typeof analyzeLearningResource).toBe('function');
     expect(typeof analyzeMixedLearningMaterial).toBe('function');
     expect(typeof analyzeQuestions).toBe('function');
+    expect(typeof generateQuestionAnswerDraft).toBe('function');
     expect(typeof generateSessionReviewAdvice).toBe('function');
+    expect(typeof questionAnswerDraftSchema.safeParse).toBe('function');
     expect(typeof sessionReviewAdviceSchema.safeParse).toBe('function');
     expect(typeof learningResourceAnalysisBatchSchema.safeParse).toBe('function');
     expect(typeof mixedLearningMaterialBatchSchema.safeParse).toBe('function');

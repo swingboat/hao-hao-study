@@ -15,6 +15,7 @@ const {
   analyzeLearningResource,
   analyzeMixedLearningMaterial,
   analyzeQuestions,
+  generateQuestionAnswerDraft,
   generateSessionReviewAdvice,
 } = await import('./index');
 
@@ -548,5 +549,76 @@ describe('@hao/llm adapter education analysis API', () => {
     expect(result.advice?.focusItems[0]?.knowledgePointName).toBe('集合中元素的互异性');
     expect(result.llm.target_id).toBe('openai-chat-gemini-3.1-pro');
     expect(result.diagnostics.validation_error).toBeNull();
+  });
+
+  it('resolves providerId and calls question answer draft through the synced public method', async () => {
+    findUnique.mockResolvedValue(OPENAI_PROVIDER);
+    const callLlmImpl = vi.fn(async (request) => {
+      expect(request.apiKey).toBe('test-token-xyz');
+      expect(request.maxTokens).toBe(1800);
+      expect(request.llmTarget).toEqual(
+        expect.objectContaining({
+          id: 'openai-chat-gemini-3.1-pro',
+          provider: 'openai_chat',
+          api_shape: 'openai-chat-completions',
+          model: 'google.gemini-3.1-pro-global',
+        }),
+      );
+      expect(request.input).toContain('审核辅助草稿');
+      expect(request.input).toContain('不得声称答案来自原文');
+      expect(request.input).toContain('question/common/generateQuestionAnswerDraft');
+      expect(request.input).toContain('若集合 A={1,2}，则 2 与 A 的关系是？');
+
+      return {
+        ok: true,
+        target_id: request.llmTarget.id,
+        llm_target_id: request.llmTarget.id,
+        provider: request.llmTarget.provider,
+        model: request.llmTarget.model,
+        api_shape: request.llmTarget.api_shape,
+        latency_ms: 18,
+        usage: { total_tokens: 420 },
+        text: JSON.stringify({
+          answer: 'B. 2 ∈ A',
+          solution_text: '因为 2 是集合 A 中列出的元素，所以 2 ∈ A。',
+          confidence: 0.92,
+          warnings: [],
+          answer_source: 'source_extract',
+        }),
+      };
+    });
+
+    const result = await generateQuestionAnswerDraft({
+      providerId: 'openai-chat-gemini-3.1-pro',
+      maxTokens: 1800,
+      question: {
+        content: '若集合 A={1,2}，则 2 与 A 的关系是？',
+        question_type: 'choice',
+        options: [
+          { label: 'A', text: '2 ⊂ A' },
+          { label: 'B', text: '2 ∈ A' },
+        ],
+        answer: '',
+        solution_text: '',
+        kp_hints: ['元素与集合'],
+        subjectName: '高中数学',
+        source_ref: { page: 1, question_no: '1' },
+      },
+      knowledge: [{ id: 'kp-1', name: '元素与集合' }],
+      callLlmImpl,
+    });
+
+    expect(findUnique).toHaveBeenCalledWith({ where: { id: 'openai-chat-gemini-3.1-pro' } });
+    expect(callLlmImpl).toHaveBeenCalledTimes(1);
+    expect(result.kind).toBe('question_answer_draft');
+    expect(result.prompt_version).toBe('question/common/generateQuestionAnswerDraft');
+    expect(result.answer).toBe('B. 2 ∈ A');
+    expect(result.solution_text).toContain('2 是集合 A 中列出的元素');
+    expect(result.confidence).toBe(0.92);
+    expect(result.llm.target_id).toBe('openai-chat-gemini-3.1-pro');
+    expect(result.usage).toEqual({ total_tokens: 420 });
+    expect(result.draft_source).toBe('ai_generated_review_draft');
+    expect(result).not.toHaveProperty('quality_status');
+    expect(result).not.toHaveProperty('answer_source');
   });
 });

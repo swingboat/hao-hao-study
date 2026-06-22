@@ -449,6 +449,63 @@ export interface SessionReviewAdviceResult {
   [key: string]: unknown;
 }
 
+export interface QuestionAnswerDraftQuestion {
+  content: string;
+  question_type: 'choice' | 'fill_in' | string;
+  options?: Array<
+    | string
+    | {
+        label?: string;
+        text?: string;
+        content?: string;
+        value?: string;
+        [key: string]: unknown;
+      }
+  >;
+  answer?: string;
+  solution_text?: string;
+  kp_hints?: string[];
+  subjectName?: string;
+  subject_name?: string;
+  source_ref?: JsonObject;
+  figures?: JsonObject[];
+  [key: string]: unknown;
+}
+
+export interface QuestionAnswerDraftResult {
+  kind: 'question_answer_draft';
+  status: 'ok' | 'partial' | 'failed';
+  answer: string;
+  solution_text: string;
+  confidence: number | null;
+  warnings: string[];
+  prompt_version: 'question/common/generateQuestionAnswerDraft';
+  draft_source: 'ai_generated_review_draft';
+  llm: LlmInfo;
+  diagnostics: {
+    parse_error: unknown | null;
+    validation_error: unknown | null;
+    payload_log_path: string;
+    skipped_reason?: string;
+    [key: string]: unknown;
+  };
+  usage?: JsonObject | null;
+  latency_ms?: number | null;
+  ok?: boolean;
+  [key: string]: unknown;
+}
+
+export interface GenerateQuestionAnswerDraftRequest extends CommonParserOptions {
+  question: QuestionAnswerDraftQuestion;
+  knowledge?: unknown;
+  llmConfig?: LlmConfig;
+  llmTarget?: LlmTarget;
+  llmTargetId?: string;
+  targetConfig?: LlmConfig;
+  target?: LlmTarget;
+  targetId?: string;
+}
+
 export interface GenerateSessionReviewAdviceRequest extends CommonParserOptions {
   input: JsonObject;
   llmConfig?: LlmConfig;
@@ -610,6 +667,9 @@ export type AnalyzeKnowledgePoints = (
 export type GenerateSessionReviewAdvice = (
   request: GenerateSessionReviewAdviceRequest,
 ) => Promise<SessionReviewAdviceResult>;
+export type GenerateQuestionAnswerDraft = (
+  request: GenerateQuestionAnswerDraftRequest,
+) => Promise<QuestionAnswerDraftResult>;
 export type AnalyzeLearningResource = (
   request?: AnalyzeLearningResourceRequest,
 ) => Promise<LearningResourceAnalysisBatch>;
