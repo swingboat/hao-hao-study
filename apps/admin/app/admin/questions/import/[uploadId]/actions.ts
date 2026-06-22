@@ -715,7 +715,7 @@ export interface BulkActionState {
 }
 
 /**
- * 批量接受 pending stagings（运营人员"快进"用）。
+ * 批量接受 pending stagings（admin 人员"快进"用）。
  *
  * 逐条处理 —— 每条复用 acceptStagingAction 的核心逻辑（事务里写 question + audit_log + 更新 staging），
  * 但 kp_ids / primary_kp_id 由 kp_hints 在同学科 knowledge_point 表里按 name 自动解析（不命中的题跳过）。
@@ -729,7 +729,7 @@ export interface BulkActionState {
  * 与单条 accept 一致：question_type / kp_ids.len≥1 / primary∈kp_ids；同事务写 audit_log。
  *
  * 关于 dev-only：bulkRejectAll 是 dev-only（reject 不可逆是数据安全考量），
- * 但 bulkAccept 是常规运营动作，**不**加 ensureDevOnly —— 运营人员就是要在生产环境批量过题。
+ * 但 bulkAccept 是常规 admin 操作，**不**加 ensureDevOnly —— admin 人员就是要在生产环境批量过题。
  */
 export async function bulkAcceptAllAction(
   _prev: BulkActionState,

@@ -52,7 +52,7 @@ export default async function QuestionsImportPage() {
         <div>
           <h1 className="text-2xl font-semibold">学习资料上传与解析</h1>
           <p className="text-sm opacity-60 mt-1">
-            上传讲义、练习册、试卷或答案册后，统一提取来源资料、学习材料和题目，进入运营审核。
+            上传讲义、练习册、试卷或答案册后，统一提取来源资料、学习材料和题目，进入 admin 审核。
           </p>
         </div>
         <Link href="/admin/questions" className="text-sm underline opacity-70 hover:opacity-100">
