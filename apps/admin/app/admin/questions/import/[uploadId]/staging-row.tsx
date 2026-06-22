@@ -5,6 +5,9 @@
 'use client';
 
 import { useState } from 'react';
+import { isMissingAnswerDraftCandidate } from '../../../../../lib/question-answer-draft';
+import { stripDuplicatedChoiceOptionsFromContent } from '../../../../../lib/question-content';
+import { questionTypeLabel } from '../../../../../lib/question-type-label';
 import { rejectStagingAction } from './actions';
 import { DiffDrawer, type LlmQuestionPayload } from './diff-drawer';
 import { MathText } from './math-text';
@@ -16,20 +19,26 @@ export interface StagingRowProps {
   subjectId: string;
   subjectLabel: string;
   providers: Array<{ id: string; model: string }>;
+  draftProviders: Array<{ id: string; model: string }>;
 }
 
 export function StagingRow(props: StagingRowProps) {
   const [open, setOpen] = useState(false);
+  const [focusAnswerDraft, setFocusAnswerDraft] = useState(false);
   const { payload } = props;
-  const fullContent = payload.content ?? '';
   const questionType = payload.question_type ?? 'choice';
   const options = payload.options ?? [];
+  const showAnswerDraftEntry = isMissingAnswerDraftCandidate(payload);
+  const fullContent =
+    questionType === 'choice'
+      ? stripDuplicatedChoiceOptionsFromContent(payload.content ?? '', options)
+      : (payload.content ?? '');
 
   return (
     <div className="border rounded-lg p-3">
       <div className="flex items-baseline gap-2 mb-2 text-xs opacity-60">
         <span>学科：{props.subjectLabel}</span>
-        <span>· 题型 {payload.question_type ?? '?'}</span>
+        <span>· 题型 {questionTypeLabel(payload.question_type)}</span>
         <span>· 难度 {payload.difficulty ?? '?'}</span>
         {payload.source_hint?.page ? <span>· 原文 p{payload.source_hint.page}</span> : null}
         {payload.source_hint?.question_no ? <span>· {payload.source_hint.question_no}</span> : null}
@@ -66,7 +75,7 @@ export function StagingRow(props: StagingRowProps) {
           )}
         </span>
         <span>
-          <span className="opacity-60">kp_hints</span>{' '}
+          <span className="opacity-60">知识点线索</span>{' '}
           {payload.kp_hints && payload.kp_hints.length > 0
             ? payload.kp_hints.map((h) => (
                 <span
@@ -86,11 +95,26 @@ export function StagingRow(props: StagingRowProps) {
       <div className="mt-3 flex items-center gap-2">
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            setFocusAnswerDraft(false);
+            setOpen(true);
+          }}
           className="px-3 py-1.5 rounded bg-black text-white text-xs font-medium dark:bg-white dark:text-black"
         >
           查看 / 编辑 / 接受
         </button>
+        {showAnswerDraftEntry ? (
+          <button
+            type="button"
+            onClick={() => {
+              setFocusAnswerDraft(true);
+              setOpen(true);
+            }}
+            className="px-3 py-1.5 rounded bg-amber-600 text-white text-xs font-medium hover:bg-amber-700"
+          >
+            AI 生成参考解答
+          </button>
+        ) : null}
         <form
           action={rejectStagingAction}
           onSubmit={(e) => {
@@ -116,6 +140,8 @@ export function StagingRow(props: StagingRowProps) {
           subjectId={props.subjectId}
           subjectLabel={props.subjectLabel}
           providers={props.providers}
+          draftProviders={props.draftProviders}
+          initialFocusAnswerDraft={focusAnswerDraft}
           onClose={() => setOpen(false)}
         />
       ) : null}

@@ -17,11 +17,16 @@ import {
   resolveLlmProviderId,
 } from '../../../../../lib/llm-providers';
 import { sortSubjectsByStage } from '../../../../../lib/subjects';
+import {
+  resolvePdfPreviewPages,
+  resolveUploadFilePreview,
+} from '../../../../../lib/upload-file-preview';
 import { reparseUploadAction } from '../actions';
 import { BulkAcceptButton } from './bulk-accept-button';
 import type { LlmQuestionPayload } from './diff-drawer';
 import { JobProgressPoller } from './job-progress-poller';
 import { MathText } from './math-text';
+import { OriginalFilePreviewPanel } from './original-file-preview-panel';
 import { StagingRow } from './staging-row';
 import { SupportingBulkAcceptButton } from './supporting-bulk-accept-button';
 import { SupportingStagingCard } from './supporting-staging-card';
@@ -86,6 +91,31 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
   const questionStagings = upload.llm_parse_stagings.filter((s) => s.entity_kind === 'question');
   const pending = questionStagings.filter((s) => s.review_status === 'pending');
   const processed = questionStagings.filter((s) => s.review_status !== 'pending');
+  const uploadPreview = resolveUploadFilePreview({
+    originalName: upload.original_name,
+    fileType: upload.file_type,
+  });
+  const sourceDocumentPageCount =
+    sourceDocuments
+      .map((s) => {
+        const payload = asRecord(s.llm_payload);
+        return intValue(payload?.page_count ?? payload?.pageCount);
+      })
+      .find(isPageNumber) ?? null;
+  const questionSourcePages = questionStagings.map(
+    (s) => (s.llm_payload as LlmQuestionPayload).source_hint?.page,
+  );
+  const previewPageNumbers =
+    uploadPreview.kind === 'pdf'
+      ? resolvePdfPreviewPages({
+          pageCount: sourceDocumentPageCount,
+          sourcePages: questionSourcePages,
+        })
+      : [];
+  const firstPendingPage =
+    pending
+      .map((s) => (s.llm_payload as LlmQuestionPayload).source_hint?.page)
+      .find(isPageNumber) ?? null;
   const pendingSupporting = [...sourceDocuments, ...learningMaterials].filter(
     (s) => s.review_status === 'pending',
   );
@@ -97,7 +127,7 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
   const acceptedMaterials = learningMaterials.filter((s) => s.review_status === 'accepted').length;
 
   return (
-    <main className="p-8 max-w-6xl mx-auto space-y-6">
+    <main className="p-8 max-w-7xl mx-auto space-y-6">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">学习资料解析审核</h1>
@@ -288,23 +318,33 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
           ) : null}
         </h2>
         {pending.length === 0 ? null : (
-          <div className="space-y-2">
-            {pending.map((s) => {
-              const payload = s.llm_payload as LlmQuestionPayload;
-              const subjectId = payload._subject_id ?? subjects[0]?.id ?? '';
-              const sub = subjectMap.get(subjectId);
-              return (
-                <StagingRow
-                  key={s.id}
-                  stagingId={s.id}
-                  uploadId={upload.id}
-                  payload={payload}
-                  subjectId={subjectId}
-                  subjectLabel={sub ? sub.name : '未识别学科'}
-                  providers={visionProviders.map((p) => ({ id: p.id, model: p.model }))}
-                />
-              );
-            })}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,42%)] gap-4 items-start">
+            <div className="min-w-0 space-y-2">
+              {pending.map((s) => {
+                const payload = s.llm_payload as LlmQuestionPayload;
+                const subjectId = payload._subject_id ?? subjects[0]?.id ?? '';
+                const sub = subjectMap.get(subjectId);
+                return (
+                  <StagingRow
+                    key={s.id}
+                    stagingId={s.id}
+                    uploadId={upload.id}
+                    payload={payload}
+                    subjectId={subjectId}
+                    subjectLabel={sub ? sub.name : '未识别学科'}
+                    providers={visionProviders.map((p) => ({ id: p.id, model: p.model }))}
+                    draftProviders={providers.map((p) => ({ id: p.id, model: p.model }))}
+                  />
+                );
+              })}
+            </div>
+            <OriginalFilePreviewPanel
+              uploadId={upload.id}
+              originalName={upload.original_name}
+              preview={uploadPreview}
+              initialPage={firstPendingPage}
+              pageNumbers={previewPageNumbers}
+            />
           </div>
         )}
       </section>
@@ -397,8 +437,21 @@ function stringValue(value: unknown): string {
   return '';
 }
 
+function intValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isInteger(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed)) return parsed;
+  }
+  return null;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function isPageNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }

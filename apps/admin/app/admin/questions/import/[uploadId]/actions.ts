@@ -19,6 +19,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Prisma, prisma } from '@hao/db';
+import { generateQuestionAnswerDraft } from '@hao/llm';
 import { createStore } from '@hao/storage';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
@@ -47,12 +48,20 @@ import {
   createQuestionAnalysisCache,
   resolveQuestionAnalysisRuntime,
 } from '../../../../../lib/question-analysis-runtime';
+import {
+  type DraftQuestionPayload,
+  canApplyQuestionAnswerDraft,
+  isMissingAnswerDraftCandidate,
+  requestQuestionAnswerDraft,
+} from '../../../../../lib/question-answer-draft';
+import { stripDuplicatedChoiceOptionsFromContent } from '../../../../../lib/question-content';
 import { createAndPersistQuestionFigureCropAssets } from '../../../../../lib/question-figure-assets';
 import {
   QUESTION_PROMPT_VERSION,
   type QuestionProgressSnapshot,
   runQuestionAnalysis,
 } from '../../../../../lib/question-pipeline';
+import { questionTypeLabel } from '../../../../../lib/question-type-label';
 import { buildSupportingAcceptPlan } from '../../../../../lib/supporting-staging-bulk';
 
 async function requireAdmin() {
@@ -113,14 +122,14 @@ const AcceptSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['options_json'],
-        message: 'choice 题至少 2 个选项',
+        message: '选择题至少需要 2 个选项',
       });
     }
     if (d.question_type === 'fill_in' && d.options.length > 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['options_json'],
-        message: 'fill_in 题不应有 options',
+        message: '填空题不应填写选项',
       });
     }
   });
@@ -151,7 +160,13 @@ export async function acceptStagingAction(
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? '表单校验失败' };
   }
-  const d = parsed.data;
+  const d = {
+    ...parsed.data,
+    content:
+      parsed.data.question_type === 'choice'
+        ? stripDuplicatedChoiceOptionsFromContent(parsed.data.content, parsed.data.options)
+        : parsed.data.content,
+  };
 
   // 校验 kp_ids 全部存在 + 同学科（避免跨学科 KP 误关联）
   const kps = await prisma.knowledge_point.findMany({
@@ -507,6 +522,88 @@ export async function searchKpsAction(
     take: limit,
     select: { id: true, name: true, chapter_no: true },
   });
+}
+
+export interface AnswerDraftActionState {
+  error: string | null;
+  ok?: boolean;
+  draft?: {
+    answer: string;
+    solution_text: string;
+    warnings: string[];
+    confidence: number | null;
+    prompt_version: string;
+    draft_source: string;
+    can_apply: boolean;
+  };
+}
+
+export async function generateAnswerDraftAction(
+  _prev: AnswerDraftActionState,
+  formData: FormData,
+): Promise<AnswerDraftActionState> {
+  await requireAdmin();
+  const stagingId = String(formData.get('staging_id') ?? '');
+  const providerId = String(formData.get('provider_id') ?? '');
+  if (!stagingId || !providerId) return { error: '请选择题目和模型' };
+
+  const staging = await prisma.llm_parse_staging.findUnique({
+    where: { id: stagingId },
+    select: { entity_kind: true, llm_payload: true },
+  });
+  if (!staging) return { error: '待审核题目不存在' };
+  if (staging.entity_kind !== 'question') return { error: '该记录不是题目' };
+
+  const payload = staging.llm_payload as DraftQuestionPayload & { _subject_id?: string };
+  if (!isMissingAnswerDraftCandidate(payload)) {
+    return { error: '只有原文缺答案的题目可以生成参考解答草稿' };
+  }
+
+  const provider = await getLlmProviderById(providerId);
+  if (!provider || !provider.enabled) return { error: '所选模型不可用，请检查 LLM 设置' };
+
+  const subject = payload._subject_id
+    ? await prisma.subject.findUnique({
+        where: { id: payload._subject_id },
+        select: { id: true, name: true },
+      })
+    : null;
+  const existingKps = payload._subject_id
+    ? await prisma.knowledge_point.findMany({
+        where: { subject_id: payload._subject_id },
+        select: { id: true, name: true, chapter_no: true },
+        orderBy: [{ chapter_no: 'asc' }, { name: 'asc' }],
+      })
+    : [];
+
+  try {
+    const draft = await requestQuestionAnswerDraft({
+      providerId: provider.db_id,
+      payload,
+      subjectName: subject?.name,
+      knowledge: knowledgeRowsForQuestionContext(existingKps),
+      generateDraft: generateQuestionAnswerDraft,
+    });
+    const warnings = Array.isArray(draft.warnings) ? draft.warnings : [];
+    const answer = draft.answer ?? '';
+
+    return {
+      error: null,
+      ok: true,
+      draft: {
+        answer,
+        solution_text: draft.solution_text ?? '',
+        warnings,
+        confidence: draft.confidence ?? null,
+        prompt_version: draft.prompt_version,
+        draft_source: draft.draft_source,
+        can_apply: canApplyQuestionAnswerDraft({ answer, warnings }),
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { error: message.slice(0, 200) };
+  }
 }
 
 // ────────── F3.6 单条重跑（T7） ──────────
@@ -944,9 +1041,12 @@ export async function bulkAcceptAllAction(
     const label = skipReasonLabel(payload, s.id);
     const subjectId = payload._subject_id ?? '';
     const questionType = payload.question_type ?? 'choice';
-    const content = (payload.content ?? '').trim();
     const answer = (payload.answer ?? '').trim();
     const options = Array.isArray(payload.options) ? payload.options : [];
+    const content =
+      questionType === 'choice'
+        ? stripDuplicatedChoiceOptionsFromContent(payload.content ?? '', options)
+        : (payload.content ?? '').trim();
 
     if (!subjectId) {
       skipReasons.push(`「${label}…」缺 _subject_id`);
@@ -961,7 +1061,7 @@ export async function bulkAcceptAllAction(
       continue;
     }
     if (questionType === 'choice' && options.length < 2) {
-      skipReasons.push(`「${label}…」choice 题 options < 2`);
+      skipReasons.push(`「${label}…」${questionTypeLabel(questionType)}选项少于 2 个`);
       continue;
     }
 

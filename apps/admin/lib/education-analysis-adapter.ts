@@ -1,4 +1,5 @@
 import type { LearningResourceAnalysisParserResult } from '@hao/llm';
+import { stripDuplicatedChoiceOptionsFromContent } from './question-content.ts';
 
 export type TokenUsage = { input: number; output: number } | null;
 
@@ -68,8 +69,8 @@ export function knowledgePointToStagingPayload(point: unknown, subjectId: string
 
 export function questionToStagingPayload(question: unknown, subjectId: string): JsonRecord {
   const record = asRecord(question) ?? {};
-  const content = questionContent(record);
   const options = normalizeOptions(record.options);
+  const content = stripDuplicatedChoiceOptionsFromContent(questionContent(record), options);
   const related = normalizeRelatedKnowledgePoints(
     record.related_knowledge_points ?? record.kp_hints,
   );

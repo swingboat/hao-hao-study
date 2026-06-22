@@ -15,10 +15,14 @@
 'use client';
 
 import { useActionState, useEffect, useMemo, useRef, useState } from 'react';
+import { stripDuplicatedChoiceOptionsFromContent } from '../../../../../lib/question-content';
+import { questionTypeLabel } from '../../../../../lib/question-type-label';
 import {
+  type AnswerDraftActionState,
   type RerunActionState,
   type StagingActionState,
   acceptStagingAction,
+  generateAnswerDraftAction,
   rerunStagingAction,
   searchKpsAction,
 } from './actions';
@@ -32,7 +36,9 @@ export interface LlmQuestionPayload {
   solution_text?: string;
   difficulty?: number;
   kp_hints?: string[];
+  quality_status?: string;
   source_hint?: { page?: number | null; question_no?: string | null };
+  source_ref?: Record<string, unknown>;
   figures?: Array<{ figure_no?: number; alt?: string; bbox?: [number, number, number, number] }>;
   _subject_id?: string;
   _rerun?: { previous_provider_id?: string; matched_strategy?: string };
@@ -51,22 +57,33 @@ export interface DiffDrawerProps {
   subjectId: string;
   subjectLabel: string;
   providers: Array<{ id: string; model: string }>;
+  draftProviders: Array<{ id: string; model: string }>;
+  initialFocusAnswerDraft?: boolean;
   onClose: () => void;
 }
 
 const ACCEPT_INITIAL: StagingActionState = { error: null };
 const RERUN_INITIAL: RerunActionState = { error: null };
+const ANSWER_DRAFT_INITIAL: AnswerDraftActionState = { error: null };
 
 export function DiffDrawer(props: DiffDrawerProps) {
   const { payload } = props;
+  const displayContent = stripDuplicatedChoiceOptionsFromContent(
+    payload.content ?? '',
+    payload.options ?? [],
+  );
   const [acceptState, acceptAction, accepting] = useActionState(
     acceptStagingAction,
     ACCEPT_INITIAL,
   );
   const [rerunState, rerunAction, rerunning] = useActionState(rerunStagingAction, RERUN_INITIAL);
+  const [answerDraftState, answerDraftAction, draftingAnswer] = useActionState(
+    generateAnswerDraftAction,
+    ANSWER_DRAFT_INITIAL,
+  );
 
   // 表单 state — 用 LLM 输出作为初值
-  const [content, setContent] = useState(payload.content ?? '');
+  const [content, setContent] = useState(displayContent);
   const [questionType, setQuestionType] = useState<'choice' | 'fill_in'>(
     payload.question_type ?? 'choice',
   );
@@ -74,6 +91,9 @@ export function DiffDrawer(props: DiffDrawerProps) {
   const [answer, setAnswer] = useState(payload.answer ?? '');
   const [solution, setSolution] = useState(payload.solution_text ?? '');
   const [difficulty, setDifficulty] = useState<number>(payload.difficulty ?? 3);
+  const [draftProvider, setDraftProvider] = useState<string>(
+    props.draftProviders[0]?.id ?? props.providers[0]?.id ?? '',
+  );
 
   // KP 映射 state
   const [selectedKps, setSelectedKps] = useState<KpOption[]>([]);
@@ -82,6 +102,9 @@ export function DiffDrawer(props: DiffDrawerProps) {
   const [candidates, setCandidates] = useState<KpOption[]>([]);
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const answerDraftSectionRef = useRef<HTMLElement | null>(null);
+  const isMissingAnswerDraftCandidate =
+    (payload.answer ?? '').trim() === '' && payload.quality_status === 'missing_answer';
 
   // 初始：用 kp_hints 自动搜一次，把第一个匹配选中作为 primary
   useEffect(() => {
@@ -140,6 +163,11 @@ export function DiffDrawer(props: DiffDrawerProps) {
     };
   }, [query, props.subjectId]);
 
+  useEffect(() => {
+    if (!props.initialFocusAnswerDraft || !isMissingAnswerDraftCandidate) return;
+    answerDraftSectionRef.current?.scrollIntoView({ block: 'start' });
+  }, [props.initialFocusAnswerDraft, isMissingAnswerDraftCandidate]);
+
   const toggleKp = (kp: KpOption) => {
     setSelectedKps((prev) => {
       if (prev.some((k) => k.id === kp.id)) {
@@ -184,6 +212,8 @@ export function DiffDrawer(props: DiffDrawerProps) {
             <h2 className="font-semibold text-lg">题目审核</h2>
             <p className="text-xs opacity-60 mt-0.5">
               学科：{props.subjectLabel}
+              {' · '}
+              题型：{questionTypeLabel(payload.question_type)}
               {payload.source_hint?.page ? ` · 原文 p${payload.source_hint.page}` : ''}
               {payload.source_hint?.question_no ? ` · ${payload.source_hint.question_no}` : ''}
               {payload._rerun?.previous_provider_id
@@ -201,17 +231,17 @@ export function DiffDrawer(props: DiffDrawerProps) {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-6">
-          {/* 左栏：LLM 原始抽取 */}
+          {/* 左栏：模型原始抽取 */}
           <section className="space-y-3 text-sm">
-            <h3 className="font-medium opacity-80">LLM 抽取（只读 · 公式已渲染）</h3>
-            <Block label="content">
-              {payload.content ? (
-                <MathText block text={payload.content} className="text-sm leading-relaxed" />
+            <h3 className="font-medium opacity-80">模型抽取结果（只读 · 公式已渲染）</h3>
+            <Block label="题干">
+              {displayContent ? (
+                <MathText block text={displayContent} className="text-sm leading-relaxed" />
               ) : (
                 <span className="text-xs opacity-60">—</span>
               )}
             </Block>
-            <Block label={`options (${payload.options?.length ?? 0})`}>
+            <Block label={`选项（${payload.options?.length ?? 0}）`}>
               {payload.options && payload.options.length > 0 ? (
                 <ul className="text-sm space-y-1">
                   {payload.options.map((o) => (
@@ -225,17 +255,17 @@ export function DiffDrawer(props: DiffDrawerProps) {
                 <span className="text-xs opacity-60">—</span>
               )}
             </Block>
-            <Block label="answer">
+            <Block label="答案">
               <MathText text={payload.answer ?? '—'} className="text-sm" />
             </Block>
-            <Block label="solution_text">
+            <Block label="解析">
               {payload.solution_text ? (
                 <MathText block text={payload.solution_text} className="text-sm leading-relaxed" />
               ) : (
                 <span className="text-xs opacity-60">（空）</span>
               )}
             </Block>
-            <Block label={`kp_hints (${payload.kp_hints?.length ?? 0})`}>
+            <Block label={`知识点线索（${payload.kp_hints?.length ?? 0}）`}>
               {(payload.kp_hints ?? []).map((h) => (
                 <span
                   key={h}
@@ -246,13 +276,13 @@ export function DiffDrawer(props: DiffDrawerProps) {
               ))}
             </Block>
             {payload.figures && payload.figures.length > 0 ? (
-              <Block label={`figures (${payload.figures.length})`}>
+              <Block label={`图示信息（${payload.figures.length}）`}>
                 <ul className="text-xs space-y-0.5">
                   {payload.figures.map((f, i) => (
                     <li key={f.figure_no ?? i}>
                       #{f.figure_no ?? i + 1} {f.alt ?? ''}{' '}
                       <span className="opacity-50">
-                        bbox=[{(f.bbox ?? []).map((n) => n.toFixed(2)).join(', ')}]
+                        位置=[{(f.bbox ?? []).map((n) => n.toFixed(2)).join(', ')}]
                       </span>
                     </li>
                   ))}
@@ -265,6 +295,121 @@ export function DiffDrawer(props: DiffDrawerProps) {
           <section className="space-y-3 text-sm">
             <h3 className="font-medium opacity-80">编辑并发布（必填 *）</h3>
 
+            {isMissingAnswerDraftCandidate ? (
+              <section
+                ref={answerDraftSectionRef}
+                className="border rounded p-3 bg-amber-50/70 dark:bg-amber-950/20 space-y-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-sm">AI 生成参考解答草稿</p>
+                    <p className="text-xs opacity-70 mt-0.5">
+                      AI 生成，仅供审核；不会自动发布，也不会改原始缺答案状态。
+                    </p>
+                  </div>
+                  {props.draftProviders.length > 0 ? (
+                    <form action={answerDraftAction} className="flex flex-wrap items-center gap-2">
+                      <input type="hidden" name="staging_id" value={props.stagingId} />
+                      <select
+                        name="provider_id"
+                        value={draftProvider}
+                        onChange={(event) => setDraftProvider(event.target.value)}
+                        className="px-2 py-1.5 border rounded text-xs bg-white dark:bg-neutral-900"
+                      >
+                        {props.draftProviders.map((provider) => (
+                          <option key={provider.id} value={provider.id}>
+                            {provider.model}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="submit"
+                        disabled={draftingAnswer || !draftProvider}
+                        className="px-3 py-1.5 rounded bg-amber-600 text-white text-xs font-medium disabled:opacity-50"
+                      >
+                        {draftingAnswer ? '生成中…' : 'AI 生成参考解答'}
+                      </button>
+                    </form>
+                  ) : (
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      没有可用 LLM 模型，请先到 LLM 设置启用模型。
+                    </p>
+                  )}
+                </div>
+
+                {answerDraftState.error ? (
+                  <p className="text-xs text-red-600" role="alert">
+                    ⚠️ {answerDraftState.error}
+                  </p>
+                ) : null}
+
+                {answerDraftState.draft ? (
+                  <div className="space-y-3 border-t pt-3">
+                    <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+                      参考解答草稿 / AI 生成，仅供审核
+                    </p>
+                    {answerDraftState.draft.warnings.length > 0 ||
+                    !answerDraftState.draft.answer.trim() ? (
+                      <div className="text-xs text-amber-800 dark:text-amber-200 space-y-1">
+                        {!answerDraftState.draft.answer.trim() ? <p>草稿没有给出答案。</p> : null}
+                        <p>
+                          本次没有生成可用参考解答；可换模型重试。若多次失败，请联系技术同学处理公共解析能力。
+                        </p>
+                        {answerDraftState.draft.warnings.map((warning) => (
+                          <p key={warning}>⚠️ {warning}</p>
+                        ))}
+                      </div>
+                    ) : null}
+                    <Block label="草稿答案">
+                      {answerDraftState.draft.answer ? (
+                        <MathText text={answerDraftState.draft.answer} className="text-sm" />
+                      ) : (
+                        <span className="text-xs opacity-60">（空）</span>
+                      )}
+                    </Block>
+                    <Block label="草稿解析">
+                      {answerDraftState.draft.solution_text ? (
+                        <MathText
+                          block
+                          text={answerDraftState.draft.solution_text}
+                          className="text-sm leading-relaxed"
+                        />
+                      ) : (
+                        <span className="text-xs opacity-60">（空）</span>
+                      )}
+                    </Block>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={!answerDraftState.draft.can_apply}
+                        onClick={() => {
+                          if (!answerDraftState.draft?.can_apply) return;
+                          setAnswer(answerDraftState.draft.answer);
+                          setSolution(answerDraftState.draft.solution_text);
+                        }}
+                        className="px-3 py-1.5 rounded bg-black text-white text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed dark:bg-white dark:text-black"
+                      >
+                        应用到审核字段
+                      </button>
+                      <span className="text-xs opacity-60">
+                        有警告或答案为空时不会覆盖当前字段。
+                      </span>
+                    </div>
+                    <details className="text-xs opacity-70">
+                      <summary className="cursor-pointer">技术详情</summary>
+                      <div className="mt-1 space-y-1">
+                        <p>prompt：{answerDraftState.draft.prompt_version}</p>
+                        <p>来源：{answerDraftState.draft.draft_source}</p>
+                        {answerDraftState.draft.confidence != null ? (
+                          <p>置信度：{answerDraftState.draft.confidence}</p>
+                        ) : null}
+                      </div>
+                    </details>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
             <form action={acceptAction} className="space-y-3">
               <input type="hidden" name="staging_id" value={props.stagingId} />
               <input type="hidden" name="upload_id" value={props.uploadId} />
@@ -273,7 +418,7 @@ export function DiffDrawer(props: DiffDrawerProps) {
               <input type="hidden" name="kp_ids_csv" value={kpIdsCsv} />
               <input type="hidden" name="primary_kp_id" value={primaryKpId} />
 
-              <Field label="content *">
+              <Field label="题干 *">
                 <textarea
                   name="content"
                   required
@@ -287,18 +432,18 @@ export function DiffDrawer(props: DiffDrawerProps) {
               </Field>
 
               <div className="grid grid-cols-2 gap-3">
-                <Field label="question_type *">
+                <Field label="题型 *">
                   <select
                     name="question_type"
                     value={questionType}
                     onChange={(e) => setQuestionType(e.target.value as 'choice' | 'fill_in')}
                     className="w-full px-2 py-1.5 border rounded text-xs bg-transparent"
                   >
-                    <option value="choice">choice</option>
-                    <option value="fill_in">fill_in</option>
+                    <option value="choice">{questionTypeLabel('choice')}</option>
+                    <option value="fill_in">{questionTypeLabel('fill_in')}</option>
                   </select>
                 </Field>
-                <Field label="difficulty * (1-5)">
+                <Field label="难度 *（1-5）">
                   <input
                     type="number"
                     name="difficulty"
@@ -312,7 +457,7 @@ export function DiffDrawer(props: DiffDrawerProps) {
                 </Field>
               </div>
 
-              <Field label="options (JSON; choice 必填 ≥2，fill_in 留 [])">
+              <Field label="选项（选择题至少 2 个；填空题无需填写）">
                 <textarea
                   rows={4}
                   value={optionsJson}
@@ -321,7 +466,7 @@ export function DiffDrawer(props: DiffDrawerProps) {
                 />
               </Field>
 
-              <Field label="answer *">
+              <Field label="答案 *">
                 <input
                   type="text"
                   name="answer"
@@ -334,7 +479,7 @@ export function DiffDrawer(props: DiffDrawerProps) {
                 />
               </Field>
 
-              <Field label="solution_text">
+              <Field label="解析">
                 <textarea
                   name="solution_text"
                   rows={3}
@@ -346,7 +491,7 @@ export function DiffDrawer(props: DiffDrawerProps) {
               </Field>
 
               {/* F3.5 KP 映射 */}
-              <Field label="KP 关联 *（至少 1 个；⭐ 设为 primary）">
+              <Field label="知识点关联 *（至少 1 个；⭐ 设为主知识点）">
                 <div className="space-y-2">
                   <div className="flex flex-wrap gap-1.5 min-h-[2rem]">
                     {selectedKps.length === 0 ? (
@@ -363,7 +508,7 @@ export function DiffDrawer(props: DiffDrawerProps) {
                           >
                             <button
                               type="button"
-                              title="设为 primary"
+                              title="设为主知识点"
                               onClick={() => setPrimaryKpId(kp.id)}
                               className="cursor-pointer"
                             >
@@ -442,10 +587,10 @@ export function DiffDrawer(props: DiffDrawerProps) {
                   disabled={accepting || selectedKps.length === 0 || !primaryKpId}
                   className="px-4 py-2 rounded bg-green-600 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {accepting ? '发布中…' : '✅ 接受并发布到 question'}
+                  {accepting ? '发布中…' : '✅ 接受并发布题目'}
                 </button>
                 <span className="text-xs opacity-60">
-                  T3 校验：question_type / kp_ids.len≥1 / primary∈kp_ids；T4：同事务写 audit_log
+                  发布校验：题型 / 知识点关联 / 主知识点；同时记录审核日志
                 </span>
               </div>
             </form>
@@ -458,7 +603,7 @@ export function DiffDrawer(props: DiffDrawerProps) {
               <input type="hidden" name="staging_id" value={props.stagingId} />
               <div>
                 <label className="block text-xs opacity-70 mb-1" htmlFor="rerun-provider">
-                  换模型重跑（F3.6 / T7）
+                  换模型重新解析此题
                 </label>
                 <select
                   id="rerun-provider"
@@ -479,7 +624,7 @@ export function DiffDrawer(props: DiffDrawerProps) {
                 disabled={rerunning || !rerunProvider}
                 className="px-3 py-1.5 rounded border text-xs hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-50"
               >
-                {rerunning ? '重跑中…（窗口 ±1 页）' : '🔄 重跑此题'}
+                {rerunning ? '重新解析中…（参考相邻页面）' : '🔄 重新解析此题'}
               </button>
               {rerunState.error ? (
                 <p className="basis-full text-xs text-red-600">{rerunState.error}</p>

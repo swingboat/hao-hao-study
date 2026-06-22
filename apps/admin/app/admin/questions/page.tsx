@@ -12,6 +12,7 @@
  */
 import { prisma } from '@hao/db';
 import Link from 'next/link';
+import { questionTypeLabel } from '../../../lib/question-type-label';
 import { sortSubjectsByStage } from '../../../lib/subjects';
 import type { LlmQuestionPayload } from './import/[uploadId]/diff-drawer';
 import { MathText } from './import/[uploadId]/math-text';
@@ -20,10 +21,6 @@ export const dynamic = 'force-dynamic';
 
 interface PageProps {
   searchParams: Promise<{ subject?: string }>;
-}
-
-function questionTypeLabel(type: 'choice' | 'fill_in'): string {
-  return type === 'choice' ? '选择题' : '填空题';
 }
 
 export default async function QuestionsListPage({ searchParams }: PageProps) {

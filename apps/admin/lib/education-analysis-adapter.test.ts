@@ -78,6 +78,33 @@ test('questionToStagingPayload normalizes nested option and answer values', () =
   assert.deepEqual(payload.kp_hints, ['子集与真子集']);
 });
 
+test('questionToStagingPayload strips option suffix duplicated in structured options', () => {
+  const payload = questionToStagingPayload(
+    {
+      content: [
+        '已知集合 $A = \\{-1, a^2 - 2a + 1, a - 4\\}$，若 $4 \\in A$，则 $a$ 的值可能为（ ）',
+        'A. -1, 3',
+        'B. -1',
+        'C. -1, 3, 8',
+        'D. -1, 8',
+      ].join('\n'),
+      type: 'choice',
+      options: [
+        { label: 'A', text: '-1, 3' },
+        { label: 'B', text: '-1' },
+        { label: 'C', text: '-1, 3, 8' },
+        { label: 'D', text: '-1, 8' },
+      ],
+    },
+    'math_senior',
+  );
+
+  assert.equal(
+    payload.content,
+    '已知集合 $A = \\{-1, a^2 - 2a + 1, a - 4\\}$，若 $4 \\in A$，则 $a$ 的值可能为（ ）',
+  );
+});
+
 test('questionToStagingPayload keeps missing answers empty and preserves source_ref page', () => {
   const payload = questionToStagingPayload(
     {
