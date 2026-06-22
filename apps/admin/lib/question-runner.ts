@@ -24,6 +24,7 @@ import {
   resolveQuestionAnalysisRuntime,
 } from './question-analysis-runtime';
 import { type QuestionProgressSnapshot, runQuestionAnalysis } from './question-pipeline';
+import { learningResourceParseJobOutcome } from './question-runner-status';
 
 const jobWriteQueues = new Map<string, Promise<void>>();
 function enqueueJobWrite(jobId: string, work: () => Promise<void>): Promise<void> {
@@ -140,8 +141,7 @@ export async function runQuestionParse(
         payload,
       })),
     ];
-    const jobStatus = learningResourceParseJobStatus(result);
-    const errorMessage = learningResourceErrorMessage(result);
+    const jobOutcome = learningResourceParseJobOutcome(result, stagingRows.length);
 
     await prisma.$transaction([
       prisma.llm_parse_staging.createMany({
@@ -155,7 +155,7 @@ export async function runQuestionParse(
       prisma.llm_parse_job.update({
         where: { id: jobId },
         data: {
-          status: jobStatus,
+          status: jobOutcome.status,
           request_payload: {
             entry: 'analyzeLearningResource',
             provider_id: provider.id,
@@ -181,7 +181,7 @@ export async function runQuestionParse(
             : (Prisma.JsonNull as unknown as Prisma.InputJsonValue),
           latency_ms: typeof resultRecord.latency_ms === 'number' ? resultRecord.latency_ms : null,
           finished_at: new Date(),
-          error_message: errorMessage,
+          error_message: jobOutcome.errorMessage,
         },
       }),
       prisma.content_upload.update({
@@ -221,33 +221,4 @@ export async function runQuestionParse(
       await rm(tmpPath, { force: true }).catch(() => {});
     }
   }
-}
-
-function learningResourceParseJobStatus(result: {
-  diagnostics?: {
-    parse_error?: unknown | null;
-    validation_error?: unknown | null;
-  };
-  [key: string]: unknown;
-}): 'succeeded' | 'failed' {
-  if (result.ok === false) return 'failed';
-  if (result.diagnostics?.parse_error != null || result.diagnostics?.validation_error != null) {
-    return 'failed';
-  }
-  return 'succeeded';
-}
-
-function learningResourceErrorMessage(result: {
-  diagnostics?: {
-    parse_error?: unknown | null;
-    validation_error?: unknown | null;
-  };
-  [key: string]: unknown;
-}): string | null {
-  if (learningResourceParseJobStatus(result) === 'succeeded') return null;
-  const reason =
-    result.diagnostics?.parse_error ??
-    result.diagnostics?.validation_error ??
-    'analyzeLearningResource returned failed';
-  return typeof reason === 'string' ? reason : JSON.stringify(reason).slice(0, 500);
 }

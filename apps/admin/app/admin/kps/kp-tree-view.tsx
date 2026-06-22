@@ -113,12 +113,16 @@ function ChapterBlock({
   group,
   chapterTitles,
   showCheckmark,
+  selectedKpId,
+  buildKpHref,
 }: {
   group: ChapterGroup;
   /** chapter_no → 文字标题（v3+ 数据才有；缺失时只显示编号）。可选；undefined = 全无标题 */
   chapterTitles?: Map<string, string>;
   /** 默认展开（教研一进来想看全貌） */
   showCheckmark?: boolean;
+  selectedKpId?: string;
+  buildKpHref: (kpId: string) => string;
 }) {
   const label =
     group.chapter === UNGROUPED_KEY ? UNGROUPED_LABEL : formatChapterLabel(group.chapter);
@@ -139,14 +143,26 @@ function ChapterBlock({
         {group.kps.map((k) => (
           <li
             key={k.id}
-            className="flex items-center gap-3 px-3 py-1.5 pl-8 text-sm border-t border-black/5 dark:border-white/5"
+            className={`flex items-center gap-3 px-3 py-1.5 pl-8 text-sm border-t border-black/5 dark:border-white/5 ${
+              selectedKpId === k.id ? 'bg-blue-50 dark:bg-blue-950/30' : ''
+            }`}
           >
-            <span className="flex-1 truncate" title={k.name}>
+            <Link
+              href={buildKpHref(k.id)}
+              className="flex-1 truncate hover:underline"
+              title={k.name}
+            >
               {k.name}
-            </span>
+            </Link>
             <span className="opacity-60 text-xs tabular-nums whitespace-nowrap">
               题 {k.question_count} · 生 {k.student_count}
             </span>
+            <Link
+              href={buildKpHref(k.id)}
+              className="px-2 py-0.5 rounded bg-black text-white text-xs hover:bg-neutral-800 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
+            >
+              查看内容
+            </Link>
             <Link
               href={`/admin/kps?edit=${k.id}`}
               className="px-2 py-0.5 rounded border text-xs hover:bg-black/5 dark:hover:bg-white/10"
@@ -167,9 +183,18 @@ export interface KpTreeViewProps {
   filteredSubject?: string;
   /** chapter_no → 文字标题（缺标题章节显示数字） */
   chapterTitles?: Map<string, string>;
+  selectedKpId?: string;
+  buildKpHref: (kpId: string) => string;
 }
 
-export function KpTreeView({ kps, subjects, filteredSubject, chapterTitles }: KpTreeViewProps) {
+export function KpTreeView({
+  kps,
+  subjects,
+  filteredSubject,
+  chapterTitles,
+  selectedKpId,
+  buildKpHref,
+}: KpTreeViewProps) {
   const subjectIdToName = new Map(subjects.map((s) => [s.id, s.name]));
   const subjectIdToOrder = new Map(subjects.map((s, index) => [s.id, index]));
   const groups = groupKps(kps, subjectIdToName, subjectIdToOrder);
@@ -185,6 +210,8 @@ export function KpTreeView({ kps, subjects, filteredSubject, chapterTitles }: Kp
             key={`${only.subjectId}::${c.chapter}`}
             group={c}
             chapterTitles={chapterTitles}
+            selectedKpId={selectedKpId}
+            buildKpHref={buildKpHref}
           />
         ))}
       </div>
@@ -208,6 +235,8 @@ export function KpTreeView({ kps, subjects, filteredSubject, chapterTitles }: Kp
                 key={`${s.subjectId}::${c.chapter}`}
                 group={c}
                 chapterTitles={chapterTitles}
+                selectedKpId={selectedKpId}
+                buildKpHref={buildKpHref}
               />
             ))}
           </div>

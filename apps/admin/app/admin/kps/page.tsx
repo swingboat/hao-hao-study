@@ -1,4 +1,9 @@
 import { type Prisma, prisma } from '@hao/db';
+import {
+  type KpLearningMaterialRecord,
+  groupLearningMaterialsByType,
+} from '../../../lib/kp-learning-materials';
+import { buildKpSelectionHref } from '../../../lib/kp-page-links';
 /**
  * F4.1 KP 列表 + F4.2 入口。
  *
@@ -15,6 +20,8 @@ import Link from 'next/link';
 import { resolveTextbookFilter } from '../../../lib/kp-filters';
 import { sortSubjectsByStage } from '../../../lib/subjects';
 import { KpDialog } from './kp-dialog';
+import { KpFilterForm } from './kp-filter-form';
+import { KpLearningMaterialPanel } from './kp-learning-material-panel';
 import { KpTreeView } from './kp-tree-view';
 
 export const dynamic = 'force-dynamic';
@@ -147,6 +154,7 @@ interface PageProps {
     edit?: string;
     view?: string;
     textbook?: string;
+    kp?: string;
   }>;
 }
 
@@ -217,6 +225,13 @@ export default async function KpsPage({ searchParams }: PageProps) {
     }
   }
   const textbookGroups = Array.from(groupMap.values());
+  const textbookFilterGroups = textbookGroups.map((group) => ({
+    canonicalId: group.canonicalId,
+    originalName: group.originalName,
+    createdAtIso: group.createdAt.toISOString(),
+    subjectId: group.subjectId,
+    uploadIds: group.uploadIds,
+  }));
 
   // Step 3：学科 → 教材联动。未选具体学科时不列教材，残留的 ?textbook= 也不生效。
   const currentSubject0 = sp.subject ?? '';
@@ -228,10 +243,15 @@ export default async function KpsPage({ searchParams }: PageProps) {
   );
   const currentTextbook = currentGroup?.canonicalId ?? '';
   const uploadIdsForKp = currentGroup?.uploadIds ?? [];
+  const selectedKpId = sp.kp ?? '';
   const [kps, chapterTitles] = await Promise.all([
     loadKps(sp.subject, uploadIdsForKp),
     loadChapterTitles(uploadIdsForKp),
   ]);
+  const selectedKp = selectedKpId ? kps.find((kp) => kp.id === selectedKpId) : undefined;
+  const learningMaterialGroups = selectedKp
+    ? groupLearningMaterialsByType(await loadLearningMaterialsForKp(selectedKp.id))
+    : [];
 
   // 模态框模式
   let dialogMode: Parameters<typeof KpDialog>[0]['mode'] | null = null;
@@ -255,15 +275,13 @@ export default async function KpsPage({ searchParams }: PageProps) {
   // 默认视图改为 tree —— 用户日常浏览以章节为脉络；列表是次级。
   const view: 'list' | 'tree' = sp.view === 'list' ? 'list' : 'tree';
 
-  // 视图切换链接保留 textbook + subject filter；其它一次性参数（new/edit）丢掉，
-  // 否则切视图会顺带把模态框带过去。tree 是默认所以不写 ?view=tree。
-  const buildViewLink = (target: 'list' | 'tree') => {
-    const qp = new URLSearchParams();
-    if (currentTextbook) qp.set('textbook', currentTextbook);
-    if (currentSubject) qp.set('subject', currentSubject);
-    if (target === 'list') qp.set('view', 'list');
-    const qs = qp.toString();
-    return qs ? `/admin/kps?${qs}` : '/admin/kps';
+  const buildKpLink = (kpId: string) => {
+    return buildKpSelectionHref({
+      textbook: currentTextbook,
+      subject: currentSubject,
+      view,
+      kpId,
+    });
   };
 
   return (
@@ -287,104 +305,14 @@ export default async function KpsPage({ searchParams }: PageProps) {
         </Link>
       </header>
 
-      {/* 教材 + 学科过滤 — 用纯 GET form，无需 client component */}
-      <form
-        key={`${currentSubject || 'all'}:${currentGroup?.canonicalId ?? 'none'}:${view}`}
-        action="/admin/kps"
-        autoComplete="off"
-        className="mb-4 flex flex-wrap items-center gap-2 text-sm"
-      >
-        <label htmlFor="subject-filter" className="opacity-70">
-          学科：
-        </label>
-        <select
-          id="subject-filter"
-          name="subject"
-          defaultValue={currentSubject}
-          className="px-2 py-1 border rounded bg-transparent"
-        >
-          <option value="">全部</option>
-          {subjects.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}（{s.id}）
-            </option>
-          ))}
-        </select>
-
-        <label htmlFor="textbook-filter" className="ml-2 opacity-70">
-          教材：
-        </label>
-        <select
-          id="textbook-filter"
-          name="textbook"
-          defaultValue={currentGroup?.canonicalId ?? ''}
-          disabled={!currentSubject}
-          className={`px-2 py-1 border rounded bg-transparent min-w-64 ${
-            currentSubject ? '' : 'opacity-60 cursor-not-allowed'
-          }`}
-        >
-          <option value="">{currentSubject ? '— 请选择教材 —' : '— 请先选择学科 —'}</option>
-          {textbooks.map((g) => {
-            const subjName = subjects.find((s) => s.id === g.subjectId)?.name;
-            const display = g.originalName ?? `<未命名>·${g.canonicalId.slice(0, 8)}`;
-            const date = new Date(g.createdAt).toLocaleDateString('zh-CN');
-            // 同一份 PDF 被多次上传 → 提示"× N"，避免用户怀疑"为什么我传了 4 次只看到 1 项"
-            const dupSuffix = g.uploadIds.length > 1 ? ` · 上传 ${g.uploadIds.length} 次` : '';
-            return (
-              <option key={g.canonicalId} value={g.canonicalId}>
-                {subjName ? `[${subjName}] ` : ''}
-                {display}（{date}
-                {dupSuffix}）
-              </option>
-            );
-          })}
-        </select>
-        {/* 提交过滤时保留当前视图（list 才显式带；tree 是默认不带） */}
-        {view === 'list' ? <input type="hidden" name="view" value="list" /> : null}
-        <button
-          type="submit"
-          className="px-2 py-1 rounded border text-xs hover:bg-black/5 dark:hover:bg-white/10"
-        >
-          应用
-        </button>
-        {currentTextbook || currentSubject ? (
-          <Link
-            href={view === 'list' ? '/admin/kps?view=list' : '/admin/kps'}
-            className="text-xs opacity-60 hover:opacity-100"
-          >
-            清除筛选
-          </Link>
-        ) : null}
-        {currentSubject && textbooks.length === 0 ? (
-          <span className="text-xs text-amber-600 ml-2">该学科下还没有上传教材</span>
-        ) : null}
-
-        {/* 视图切换器：tree（默认）/ list */}
-        <span className="ml-auto inline-flex border rounded overflow-hidden text-xs">
-          <Link
-            href={buildViewLink('tree')}
-            aria-current={view === 'tree' ? 'page' : undefined}
-            className={`px-2 py-1 ${
-              view === 'tree'
-                ? 'bg-black text-white dark:bg-white dark:text-black'
-                : 'hover:bg-black/5 dark:hover:bg-white/10'
-            }`}
-          >
-            🌲 章节树
-          </Link>
-          <Link
-            href={buildViewLink('list')}
-            aria-current={view === 'list' ? 'page' : undefined}
-            className={`px-2 py-1 border-l ${
-              view === 'list'
-                ? 'bg-black text-white dark:bg-white dark:text-black'
-                : 'hover:bg-black/5 dark:hover:bg-white/10'
-            }`}
-          >
-            ☰ 列表
-          </Link>
-        </span>
-      </form>
+      <KpFilterForm
+        subjects={subjects.map((subject) => ({ id: subject.id, name: subject.name }))}
+        textbookGroups={textbookFilterGroups}
+        currentSubject={currentSubject}
+        currentTextbook={currentGroup?.canonicalId ?? ''}
+        view={view}
+        selectedKpId={selectedKpId}
+      />
 
       {subjects.length === 0 ? (
         <p className="text-sm text-amber-600 mb-3">
@@ -395,10 +323,10 @@ export default async function KpsPage({ searchParams }: PageProps) {
       {!currentTextbook ? (
         <div className="border rounded-lg p-8 text-center">
           <p className="text-sm opacity-70">
-            请先在上方选择学科和教材，本页将展示该教材下的全部 KP。
+            请在上方选择学科和教材并点击应用，本页将展示该教材下的全部 KP。
           </p>
           {!currentSubject ? (
-            <p className="text-xs opacity-50 mt-2">教材列表会在选择具体学科后显示。</p>
+            <p className="text-xs opacity-50 mt-2">教材下拉会根据学科自动显示对应教材。</p>
           ) : textbooks.length === 0 ? (
             <p className="text-xs opacity-50 mt-2">
               该学科下还没有上传过教材。点右上角"↑ 上传教材解析"开始。
@@ -411,50 +339,109 @@ export default async function KpsPage({ searchParams }: PageProps) {
           {currentSubject ? `（学科：${currentSubject}）` : ''}。
           可能解析尚未审核通过；可在"导入审核"页继续操作。
         </p>
-      ) : view === 'tree' ? (
-        <KpTreeView
-          kps={kps}
-          subjects={subjects.map((s) => ({ id: s.id, name: s.name }))}
-          filteredSubject={currentSubject || undefined}
-          chapterTitles={chapterTitles}
-        />
       ) : (
-        <div className="overflow-x-auto border rounded-lg">
-          <table className="w-full text-sm">
-            <thead className="bg-black/5 dark:bg-white/5 text-left">
-              <tr>
-                <th className="p-2">name</th>
-                <th className="p-2">subject_id</th>
-                <th className="p-2">chapter_no</th>
-                <th className="p-2 text-right">关联题数</th>
-                <th className="p-2 text-right">关联学生数</th>
-                <th className="p-2 text-right">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {kps.map((k) => (
-                <tr key={k.id} className="border-t">
-                  <td className="p-2">{k.name}</td>
-                  <td className="p-2 font-mono text-xs">{k.subject_id}</td>
-                  <td className="p-2 text-xs opacity-80">{k.chapter_no ?? '—'}</td>
-                  <td className="p-2 text-right tabular-nums">{k.question_count}</td>
-                  <td className="p-2 text-right tabular-nums">{k.student_count}</td>
-                  <td className="p-2 text-right">
-                    <Link
-                      href={`/admin/kps?edit=${k.id}`}
-                      className="px-2 py-1 rounded border text-xs hover:bg-black/5 dark:hover:bg-white/10"
+        <div className="space-y-4">
+          <p className="text-xs opacity-60">
+            点击知识点名称或"查看内容"，下方会按知识分类展示已发布的相关材料。
+          </p>
+          {selectedKp ? (
+            <div id="kp-materials" className="scroll-mt-6">
+              <KpLearningMaterialPanel kpName={selectedKp.name} groups={learningMaterialGroups} />
+            </div>
+          ) : selectedKpId ? (
+            <p id="kp-materials" className="text-sm text-amber-700 scroll-mt-6">
+              当前筛选范围内找不到所选知识点，请重新选择教材或学科。
+            </p>
+          ) : null}
+
+          {view === 'tree' ? (
+            <KpTreeView
+              kps={kps}
+              subjects={subjects.map((s) => ({ id: s.id, name: s.name }))}
+              filteredSubject={currentSubject || undefined}
+              chapterTitles={chapterTitles}
+              selectedKpId={selectedKpId}
+              buildKpHref={buildKpLink}
+            />
+          ) : (
+            <div className="overflow-x-auto border rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-black/5 dark:bg-white/5 text-left">
+                  <tr>
+                    <th className="p-2">name</th>
+                    <th className="p-2">subject_id</th>
+                    <th className="p-2">chapter_no</th>
+                    <th className="p-2 text-right">关联题数</th>
+                    <th className="p-2 text-right">关联学生数</th>
+                    <th className="p-2 text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {kps.map((k) => (
+                    <tr
+                      key={k.id}
+                      className={`border-t ${selectedKpId === k.id ? 'bg-blue-50 dark:bg-blue-950/30' : ''}`}
                     >
-                      编辑
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      <td className="p-2">
+                        <Link href={buildKpLink(k.id)} className="font-medium hover:underline">
+                          {k.name}
+                        </Link>
+                      </td>
+                      <td className="p-2 font-mono text-xs">{k.subject_id}</td>
+                      <td className="p-2 text-xs opacity-80">{k.chapter_no ?? '—'}</td>
+                      <td className="p-2 text-right tabular-nums">{k.question_count}</td>
+                      <td className="p-2 text-right tabular-nums">{k.student_count}</td>
+                      <td className="p-2 text-right whitespace-nowrap">
+                        <Link
+                          href={buildKpLink(k.id)}
+                          className="px-2 py-1 rounded bg-black text-white text-xs hover:bg-neutral-800 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
+                        >
+                          查看内容
+                        </Link>
+                        <Link
+                          href={`/admin/kps?edit=${k.id}`}
+                          className="ml-2 px-2 py-1 rounded border text-xs hover:bg-black/5 dark:hover:bg-white/10"
+                        >
+                          编辑
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
       {dialogMode ? <KpDialog mode={dialogMode} subjects={subjects} /> : null}
     </main>
   );
+}
+
+async function loadLearningMaterialsForKp(kpId: string): Promise<KpLearningMaterialRecord[]> {
+  return prisma.learning_material.findMany({
+    where: {
+      OR: [{ primary_kp_id: kpId }, { kp_ids: { has: kpId } }],
+    },
+    select: {
+      id: true,
+      material_type: true,
+      title: true,
+      content: true,
+      student_summary: true,
+      confidence: true,
+      created_at: true,
+      source_document: { select: { title: true } },
+      source_unit: {
+        select: {
+          page_no: true,
+          slide_no: true,
+          question_no: true,
+          text_snippet: true,
+        },
+      },
+    },
+    orderBy: [{ material_type: 'asc' }, { created_at: 'desc' }],
+  });
 }

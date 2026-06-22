@@ -1,7 +1,7 @@
 export interface TextbookFilterGroup {
   canonicalId: string;
   subjectId: string | null;
-  uploadIds: string[];
+  uploadIds: readonly string[];
 }
 
 export function resolveTextbookFilter<TGroup extends TextbookFilterGroup>(
@@ -19,4 +19,24 @@ export function resolveTextbookFilter<TGroup extends TextbookFilterGroup>(
     : undefined;
 
   return { textbooks, currentGroup };
+}
+
+export function buildTextbookSelectState<TGroup extends TextbookFilterGroup>(
+  subjectId: string,
+  requestedTextbookId: string,
+  groups: readonly TGroup[],
+) {
+  const { textbooks, currentGroup } = resolveTextbookFilter(
+    subjectId,
+    requestedTextbookId,
+    groups,
+  );
+
+  return {
+    textbooks,
+    currentGroup,
+    value: currentGroup?.canonicalId ?? '',
+    disabled: !subjectId,
+    placeholder: subjectId ? '— 请选择教材 —' : '— 请先选择学科 —',
+  };
 }
