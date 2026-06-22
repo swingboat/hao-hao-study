@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { buildTextbookSelectState, type TextbookFilterGroup } from '../../../lib/kp-filters';
+import { type TextbookFilterGroup, buildTextbookSelectState } from '../../../lib/kp-filters';
 
 export interface KpFilterSubject {
   id: string;
@@ -27,8 +27,7 @@ function textbookLabel(textbook: KpFilterTextbook, subjects: KpFilterSubject[]):
   const subjectName = subjects.find((subject) => subject.id === textbook.subjectId)?.name;
   const display = textbook.originalName ?? `<未命名>·${textbook.canonicalId.slice(0, 8)}`;
   const date = new Date(textbook.createdAtIso).toLocaleDateString('zh-CN');
-  const dupSuffix =
-    textbook.uploadIds.length > 1 ? ` · 上传 ${textbook.uploadIds.length} 次` : '';
+  const dupSuffix = textbook.uploadIds.length > 1 ? ` · 上传 ${textbook.uploadIds.length} 次` : '';
 
   return `${subjectName ? `[${subjectName}] ` : ''}${display}（${date}${dupSuffix}）`;
 }

@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  MATERIAL_TYPE_LABELS,
-  groupLearningMaterialsByType,
-} from './kp-learning-materials.ts';
+import { MATERIAL_TYPE_LABELS, groupLearningMaterialsByType } from './kp-learning-materials.ts';
 
 test('groupLearningMaterialsByType orders published materials by learning category', () => {
   const grouped = groupLearningMaterialsByType([

@@ -90,9 +90,7 @@ export default async function QuestionStagingReviewPage({ params }: PageProps) {
     (s) => s.review_status === 'pending',
   );
   const supportingFallbackSubjectId =
-    pendingSupporting
-      .map((s) => stringValue(asRecord(s.llm_payload)?._subject_id))
-      .find(Boolean) ||
+    pendingSupporting.map((s) => stringValue(asRecord(s.llm_payload)?._subject_id)).find(Boolean) ||
     subjects[0]?.id ||
     '';
   const acceptedSources = sourceDocuments.filter((s) => s.review_status === 'accepted').length;
