@@ -28,7 +28,10 @@ export function KpLearningMaterialPanel({ kpName, groups }: KpLearningMaterialPa
               </div>
               <div className="space-y-3">
                 {group.items.map((item) => (
-                  <article key={item.id} className="rounded border p-3 bg-white dark:bg-neutral-950">
+                  <article
+                    key={item.id}
+                    className="rounded border p-3 bg-white dark:bg-neutral-950"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <h4 className="font-medium text-sm">{item.title}</h4>
                       {item.sourceLabel ? (

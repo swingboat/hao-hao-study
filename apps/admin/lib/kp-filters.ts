@@ -26,11 +26,7 @@ export function buildTextbookSelectState<TGroup extends TextbookFilterGroup>(
   requestedTextbookId: string,
   groups: readonly TGroup[],
 ) {
-  const { textbooks, currentGroup } = resolveTextbookFilter(
-    subjectId,
-    requestedTextbookId,
-    groups,
-  );
+  const { textbooks, currentGroup } = resolveTextbookFilter(subjectId, requestedTextbookId, groups);
 
   return {
     textbooks,

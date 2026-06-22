@@ -1,9 +1,4 @@
 import { type Prisma, prisma } from '@hao/db';
-import {
-  type KpLearningMaterialRecord,
-  groupLearningMaterialsByType,
-} from '../../../lib/kp-learning-materials';
-import { buildKpSelectionHref } from '../../../lib/kp-page-links';
 /**
  * F4.1 KP 列表 + F4.2 入口。
  *
@@ -18,6 +13,11 @@ import { buildKpSelectionHref } from '../../../lib/kp-page-links';
  */
 import Link from 'next/link';
 import { resolveTextbookFilter } from '../../../lib/kp-filters';
+import {
+  type KpLearningMaterialRecord,
+  groupLearningMaterialsByType,
+} from '../../../lib/kp-learning-materials';
+import { buildKpSelectionHref } from '../../../lib/kp-page-links';
 import { sortSubjectsByStage } from '../../../lib/subjects';
 import { KpDialog } from './kp-dialog';
 import { KpFilterForm } from './kp-filter-form';
