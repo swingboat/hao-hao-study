@@ -7,7 +7,7 @@
  * 字段对齐策略（与 packages/db/prisma/schema.prisma model knowledge_point 保持收敛）：
  *   - name        必填，对应 knowledge_point.name（min 2 / max 50，约束放在 LLM 这层早 fail）
  *   - chapter_no  可空，对应 knowledge_point.chapter_no（教材章节编号文本，如 "§3.2"）
- *   - brief       仅给运营在 staging 抽屉里看的简介；不入正式表，停留在 llm_payload
+ *   - brief       仅给admin在 staging 抽屉里看的简介；不入正式表，停留在 llm_payload
  *
  * 不放 subject_id：subject 由调用方上下文（admin 选了哪本教材）注入，避免 LLM 幻觉。
  */
@@ -17,7 +17,7 @@ import { z } from 'zod';
 export const KnowledgePointParsedSchema = z.object({
   name: z.string().min(2, 'KP name 至少 2 字符').max(50, 'KP name 不超过 50 字符'),
   chapter_no: z.string().max(20).nullable().optional(),
-  /** 给运营审核展示，不入正式 knowledge_point 表 */
+  /** 给admin审核展示，不入正式 knowledge_point 表 */
   brief: z.string().max(200).optional(),
 });
 export type KnowledgePointParsed = z.infer<typeof KnowledgePointParsedSchema>;

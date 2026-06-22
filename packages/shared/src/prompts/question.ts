@@ -82,7 +82,7 @@ export function buildQuestionChunkPrompt(ctx: QuestionChunkPromptCtx): string {
     '    不要写得太宽（如只写"函数"）也不要太窄（如"奇函数定义"），对齐教材一节的概念粒度。',
     '    至少 1 条，最多 5 条。条目之间不要重复。',
     '- `source_hint`：可选。能从分片里识别到题号时填 `{ page, question_no }`（question_no 如 "第 3 题" / "1.2.3"），',
-    '    便于后续运营回 PDF 校对。',
+    '    便于后续admin回 PDF 校对。',
     '',
     '【输出形态】',
     '严格按下方 JSON Schema 输出整个 QuestionBatchSchema（一个 `{ "questions": [...] }` 对象）。',

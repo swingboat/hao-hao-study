@@ -9,11 +9,11 @@
  *   - question_type       仅 'choice' / 'fill_in'（决议 Q2=a；essay 被强制丢弃在 F3.7）
  *   - options         choice 时必填非空；fill_in 时数组留空
  *   - answer          标准答案；choice 形如 "A" / "AB"；fill_in 形如 "f(x)=2x+1" 或多空 "1;2;3"
- *   - solution_text   解析全文；LLM 抽不到时给空字符串，留运营在 F3.4 抽屉手补
+ *   - solution_text   解析全文；LLM 抽不到时给空字符串，留admin在 F3.4 抽屉手补
  *   - difficulty      1-5；LLM 置信度低时按 3 兜底（不要让 LLM 留空）
  *   - kp_hints        关联 KP 的候选**名称**（不是 UUID）；F3.5 在 admin 端映射到正式 kp_ids
  *                     至少 1 条，第一条视为主 KP（primary_kp 候选）
- *   - source_hint     可选；让运营在 F3.4 diff 抽屉能快速翻回 PDF 原文校对
+ *   - source_hint     可选；让admin在 F3.4 diff 抽屉能快速翻回 PDF 原文校对
  *
  * 不放进 schema 的字段（由 admin 上下文 / 审核流程注入）：
  *   - id                 由 DB gen_random_uuid()
@@ -52,7 +52,7 @@ export const QuestionParsedSchema = z
     answer: z.string().min(1, '答案不能为空').max(500, '答案不超过 500 字符'),
     /**
      * 解析全文。LLM 抽不到时务必给空字符串而非省略字段，避免 staging 出 undefined。
-     * 运营在 F3.4 抽屉里看到空就知道要手补。
+     * admin在 F3.4 抽屉里看到空就知道要手补。
      */
     solution_text: z.string().max(3000, '解析不超过 3000 字符').default(''),
     /** 1=最易 ... 5=最难。LLM 置信度低时按 3 兜底，不要留空 */

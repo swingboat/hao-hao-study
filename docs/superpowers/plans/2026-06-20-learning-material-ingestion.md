@@ -4,7 +4,7 @@
 
 **Goal:** 把教材、辅导讲义、题集、答案解析册、完整试卷等上传文件，稳定沉淀为可审核、可追溯、可在web端使用的知识点、题目、学习材料和来源资产。
 
-**Architecture:** 采用“文档画像识别 -> 分块分类 -> 按类型解析 -> 人工审核 -> 发布使用”的分层架构。新的 prompt、schema 和 LLM 解析策略先在 `how-to-use-llm-proxy` 验证；当前仓库只接入已验证的公共方法，并负责 DB、共享 schema、运营审核和web端展示。
+**Architecture:** 采用“文档画像识别 -> 分块分类 -> 按类型解析 -> 人工审核 -> 发布使用”的分层架构。新的 prompt、schema 和 LLM 解析策略先在 `how-to-use-llm-proxy` 验证；当前仓库只接入已验证的公共方法，并负责 DB、共享 schema、admin审核和web端展示。
 
 **Tech Stack:** Prisma/PostgreSQL、`@hao/shared` zod schema、`@hao/llm` adapter、`@hao/storage` ObjectStore、BullMQ、Next.js admin/web、`how-to-use-llm-proxy` 公共解析层。
 
@@ -297,10 +297,10 @@ type QuestionQualityStatus =
 发布规则：
 
 - `publishable`：题干、题型、答案、知识点齐全，可审核后发布。
-- `missing_solution`：可以作为低风险题进入审核，但web端解析为空时要有运营确认。
+- `missing_solution`：可以作为低风险题进入审核，但web端解析为空时要有admin确认。
 - `missing_answer`：不能发布给学生正式练习。
 - `incomplete_stem`：保留原始定位，不入题库。
-- `needs_human_review`：运营确认后才可发布。
+- `needs_human_review`：admin确认后才可发布。
 
 ## 5. 分阶段实施计划
 
@@ -1009,7 +1009,7 @@ git commit -m "feat(llm): expose mixed learning material analysis"
 
 - [ ] **Step 1: 上传后展示文档画像**
 
-运营上传文件后，先看到：
+admin上传文件后，先看到：
 
 ```text
 资料类型：辅导讲义
@@ -1021,7 +1021,7 @@ git commit -m "feat(llm): expose mixed learning material analysis"
 
 - [ ] **Step 2: 来源审核**
 
-运营可编辑：
+admin可编辑：
 
 ```text
 标题：第1讲 集合与逻辑重点题型全梳理
@@ -1256,11 +1256,11 @@ main 已更新，B/C 进程请在各自 worktree 内执行 `bash ../../scripts/s
 
 ### 6.2 admin端验收
 
-- 运营能看到文档画像。
-- 运营能审核来源信息。
-- 运营能审核学习材料。
-- 运营能识别缺答案、缺解析、题干不完整的题。
-- 运营能从审核项跳回原 PDF 页或 slide 缩略图。
+- admin能看到文档画像。
+- admin能审核来源信息。
+- admin能审核学习材料。
+- admin能识别缺答案、缺解析、题干不完整的题。
+- admin能从审核项跳回原 PDF 页或 slide 缩略图。
 
 ### 6.3 web端验收
 

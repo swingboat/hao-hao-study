@@ -77,7 +77,7 @@
 |------|------|----------|
 | 高中学生 | 主用户 | 使用学习功能，完成 Session、答题、查看掌握度 |
 | 监护人 | 合规角色 | 授权未成年注册，可查阅学习报告（MVP 阶段只读） |
-| 教研 / 运营 | 内部角色 | 维护 GOAL_TEMPLATE、题库、KP 权重；MVP 阶段 `recommendation_mix_override` 仅运营可改 [决议 C3-D3] |
+| 教研 / admin | 内部角色 | 维护 GOAL_TEMPLATE、题库、KP 权重；MVP 阶段 `recommendation_mix_override` 仅admin可改 [决议 C3-D3] |
 
 ---
 
@@ -87,9 +87,9 @@
 
 系统实体按职责分三个独立域，域间通过明确接口传递数据：
 
-#### 运营域（Goal Template 资产）
+#### admin域（Goal Template 资产）
 
-- 由教研 / 运营维护，学生只读。
+- 由教研 / admin维护，学生只读。
 - 核心实体：`GOAL_TEMPLATE`、`knowledge_point`、`EXAM_POINT`、`question`、`CURRICULUM_STANDARD`、`TEXTBOOK`。
 - `GOAL_TEMPLATE` 语义：**1 份/考试**，代表某次高考的完整考试要求（如"2027 新课标 I 卷数学考试要求"）。[决议 C3-D1]
 - `GOAL_TEMPLATE` 不含 `mastery_threshold` / `recommendation_mix_override`，这些字段下移到 `GOAL_INSTANCE`。[决议 C3]
@@ -97,7 +97,7 @@
 
 #### 学生域（Goal Instance + 个人状态）
 
-- 每个学生的个人数据，与运营域通过 `GOAL_INSTANCE → GOAL_TEMPLATE` 绑定。
+- 每个学生的个人数据，与admin域通过 `GOAL_INSTANCE → GOAL_TEMPLATE` 绑定。
 - 核心实体：`student`、`GOAL_INSTANCE`、`SPECIALIZED_GOAL`、`knowledge_point_mastery`。
 - **Mastery 归属**：`knowledge_point_mastery` 外键为 `student_id + subject_id`，UNIQUE `(student_id, knowledge_point_id)`，**不挂在 GoalInstance 下**。[决议 S1]
 - `GoalInstance` 进度为派生值：`progress = Σ(mastery × weight) / Σ(weight)`，不直接持有 mastery。[决议 S1]
@@ -114,7 +114,7 @@
 
 ```mermaid
 graph TB
-    subgraph OPS["运营域（Goal Template 资产）"]
+    subgraph OPS["admin域（Goal Template 资产）"]
         GT["GOAL_TEMPLATE\n1份/考试"]
         KP["knowledge_point"]
         EP["EXAM_POINT\n(kp_id FK → KP)"]
@@ -163,7 +163,7 @@ graph TB
 
 **域间传递说明：**
 
-- 运营域 → 学生域：`GOAL_INSTANCE` 绑定 `GOAL_TEMPLATE`，继承 KP 权重与考试结构；学生个性化 override 在 `GOAL_INSTANCE` 层处理，不修改 Template。
+- admin域 → 学生域：`GOAL_INSTANCE` 绑定 `GOAL_TEMPLATE`，继承 KP 权重与考试结构；学生个性化 override 在 `GOAL_INSTANCE` 层处理，不修改 Template。
 - 学生域 → 行为域：`student` 发起 `learning_session`；`GOAL_INSTANCE.daily_budget_minutes` 控制 session 时长预算；`unlocked_kp_ids[]` 约束推荐池过滤。
 - 行为域 → 学生域：`question_attempt` 结果更新 `knowledge_point_mastery`（挂 Student 域）；`GoalInstance.progress` 从 `knowledge_point_mastery` 实时派生，无双写。[决议 S1]
 
@@ -182,7 +182,7 @@ graph TB
 
 ```mermaid
 erDiagram
-    %% ── 运营域 ──
+    %% ── admin域 ──
     subject ||--o{ knowledge_point : contains
     subject ||--o{ COMPETENCY : has
     subject ||--o{ EXAM_POINT : has
@@ -261,7 +261,7 @@ erDiagram
 
 ## §3.2 实体清单与分组
 
-### 运营域（15 个实体 + 关联表）
+### admin域（15 个实体 + 关联表）
 
 | 实体 | 职责简述 |
 |---|---|
@@ -315,7 +315,7 @@ erDiagram
 
 ## §3.3 实体完整字段表
 
-### 运营域
+### admin域
 
 ---
 
@@ -586,7 +586,7 @@ erDiagram
 | template_version | string | ✓ | **MVP 必须预留**，版本迁移用 | |
 | target_score | int | ✓ | 目标分数，如 600 | [决议 C3-D1] 新增 |
 | mastery_threshold | float | | 个人 override，null 则按 target_score 分档派生 | [决议 C3-D2]：600+→0.90, 500-600→0.85, <500→0.80 |
-| recommendation_mix_override | json | | 个人推荐配比 override | [决议 C3-D3] MVP 仅运营可改；学生不开放 |
+| recommendation_mix_override | json | | 个人推荐配比 override | [决议 C3-D3] MVP 仅admin可改；学生不开放 |
 | daily_budget_minutes | int | ✓ | 每日预算（AI 建议，可手改） | [决议 C3-D1] 新增 |
 | kp_scope_ids | array FK | ✓ | 从 Template 复制的 KP 集合 | |
 | kp_weight_map | json | | 从 EXAM_POINT_WEIGHT 派生的 KP 权重 | |
@@ -821,12 +821,12 @@ erDiagram
 
 ### audit_log（通用审计日志）
 
-> 题目状态审计、合规审计（注销/导出/同意确认）、运营操作审计**统一收口在此一张表**，通过 `target_type` 区分领域。字段与 `packages/db/prisma/schema.prisma` 对齐。
+> 题目状态审计、合规审计（注销/导出/同意确认）、admin操作审计**统一收口在此一张表**，通过 `target_type` 区分领域。字段与 `packages/db/prisma/schema.prisma` 对齐。
 
 | 字段 | 类型 | 必选 | 说明 | 备注 |
 |---|---|---|---|---|
 | id | string PK | ✓ | | UUID |
-| actor_id | string | ✓ | 操作发起者 ID | 学生注销 = 学生 UUID 字符串；运营操作 = 管理员 username；双角色统一存 text |
+| actor_id | string | ✓ | 操作发起者 ID | 学生注销 = 学生 UUID 字符串；admin操作 = 管理员 username；双角色统一存 text |
 | action | string | ✓ | 受控集合 | `consent_confirmed` / `export_data_self` / `export_data` / `delete_self` / `delete_student` / `consent_withdraw`(v0.2+) / `question.status_change` |
 | target_type | string | ✓ | 目标对象类型 | `student` / `question` / ... |
 | target_id | string | ✓ | 目标对象 ID | |
@@ -843,9 +843,9 @@ erDiagram
 |---|---|---|---|
 | 题目状态流转（draft→pending→...→deprecated） | `question.status_change` | `question` | `from_status`, `to_status`, `reason` |
 | 学生自助注销 | `delete_self` | `student` | 删除前快照摘要 |
-| 运营代注销 | `delete_student` | `student` | `ops_user`, `reason`, 快照 |
+| admin代注销 | `delete_student` | `student` | `ops_user`, `reason`, 快照 |
 | 学生自助导出 | `export_data_self` | `student` | `export_files[]` |
-| 运营代导出 | `export_data` | `student` | `ops_user`, `export_files[]` |
+| admin代导出 | `export_data` | `student` | `ops_user`, `export_files[]` |
 | 监护人同意确认 | `consent_confirmed` | `student` | `consent_method`, IP/UA |
 
 ---
@@ -884,7 +884,7 @@ erDiagram
 | 状态机 | 规则 |
 |---|---|
 | question 6状态 | 单向流转为主；published → under_review → published/draft/deprecated 可回流 |
-| mistake_book_entry 4态 | open_pending_material → open（材料已读后）；open → resolved（N=2变种连续做对）；archived 为运营手动操作；已 resolved 不 reopen |
+| mistake_book_entry 4态 | open_pending_material → open（材料已读后）；open → resolved（N=2变种连续做对）；archived 为admin手动操作；已 resolved 不 reopen |
 | spaced_review idx | 触发A/B 重置 idx=0；触发C idx+1（上限5）；触发D 进入 long_term 保鲜 |
 | GOAL_INSTANCE 活跃唯一 | 同一 student 同时只能有 1 个 active GOAL_INSTANCE |
 | SPECIALIZED_GOAL 活跃唯一 | 同一 GOAL_INSTANCE 同时只能有 1 个 active SPECIALIZED_GOAL |
@@ -1827,7 +1827,7 @@ v1.5 实装时需补充 5 种下架原因（答案错 / 题干歧义 / 解析错
 |--------|------|------|
 | D1 conceptual 流程 | 两阶段：`open_pending_material` → 学完材料 → `open` | conceptual 错题先推学习材料，完成后才进入可复习池 |
 | D2 resolve 是否可 reopen | 永久 resolve（不 reopen） | 同一题下次答错开新条 |
-| D3 长期 open 归档 | 永远保留，不自动归档 | 由学生或运营手动清理 |
+| D3 长期 open 归档 | 永远保留，不自动归档 | 由学生或admin手动清理 |
 | D4 同 KP 多条 open 召回顺序 | 根因优先级：conceptual > methodological > comprehension > time_pressure；同根因内按 error_count 倒序 | |
 | D5 一题多 KP 入错题本 | 仅主 KP 入错题本；副 KP 按权重扣 mastery | `question.primary_kp_id` 决定归属 |
 | N | N=2 连续变种做对自动 resolve | "变种"指同 KP 不同题号 |
@@ -1868,7 +1868,7 @@ v1.5 实装时需补充 5 种下架原因（答案错 / 题干歧义 / 解析错
   - target_score ≥ 600 → mastery_threshold = 0.90
   - 500 ≤ target_score < 600 → mastery_threshold = 0.85
   - target_score < 500 → mastery_threshold = 0.80
-- **D3=(a) recommendation_mix_override**：MVP 仅运营可改，web端不开放
+- **D3=(a) recommendation_mix_override**：MVP 仅admin可改，web端不开放
 - **"多套 Template 并行按分数切换"提法废弃**
 
 **字段变更：**
@@ -1935,7 +1935,7 @@ v1.5 实装时需补充 5 种下架原因（答案错 / 题干歧义 / 解析错
 
 **原冲突描述：**
 
-- q10 question 实体设计为有 6 态审核工作流（`draft → under_review → approved → published → deprecated → archived`），适配运营管控的题库题目
+- q10 question 实体设计为有 6 态审核工作流（`draft → under_review → approved → published → deprecated → archived`），适配admin管控的题库题目
 - q5 拍照上传场景产生的"题"无 `kp_ids`、无 `difficulty`，直接塞进 question 会破坏 6 态流程的前置约束
 
 **影响范围：**
@@ -1950,7 +1950,7 @@ v1.5 实装时需补充 5 种下架原因（答案错 / 题干歧义 / 解析错
 | 方案 | 描述 | 优点 | 缺点 |
 |------|------|------|------|
 | (a) 独立 USER_UPLOADED_ITEM 表 | 拍照题单独建表，与 question 完全隔离 | 不污染题库主表，约束清晰 | 复用逻辑需双查询，维护两套 |
-| (b) question.source=user_upload 强制 status=draft | 复用 question 表，source 字段区分，draft 状态跳过审核约束 | 结构统一，查询简单 | draft 语义污染（运营草稿 vs 用户上传混在一起） |
+| (b) question.source=user_upload 强制 status=draft | 复用 question 表，source 字段区分，draft 状态跳过审核约束 | 结构统一，查询简单 | draft 语义污染（admin草稿 vs 用户上传混在一起） |
 
 **建议优先级：暂搁置**（MVP 不实现拍照上传，问题不触发；v0.2 规划拍照功能时再决策）
 
@@ -2164,7 +2164,7 @@ Q9 抗拒识别算法在第 1 周（冷启动期）即可触发，但此时：
 - KP 表结构（是否新增 `curriculum_version` / `deprecated_at`）
 - 历史 knowledge_point_mastery 数据有效性
 - 历史 GOAL_INSTANCE 的 kp_scope 完整性
-- 运营迁移工具
+- admin迁移工具
 
 **候选方案：**
 
@@ -2172,7 +2172,7 @@ Q9 抗拒识别算法在第 1 周（冷启动期）即可触发，但此时：
 |------|------|
 | (a) KP 软删除 + 新建替代 | 旧 KP 标 `deprecated`，新建新 KP；旧 mastery 不迁移，学生重新学习 |
 | (b) KP 版本链 | KP 新增 `superseded_by_id`；mastery 从旧 KP 按比例迁移到新 KP |
-| (c) 不处理，运营手动迁移 | MVP 阶段课标不会改，问题不紧迫；留人工处理 |
+| (c) 不处理，admin手动迁移 | MVP 阶段课标不会改，问题不紧迫；留人工处理 |
 
 **建议优先级：P2**（MVP 题库小且课标短期不变；但 KP 表结构应预留 `deprecated_at` 字段，成本低）
 
@@ -2398,14 +2398,14 @@ audit_log
 
 | 类别 | 确认项 | 状态 |
 |---|---|---|
-| 题库 | 实际覆盖 KP 范围已定（30-50 个 KP） | 待确认（运营冷启动数据包） |
+| 题库 | 实际覆盖 KP 范围已定（30-50 个 KP） | 待确认（admin冷启动数据包） |
 | 题库 | KP 表结构已定稿，可导入 | ✅ 已确认（见 [Tech Stack](../Tech_Stack_MVP_v0.1.md) M1 + admin端 PRD F4） |
-| 题库 | 难度至少 3 档以上，选择+填空占比 ≥ 70% | 待确认（运营冷启动数据包） |
+| 题库 | 难度至少 3 档以上，选择+填空占比 ≥ 70% | 待确认（admin冷启动数据包） |
 | 部署 | Web 部署平台 | ✅ 已确认：Vercel（D1） |
 | 后端 | 后端框架选型 | ✅ 已确认：Next.js 15 Route Handlers + tRPC v11（D2/D5） |
 | 数据库 | DB / 缓存 | ✅ 已确认：PostgreSQL 16（Neon）+ Redis 7（Upstash）+ Prisma 6（D3） |
 | AI 服务 | LLM 服务选型 | ✅ 已确认：LLM Proxy 多 Provider（OpenAI-compatible / Google GenerateContent / Bedrock Converse），自写抽象层（D5） |
-| 域名 | 学生 / 运营隔离 | ✅ 已确认：不同子域 `app.*` vs `admin.*`（D4） |
+| 域名 | 学生 / admin隔离 | ✅ 已确认：不同子域 `app.*` vs `admin.*`（D4） |
 | 合规 | 监护人同意页面文案与法律审阅 | 待确认（线下流程） |
 | 安全 | `LLM_PROXY_API_KEY` 轮换 | ⚠️ 待执行（旧 token 已在对话历史中暴露） |
 
@@ -2436,7 +2436,7 @@ v1.0  (+3 个月)
       临考期模式（间隔压缩）
       画像抗拒识别
       章节进度自动同步
-      运营后台完整版（7 模块）
+      admin后台完整版（7 模块）
 ```
 
 ---

@@ -159,7 +159,7 @@ enum ReviewStatus {
   pending /// 等待审核
   accepted /// 已接受并发布到正式表
   rejected /// 已丢弃
-  edited /// 草稿（运营修改了一些字段但尚未发布）
+  edited /// 草稿（admin修改了一些字段但尚未发布）
 }
 
 /// LearningSession 中题目分配的来源池（用于事后分析；web端不展示）
@@ -197,7 +197,7 @@ enum Grade {
 //  §B  主域 — 学生 / 学科 / 知识点 / 题目
 // ══════════════════════════════════════════════════════════════════
 
-/// 学科（v0.1 仅 1 条："math" 高中数学），由运营 SQL 硬塞
+/// 学科（v0.1 仅 1 条："math" 高中数学），由admin SQL 硬塞
 model subject {
   /// 主键，人类可读字符串。约定使用学科英文标识 + 学段后缀，如 "math_senior"、"math_junior"
   id    String @id
@@ -222,7 +222,7 @@ model subject {
 model student {
   /// 主键 UUID（系统生成）
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  /// 登录用户名，全局唯一，由运营开户时下发（admin端 F5.2）
+  /// 登录用户名，全局唯一，由admin开户时下发（admin端 F5.2）
   username           String    @unique
   /// web端登录密码 hash，明文永不入库；当前web端认证契约为 scrypt:v1:<salt>:<hex>
   password_hash      String
@@ -611,7 +611,7 @@ model audit_log {
   /// 主键 UUID
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// 操作发起者 ID
-  /// 学生注销 = 学生 UUID 字符串；运营操作 = 管理员 username 字符串
+  /// 学生注销 = 学生 UUID 字符串；admin操作 = 管理员 username 字符串
   /// 双角色统一存 text 而非 uuid
   actor_id    String
   /// 受控集合：
@@ -637,7 +637,7 @@ model audit_log {
 }
 
 // ══════════════════════════════════════════════════════════════════
-//  §F  运营 LLM 解析子系统
+//  §F  admin LLM 解析子系统
 // ══════════════════════════════════════════════════════════════════
 
 /// LLM Provider 配置
@@ -648,7 +648,7 @@ model audit_log {
 /// llmTarget；业务层调用方仍然只用 analyzeKnowledgePoints/analyzeLearningResource
 /// 这类 @hao/llm adapter 入口，看不出 Gemini / Claude / GPT 的协议差别。
 model llm_provider {
-  /// 主键，运营自定义 slug
+  /// 主键，admin自定义 slug
   id                 String      @id
   /// 协议类型（决定 llm-client 走哪条请求构造 / 响应解析分支）
   protocol           LLMProtocol
@@ -789,7 +789,7 @@ model llm_parse_staging {
   llm_payload    Json
   /// 审核状态
   review_status  ReviewStatus    @default(pending)
-  /// 运营修改后的最终值
+  /// admin修改后的最终值
   /// pending 时 NULL；edited 时存草稿；accepted 时存最终值
   review_payload Json?
   /// 审核者（管理员 username）

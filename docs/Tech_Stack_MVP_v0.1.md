@@ -15,7 +15,7 @@
 | **D1** | 部署区域 / 合规 | **海外**：Vercel + Neon（US/EU）+ Upstash + Cloudflare R2 | v0.1 亲友内测 < 50 人，无 ICP 备案压力；上线快、运维省。开放注册前再评估迁国内 |
 | **D2** | 仓库结构 | **monorepo**（pnpm workspaces，web端 / admin端共仓） | 共享数据模型（14 张表）与三池凑题逻辑，monorepo 减少同步成本 |
 | **D3** | ORM | **Prisma 6** | 迁移工具完备，jsonb / uuid[] / 复合主键原生支持，团队上手成本低 |
-| **D4** | 学生 / 运营域名分离 | **不同子域**：`app.*`（学生）vs `admin.*`（运营） | cookie 完全隔离，安全审计省事，避免路径前缀的鉴权中间件复杂度 |
+| **D4** | 学生 / admin域名分离 | **不同子域**：`app.*`（学生）vs `admin.*`（admin） | cookie 完全隔离，安全审计省事，避免路径前缀的鉴权中间件复杂度 |
 | **D5** | LLM 抽象层 | **自写 fetch + 协议适配**，不引入 SDK | LLM Proxy 端点形态多样，SDK 反而碍事；自写适配层易维护 |
 
 ---
@@ -32,7 +32,7 @@
 | 服务端状态 | **TanStack Query v5** | 数据获取、缓存、mutation |
 | API 层 | **Next.js Route Handlers + tRPC v11** | 端到端类型安全；PRD §6 读写边界用 zod schema 强制 |
 | 表单与校验 | **react-hook-form + zod** | 前后端 schema 共享 |
-| 鉴权 | **Auth.js v5（NextAuth 后继）** credentials provider | 学生 / 运营双 session，HTTP-only cookie，TTL 12h |
+| 鉴权 | **Auth.js v5（NextAuth 后继）** credentials provider | 学生 / admin双 session，HTTP-only cookie，TTL 12h |
 
 ### §2.2 数据层
 
