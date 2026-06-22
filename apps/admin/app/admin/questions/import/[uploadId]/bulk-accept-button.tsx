@@ -1,5 +1,5 @@
 /**
- * "接受所有待审"按钮 —— 运营人员快速过题。
+ * "接受所有待审"按钮 —— admin 人员快速过题。
  *
  * 服务端用 bulkAcceptAllAction 逐条事务发布，跳过 kp_hints 无法解析 / options 不足等条目，
  * 完成后把 accepted / skipped 数量回显，skipReasons 折叠展开。

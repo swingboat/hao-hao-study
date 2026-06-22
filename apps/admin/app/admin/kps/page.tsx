@@ -4,7 +4,7 @@ import { type Prisma, prisma } from '@hao/db';
  *
  *  - 主导航：教材（content_upload where file_type='textbook'）—— 选择教材后才展示该教材
  *    的 KP（通过 llm_parse_staging.published_id 反查）。
- *    rationale：v0.1 的 knowledge_point 没有 textbook FK，KP 只挂 subject_id；但运营审核
+ *    rationale：v0.1 的 knowledge_point 没有 textbook FK，KP 只挂 subject_id；但 admin 审核
  *    时希望"按本教材审核 / 浏览"，所以走 staging 反向 join 拿 KP 集合。
  *  - 视图默认 **章节树**（list 仍可切，URL ?view=list）。
  *  - 学科过滤保留为次级过滤（textbook 已隐含一个 subject，但加学科可看历史 KP 子集）。

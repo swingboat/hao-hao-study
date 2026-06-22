@@ -59,7 +59,7 @@ export default async function KpImportPage() {
         <div>
           <h1 className="text-2xl font-semibold">教材 PDF 上传 → 解析 KP（F4.3）</h1>
           <p className="text-sm opacity-60 mt-1">
-            上传后自动调 LLM 抽取 KP 候选，落 staging 等运营逐条审核。
+            上传后自动调 LLM 抽取 KP 候选，落 staging 等 admin 人员逐条审核。
           </p>
         </div>
         <Link href="/admin/kps" className="text-sm underline opacity-70 hover:opacity-100">
