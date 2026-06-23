@@ -216,10 +216,8 @@ export async function generateQuestionAnswerDraft(
   }
 
   const provider = await resolveProviderTarget(providerId);
-  const withDefaults = withProviderDefaults(commonOptions, provider.defaults);
   return callCommonQuestionAnswerDraft({
-    ...withDefaults,
-    maxTokens: commonOptions.maxTokens ?? provider.defaults.maxTokens,
+    ...withQuestionAnswerDraftProviderDefaults(commonOptions, provider.defaults),
     llmTarget: provider.llmTarget,
     apiKey: provider.apiKey,
   });
@@ -275,6 +273,23 @@ function withProviderDefaults<T extends Record<string, unknown>>(
     maxPageTokens: options.maxPageTokens ?? defaults.maxTokens,
     maxFinalTokens: options.maxFinalTokens ?? defaults.maxTokens,
   };
+}
+
+function withQuestionAnswerDraftProviderDefaults<T extends Record<string, unknown>>(
+  options: T,
+  defaults: { temperature?: number; maxTokens?: number },
+): T {
+  const output = {
+    ...options,
+    temperature: options.temperature ?? defaults.temperature,
+  };
+  if (options.maxTokens !== undefined) {
+    return {
+      ...output,
+      maxTokens: options.maxTokens,
+    };
+  }
+  return output;
 }
 
 export const LLM_VERSION = '0.1.0';

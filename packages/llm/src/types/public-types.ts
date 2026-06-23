@@ -452,47 +452,45 @@ export interface SessionReviewAdviceResult {
 export interface QuestionAnswerDraftQuestion {
   content: string;
   question_type: 'choice' | 'fill_in' | string;
-  options?: Array<
-    | string
-    | {
-        label?: string;
-        text?: string;
-        content?: string;
-        value?: string;
-        [key: string]: unknown;
-      }
-  >;
+  options?:
+    | Array<
+        | string
+        | {
+            label?: string;
+            key?: string;
+            option?: string;
+            text?: string;
+            content?: string;
+            value?: string;
+            [key: string]: unknown;
+          }
+      >
+    | Record<string, unknown>;
   answer?: string;
   solution_text?: string;
   kp_hints?: string[];
   subjectName?: string;
   subject_name?: string;
-  source_ref?: JsonObject;
+  source_ref?: string | JsonObject;
+  image_description?: string;
+  image_text?: string;
+  diagram_text?: string;
+  figure?: JsonObject;
   figures?: JsonObject[];
+  image?: JsonObject;
+  images?: JsonObject[];
+  table?: JsonObject;
+  tables?: JsonObject[];
   [key: string]: unknown;
 }
 
 export interface QuestionAnswerDraftResult {
   kind: 'question_answer_draft';
-  status: 'ok' | 'partial' | 'failed';
   answer: string;
   solution_text: string;
   confidence: number | null;
   warnings: string[];
   prompt_version: 'question/common/generateQuestionAnswerDraft';
-  draft_source: 'ai_generated_review_draft';
-  llm: LlmInfo;
-  diagnostics: {
-    parse_error: unknown | null;
-    validation_error: unknown | null;
-    payload_log_path: string;
-    skipped_reason?: string;
-    [key: string]: unknown;
-  };
-  usage?: JsonObject | null;
-  latency_ms?: number | null;
-  ok?: boolean;
-  [key: string]: unknown;
 }
 
 export interface GenerateQuestionAnswerDraftRequest extends CommonParserOptions {

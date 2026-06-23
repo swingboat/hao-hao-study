@@ -552,10 +552,10 @@ describe('@hao/llm adapter education analysis API', () => {
   });
 
   it('resolves providerId and calls question answer draft through the synced public method', async () => {
-    findUnique.mockResolvedValue(OPENAI_PROVIDER);
+    findUnique.mockResolvedValue({ ...OPENAI_PROVIDER, max_output_tokens: 1800 });
     const callLlmImpl = vi.fn(async (request) => {
       expect(request.apiKey).toBe('test-token-xyz');
-      expect(request.maxTokens).toBe(1800);
+      expect(Object.hasOwn(request, 'maxTokens')).toBe(false);
       expect(request.llmTarget).toEqual(
         expect.objectContaining({
           id: 'openai-chat-gemini-3.1-pro',
@@ -579,10 +579,12 @@ describe('@hao/llm adapter education analysis API', () => {
         latency_ms: 18,
         usage: { total_tokens: 420 },
         text: JSON.stringify({
+          kind: 'question_answer_draft',
           answer: 'B. 2 ∈ A',
           solution_text: '因为 2 是集合 A 中列出的元素，所以 2 ∈ A。',
-          confidence: 0.92,
+          confidence: '0.92',
           warnings: [],
+          prompt_version: 'question/common/generateQuestionAnswerDraft',
           answer_source: 'source_extract',
         }),
       };
@@ -590,7 +592,6 @@ describe('@hao/llm adapter education analysis API', () => {
 
     const result = await generateQuestionAnswerDraft({
       providerId: 'openai-chat-gemini-3.1-pro',
-      maxTokens: 1800,
       question: {
         content: '若集合 A={1,2}，则 2 与 A 的关系是？',
         question_type: 'choice',
@@ -615,9 +616,14 @@ describe('@hao/llm adapter education analysis API', () => {
     expect(result.answer).toBe('B. 2 ∈ A');
     expect(result.solution_text).toContain('2 是集合 A 中列出的元素');
     expect(result.confidence).toBe(0.92);
-    expect(result.llm.target_id).toBe('openai-chat-gemini-3.1-pro');
-    expect(result.usage).toEqual({ total_tokens: 420 });
-    expect(result.draft_source).toBe('ai_generated_review_draft');
+    expect(Object.keys(result).sort()).toEqual([
+      'answer',
+      'confidence',
+      'kind',
+      'prompt_version',
+      'solution_text',
+      'warnings',
+    ]);
     expect(result).not.toHaveProperty('quality_status');
     expect(result).not.toHaveProperty('answer_source');
   });
