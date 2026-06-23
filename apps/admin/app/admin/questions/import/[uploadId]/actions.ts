@@ -43,16 +43,19 @@ import {
   documentAnalysisProtocolLabel,
   getLlmProviderById,
   isDocumentAnalysisProvider,
+  listLlmProviders,
 } from '../../../../../lib/llm-providers';
 import {
   createQuestionAnalysisCache,
   resolveQuestionAnalysisRuntime,
 } from '../../../../../lib/question-analysis-runtime';
 import {
+  DEFAULT_ANSWER_DRAFT_PROVIDER_ID,
   type DraftQuestionPayload,
   canApplyQuestionAnswerDraft,
   isMissingAnswerDraftCandidate,
   requestQuestionAnswerDraft,
+  selectAnswerDraftProvider,
 } from '../../../../../lib/question-answer-draft';
 import { stripDuplicatedChoiceOptionsFromContent } from '../../../../../lib/question-content';
 import { createAndPersistQuestionFigureCropAssets } from '../../../../../lib/question-figure-assets';
@@ -533,7 +536,6 @@ export interface AnswerDraftActionState {
     warnings: string[];
     confidence: number | null;
     prompt_version: string;
-    draft_source: string;
     can_apply: boolean;
   };
 }
@@ -544,8 +546,9 @@ export async function generateAnswerDraftAction(
 ): Promise<AnswerDraftActionState> {
   await requireAdmin();
   const stagingId = String(formData.get('staging_id') ?? '');
-  const providerId = String(formData.get('provider_id') ?? '');
-  if (!stagingId || !providerId) return { error: '请选择题目和模型' };
+  const providerId =
+    String(formData.get('provider_id') ?? '').trim() || DEFAULT_ANSWER_DRAFT_PROVIDER_ID;
+  if (!stagingId) return { error: '请选择题目' };
 
   const staging = await prisma.llm_parse_staging.findUnique({
     where: { id: stagingId },
@@ -559,7 +562,10 @@ export async function generateAnswerDraftAction(
     return { error: '只有原文缺答案的题目可以生成参考解答草稿' };
   }
 
-  const provider = await getLlmProviderById(providerId);
+  let provider = await getLlmProviderById(providerId);
+  if ((!provider || !provider.enabled) && providerId === DEFAULT_ANSWER_DRAFT_PROVIDER_ID) {
+    provider = selectAnswerDraftProvider(await listLlmProviders({ enabledOnly: true }));
+  }
   if (!provider || !provider.enabled) return { error: '所选模型不可用，请检查 LLM 设置' };
 
   const subject = payload._subject_id
@@ -596,7 +602,6 @@ export async function generateAnswerDraftAction(
         warnings,
         confidence: draft.confidence ?? null,
         prompt_version: draft.prompt_version,
-        draft_source: draft.draft_source,
         can_apply: canApplyQuestionAnswerDraft({ answer, warnings }),
       },
     };

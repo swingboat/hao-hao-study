@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
+  DEFAULT_ANSWER_DRAFT_PROVIDER_ID,
   buildQuestionAnswerDraftRequest,
   canApplyQuestionAnswerDraft,
   isMissingAnswerDraftCandidate,
   requestQuestionAnswerDraft,
+  selectAnswerDraftProvider,
 } from './question-answer-draft.ts';
 
 const missingAnswerPayload = {
@@ -25,14 +27,14 @@ const missingAnswerPayload = {
 test('buildQuestionAnswerDraftRequest forwards providerId and staging question to public draft method', () => {
   const knowledge = [{ id: 'kp-1', name: '集合与元素' }];
   const request = buildQuestionAnswerDraftRequest({
-    providerId: 'provider-db-id',
     payload: missingAnswerPayload,
     subjectName: '高中数学',
     knowledge,
   });
 
-  assert.equal(request.providerId, 'provider-db-id');
-  assert.equal(request.maxTokens, 1800);
+  assert.equal(DEFAULT_ANSWER_DRAFT_PROVIDER_ID, 'openai-chat-gemini-3-5-flash-global');
+  assert.equal(request.providerId, DEFAULT_ANSWER_DRAFT_PROVIDER_ID);
+  assert.equal((request as unknown as { maxTokens: null }).maxTokens, null);
   assert.equal(request.knowledge, knowledge);
   assert.deepEqual(request.question, {
     content: '集合 A 中含有元素 4，则 a 的值为（ ）',
@@ -49,7 +51,6 @@ test('buildQuestionAnswerDraftRequest forwards providerId and staging question t
 test('requestQuestionAnswerDraft calls injected public draft method without changing missing_answer payload', async () => {
   let calledWith: unknown = null;
   const draft = await requestQuestionAnswerDraft({
-    providerId: 'provider-db-id',
     payload: missingAnswerPayload,
     subjectName: '高中数学',
     generateDraft: async (request) => {
@@ -62,17 +63,32 @@ test('requestQuestionAnswerDraft calls injected public draft method without chan
         confidence: 0.8,
         warnings: [],
         prompt_version: 'question/common/generateQuestionAnswerDraft',
-        draft_source: 'ai_generated_review_draft',
         llm: {},
         diagnostics: { parse_error: null, validation_error: null, payload_log_path: '' },
       };
     },
   });
 
-  assert.equal((calledWith as { providerId?: string }).providerId, 'provider-db-id');
+  assert.equal(
+    (calledWith as { providerId?: string }).providerId,
+    DEFAULT_ANSWER_DRAFT_PROVIDER_ID,
+  );
   assert.equal(draft.answer, 'B');
   assert.equal(missingAnswerPayload.answer, '');
+  assert.equal(missingAnswerPayload.solution_text, '');
   assert.equal(missingAnswerPayload.quality_status, 'missing_answer');
+});
+
+test('selectAnswerDraftProvider prefers Gemini 3.5 Flash global provider aliases', () => {
+  const selected = selectAnswerDraftProvider([
+    { id: 'openai-chat-claude-opus-4.7', model: 'anthropic.claude-opus-4-7' },
+    {
+      id: 'openai-chat-gemini-3.5-flash',
+      model: 'google.gemini-3.5-flash-global',
+    },
+  ]);
+
+  assert.equal(selected?.id, 'openai-chat-gemini-3.5-flash');
 });
 
 test('isMissingAnswerDraftCandidate only allows missing_answer questions with empty answer', () => {
@@ -104,7 +120,7 @@ test('review UI labels generated answer as AI reference draft', () => {
   );
 
   assert.match(drawerSource, /AI 生成参考解答草稿/);
-  assert.match(drawerSource, /参考解答草稿 \/ AI 生成，仅供审核/);
+  assert.match(drawerSource, /AI 参考草稿，仅供审核/);
   assert.match(drawerSource, /题干 \*/);
   assert.match(drawerSource, /答案 \*/);
   assert.match(drawerSource, /解析/);
@@ -128,5 +144,6 @@ test('server action uses public answer draft entry without lower-level LLM wirin
 
   assert.match(source, /generateAnswerDraftAction/);
   assert.match(source, /generateQuestionAnswerDraft/);
+  assert.match(source, /DEFAULT_ANSWER_DRAFT_PROVIDER_ID/);
   assert.doesNotMatch(source, /llm-client|document-parser|buildQuestionAnswerDraftPrompt/);
 });

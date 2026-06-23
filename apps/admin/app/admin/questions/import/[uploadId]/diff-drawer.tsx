@@ -15,6 +15,7 @@
 'use client';
 
 import { useActionState, useEffect, useMemo, useRef, useState } from 'react';
+import { selectAnswerDraftProvider } from '../../../../../lib/question-answer-draft';
 import { stripDuplicatedChoiceOptionsFromContent } from '../../../../../lib/question-content';
 import { questionTypeLabel } from '../../../../../lib/question-type-label';
 import {
@@ -92,7 +93,7 @@ export function DiffDrawer(props: DiffDrawerProps) {
   const [solution, setSolution] = useState(payload.solution_text ?? '');
   const [difficulty, setDifficulty] = useState<number>(payload.difficulty ?? 3);
   const [draftProvider, setDraftProvider] = useState<string>(
-    props.draftProviders[0]?.id ?? props.providers[0]?.id ?? '',
+    selectAnswerDraftProvider(props.draftProviders)?.id ?? props.providers[0]?.id ?? '',
   );
 
   // KP 映射 state
@@ -304,7 +305,7 @@ export function DiffDrawer(props: DiffDrawerProps) {
                   <div>
                     <p className="font-medium text-sm">AI 生成参考解答草稿</p>
                     <p className="text-xs opacity-70 mt-0.5">
-                      AI 生成，仅供审核；不会自动发布，也不会改原始缺答案状态。
+                      AI 参考草稿，仅供审核；不会自动发布，也不会改原始缺答案状态。
                     </p>
                   </div>
                   {props.draftProviders.length > 0 ? (
@@ -346,7 +347,7 @@ export function DiffDrawer(props: DiffDrawerProps) {
                 {answerDraftState.draft ? (
                   <div className="space-y-3 border-t pt-3">
                     <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
-                      参考解答草稿 / AI 生成，仅供审核
+                      AI 参考草稿，仅供审核
                     </p>
                     {answerDraftState.draft.warnings.length > 0 ||
                     !answerDraftState.draft.answer.trim() ? (
@@ -378,6 +379,12 @@ export function DiffDrawer(props: DiffDrawerProps) {
                         <span className="text-xs opacity-60">（空）</span>
                       )}
                     </Block>
+                    <p className="text-xs opacity-70">
+                      置信度：
+                      {answerDraftState.draft.confidence == null
+                        ? '未提供'
+                        : answerDraftState.draft.confidence}
+                    </p>
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
@@ -399,7 +406,6 @@ export function DiffDrawer(props: DiffDrawerProps) {
                       <summary className="cursor-pointer">技术详情</summary>
                       <div className="mt-1 space-y-1">
                         <p>prompt：{answerDraftState.draft.prompt_version}</p>
-                        <p>来源：{answerDraftState.draft.draft_source}</p>
                         {answerDraftState.draft.confidence != null ? (
                           <p>置信度：{answerDraftState.draft.confidence}</p>
                         ) : null}
