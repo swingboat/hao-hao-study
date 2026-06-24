@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { HOME_ACTION_LINKS } from '../lib/home-actions';
 import { requireCurrentStudent } from '../lib/student-data';
 import { getTodayPlannerDataForStudent } from '../lib/today-planner';
 import { startTodaySessionAction } from './actions';
@@ -29,17 +30,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           <p className="muted mt-2">
             {planner.student.name} · {planner.student.gradeLabel} · {planner.student.targetExam}
           </p>
-        </div>
-        <div className="top-actions">
-          <Link className="secondary-button" href="/progress">
-            学习进度
-          </Link>
-          <Link className="secondary-button" href="/study/history">
-            练习记录
-          </Link>
-          <Link className="secondary-button" href="/study/mistakes">
-            错题复习
-          </Link>
         </div>
       </section>
 
@@ -109,18 +99,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       </section>
 
       <section className="home-action-grid" aria-label="学习入口">
-        <Link className="home-action-card" href="/progress">
-          <strong>学习进度</strong>
-          <span>按章节查看已掌握和需要加强的知识点。</span>
-        </Link>
-        <Link className="home-action-card" href="/study/history">
-          <strong>练习记录</strong>
-          <span>回看最近完成的练习和正确率。</span>
-        </Link>
-        <Link className="home-action-card" href="/study/mistakes">
-          <strong>错题复习</strong>
-          <span>集中处理还没彻底攻克的题。</span>
-        </Link>
+        {HOME_ACTION_LINKS.map((action) => (
+          <Link className="home-action-card" href={action.href} key={action.href}>
+            <strong>{action.title}</strong>
+            <span>{action.description}</span>
+          </Link>
+        ))}
       </section>
     </main>
   );

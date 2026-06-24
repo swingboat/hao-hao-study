@@ -123,6 +123,7 @@ export async function savePlannerPreferenceAction(
   });
 
   revalidatePath('/');
+  revalidatePath('/practice-settings');
 
   return {
     status: 'success',

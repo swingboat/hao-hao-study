@@ -15,6 +15,7 @@ import {
   type QuestionFigureInput,
   buildQuestionContentParts,
   questionContentPartsToPlainText,
+  stripEmbeddedChoiceOptions,
 } from './question-content';
 import { type SessionHistorySummary, summarizeSessionHistory } from './session-history';
 import { buildResolvedMistakeFeedback } from './session-result-feedback';
@@ -412,7 +413,17 @@ export async function getQuestionsForStudent(
     .map((question) => {
       const metadata = metadataByQuestionId.get(question.id);
       const figures = metadata?.figures ?? [];
-      const contentParts = buildQuestionContentParts(question.content, figures);
+      const options = (metadata?.options ?? fallbackOptions(question.question_type)).map(
+        (option) => ({
+          ...option,
+          text: formatStudentDisplayText(option.text),
+        }),
+      );
+      const displayContent =
+        question.question_type === 'choice'
+          ? stripEmbeddedChoiceOptions(question.content, options)
+          : String(question.content ?? '');
+      const contentParts = buildQuestionContentParts(displayContent, figures);
       const solutionParts = buildQuestionContentParts(
         question.solution_text || '暂无解析',
         figures,
@@ -425,10 +436,7 @@ export async function getQuestionsForStudent(
         answer: formatStudentDisplayText(question.answer),
         solution_text: questionContentPartsToPlainText(solutionParts),
         solutionParts,
-        options: (metadata?.options ?? fallbackOptions(question.question_type)).map((option) => ({
-          ...option,
-          text: formatStudentDisplayText(option.text),
-        })),
+        options,
       };
     })
     .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));

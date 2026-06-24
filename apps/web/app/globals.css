@@ -329,6 +329,10 @@ button:disabled {
   gap: 8px;
 }
 
+.task-chip-list {
+  margin-top: 8px;
+}
+
 .task-chip {
   display: inline-flex;
   align-items: center;
@@ -367,7 +371,7 @@ button:disabled {
 
 .home-action-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-top: 18px;
 }
