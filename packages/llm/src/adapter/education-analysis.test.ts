@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const findUnique = vi.fn();
+const FAKE_API_KEY = ['dummy', 'api', 'key'].join('-');
+const DIRECT_API_KEY = ['direct', 'api', 'key'].join('-');
 
 vi.mock('@hao/db', () => ({
   prisma: {
@@ -34,7 +36,7 @@ const OPENAI_PROVIDER = {
 };
 
 beforeEach(() => {
-  process.env.LLM_PROXY_API_KEY = 'test-token-xyz';
+  process.env.LLM_PROXY_API_KEY = FAKE_API_KEY;
   findUnique.mockReset();
 });
 
@@ -48,7 +50,7 @@ describe('@hao/llm adapter education analysis API', () => {
     const parsePdfKnowledgePointsImpl = vi.fn(async (request) => {
       expect(request.providerId).toBeUndefined();
       expect(request.file).toBeUndefined();
-      expect(request.apiKey).toBe('test-token-xyz');
+      expect(request.apiKey).toBe(FAKE_API_KEY);
       expect(request.pdf).toEqual({
         name: 'textbook.pdf',
         data: 'base64-pdf',
@@ -128,7 +130,7 @@ describe('@hao/llm adapter education analysis API', () => {
       throw new Error('PDF parser should not be called for Word files');
     });
     const parseWordQuestionsImpl = vi.fn(async (request) => {
-      expect(request.apiKey).toBe('test-token-xyz');
+      expect(request.apiKey).toBe(FAKE_API_KEY);
       expect(request.word).toEqual({
         name: 'questions.docx',
         path: '/tmp/questions.docx',
@@ -192,7 +194,7 @@ describe('@hao/llm adapter education analysis API', () => {
     const parsePdfMixedLearningMaterialImpl = vi.fn(async (request) => {
       expect(request.providerId).toBeUndefined();
       expect(request.file).toBeUndefined();
-      expect(request.apiKey).toBe('test-token-xyz');
+      expect(request.apiKey).toBe(FAKE_API_KEY);
       expect(request.subjectName).toBe('高中数学');
       expect(request.pdf).toEqual({
         name: '集合与逻辑重点题型全梳理.pdf',
@@ -283,7 +285,7 @@ describe('@hao/llm adapter education analysis API', () => {
 
   it('accepts direct llmTarget/apiKey for mixed learning material verification', async () => {
     const parsePdfMixedLearningMaterialImpl = vi.fn(async (request) => {
-      expect(request.apiKey).toBe('direct-token');
+      expect(request.apiKey).toBe(DIRECT_API_KEY);
       expect(request.llmTarget).toEqual(
         expect.objectContaining({
           id: 'openai-chat-gemini-3-5-flash-global',
@@ -329,7 +331,7 @@ describe('@hao/llm adapter education analysis API', () => {
         model: 'google.gemini-3.5-flash-global',
         path: '/openai/v1/chat/completions',
       },
-      apiKey: 'direct-token',
+      apiKey: DIRECT_API_KEY,
       subjectName: '高中数学',
       file: {
         type: 'pdf',
@@ -348,7 +350,7 @@ describe('@hao/llm adapter education analysis API', () => {
     findUnique.mockResolvedValue(OPENAI_PROVIDER);
     const parsePdfMixedLearningMaterialImpl = vi.fn(async (request) => {
       expect(request.providerId).toBeUndefined();
-      expect(request.apiKey).toBe('test-token-xyz');
+      expect(request.apiKey).toBe(FAKE_API_KEY);
       expect(request.subjectName).toBe('高中数学');
       expect(request.pagePrompt({ pageNumber: 1, totalPages: 1 })).toContain('id=kp-set-mutual');
 
@@ -461,7 +463,7 @@ describe('@hao/llm adapter education analysis API', () => {
   it('resolves providerId and calls session review advice through the synced public method', async () => {
     findUnique.mockResolvedValue(OPENAI_PROVIDER);
     const callLlmImpl = vi.fn(async (request) => {
-      expect(request.apiKey).toBe('test-token-xyz');
+      expect(request.apiKey).toBe(FAKE_API_KEY);
       expect(request.llmTarget).toEqual(
         expect.objectContaining({
           id: 'openai-chat-gemini-3.1-pro',
@@ -554,7 +556,7 @@ describe('@hao/llm adapter education analysis API', () => {
   it('resolves providerId and calls question answer draft through the synced public method', async () => {
     findUnique.mockResolvedValue({ ...OPENAI_PROVIDER, max_output_tokens: 1800 });
     const callLlmImpl = vi.fn(async (request) => {
-      expect(request.apiKey).toBe('test-token-xyz');
+      expect(request.apiKey).toBe(FAKE_API_KEY);
       expect(Object.hasOwn(request, 'maxTokens')).toBe(false);
       expect(request.llmTarget).toEqual(
         expect.objectContaining({

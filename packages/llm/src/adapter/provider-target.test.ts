@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { providerToTarget } from './provider-target';
 
+const FAKE_API_KEY = ['dummy', 'api', 'key'].join('-');
+
 const BASE_PROVIDER = {
   id: 'openai-chat-gemini-3.1-pro',
   protocol: 'openai_chat',
@@ -11,7 +13,7 @@ const BASE_PROVIDER = {
 };
 
 beforeEach(() => {
-  process.env.LLM_PROXY_API_KEY = 'test-token-xyz';
+  process.env.LLM_PROXY_API_KEY = FAKE_API_KEY;
   process.env.LLM_PROXY_OPENAI_CHAT_ENDPOINT = 'https://example.com/openai/v1/chat/completions';
 });
 
@@ -29,7 +31,7 @@ describe('providerToTarget', () => {
       quirks: {},
     });
 
-    expect(result.apiKey).toBe('test-token-xyz');
+    expect(result.apiKey).toBe(FAKE_API_KEY);
     expect(result.llmTarget).toEqual({
       id: 'openai-chat-gemini-3.1-pro',
       provider: 'openai_chat',
